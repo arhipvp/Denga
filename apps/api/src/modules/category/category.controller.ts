@@ -6,16 +6,21 @@ import {
   Param,
   Patch,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { LoggingService } from '../logging/logging.service';
 import { CategoryService } from './category.service';
 import { CreateCategoryDto, UpdateCategoryDto } from './dto/category.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('categories')
 export class CategoryController {
-  constructor(private readonly categoryService: CategoryService) {}
+  constructor(
+    private readonly categoryService: CategoryService,
+    private readonly loggingService: LoggingService,
+  ) {}
 
   @Get()
   list() {
@@ -23,17 +28,46 @@ export class CategoryController {
   }
 
   @Post()
-  create(@Body() dto: CreateCategoryDto) {
-    return this.categoryService.create(dto);
+  async create(
+    @Req() request: { user: { sub: string; email: string; role: string } },
+    @Body() dto: CreateCategoryDto,
+  ) {
+    const category = await this.categoryService.create(dto);
+    this.loggingService.info('admin', 'category_created', 'Category created', {
+      actorId: request.user.sub,
+      actorEmail: request.user.email,
+      categoryId: category.id,
+      type: category.type,
+    });
+    return category;
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateCategoryDto) {
-    return this.categoryService.update(id, dto);
+  async update(
+    @Req() request: { user: { sub: string; email: string; role: string } },
+    @Param('id') id: string,
+    @Body() dto: UpdateCategoryDto,
+  ) {
+    const category = await this.categoryService.update(id, dto);
+    this.loggingService.info('admin', 'category_updated', 'Category updated', {
+      actorId: request.user.sub,
+      actorEmail: request.user.email,
+      categoryId: id,
+    });
+    return category;
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.categoryService.remove(id);
+  async remove(
+    @Req() request: { user: { sub: string; email: string; role: string } },
+    @Param('id') id: string,
+  ) {
+    const result = await this.categoryService.remove(id);
+    this.loggingService.info('admin', 'category_removed', 'Category disabled', {
+      actorId: request.user.sub,
+      actorEmail: request.user.email,
+      categoryId: id,
+    });
+    return result;
   }
 }

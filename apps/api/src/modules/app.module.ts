@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
 import { CategoryModule } from './category/category.module';
 import { HealthModule } from './health/health.module';
+import { LoggingModule } from './logging/logging.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SettingsModule } from './settings/settings.module';
 import { TelegramModule } from './telegram/telegram.module';
@@ -23,6 +24,7 @@ import { UserModule } from './user/user.module';
       serveRoot: '/uploads',
     }),
     PrismaModule,
+    LoggingModule,
     HealthModule,
     AuthModule,
     CategoryModule,

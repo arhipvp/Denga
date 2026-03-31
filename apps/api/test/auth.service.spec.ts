@@ -6,6 +6,12 @@ describe('AuthService.changePassword', () => {
   const signAsync = jest.fn();
   const findUnique = jest.fn();
   const update = jest.fn();
+  const loggingService = {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  };
 
   const service = new AuthService(
     {
@@ -17,6 +23,7 @@ describe('AuthService.changePassword', () => {
     {
       signAsync,
     } as any,
+    loggingService as any,
   );
 
   beforeEach(() => {

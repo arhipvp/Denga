@@ -97,6 +97,8 @@ docker compose up --build -d
 - `API_URL`: публичный URL API для доступа к сохраненным изображениям чеков
 - `DEFAULT_CURRENCY`: по умолчанию `EUR`
 - `UPLOAD_DIR`: директория для загрузок
+- `LOG_DIR`: каталог файловых логов API, по умолчанию `logs`
+- `LOG_LEVEL`: минимальный уровень логирования, по умолчанию `info`
 - `CLARIFICATION_TIMEOUT_MINUTES`: таймаут ожидания уточнения
 
 Локальный `docker compose` поднимает PostgreSQL на `localhost:5433`, чтобы не конфликтовать с локальным Postgres на стандартном `5432`. При необходимости порт можно переопределить через `POSTGRES_PORT`.
@@ -115,6 +117,7 @@ docker compose up --build -d
 - `POST /api/auth/login`
 - `POST /api/auth/change-password`
 - `GET /api/auth/me`
+- `GET /api/logs`
 - `GET/POST/PATCH/DELETE /api/transactions`
 - `GET /api/transactions/summary`
 - `GET/POST/PATCH/DELETE /api/categories`
@@ -191,7 +194,8 @@ docker compose up --build -d
 Просмотр логов:
 
 ```bash
-docker compose logs -f
+docker compose logs -f api
+tail -f logs/app.log
 ```
 
 Остановка сервисов:

@@ -2,7 +2,17 @@ import { CategoryType } from '@prisma/client';
 import { TelegramService } from '../src/modules/telegram/telegram.service';
 
 describe('TelegramService heuristics', () => {
-  const service = new TelegramService({} as never, {} as never, {} as never);
+  const service = new TelegramService(
+    {} as never,
+    {} as never,
+    {} as never,
+    {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    } as never,
+  );
 
   it('fills sensible defaults for taxi expense', () => {
     const parsed = (service as any).applyHeuristics(

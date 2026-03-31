@@ -24,6 +24,8 @@ services:
       DATABASE_URL: postgresql://denga:denga@postgres:5432/denga?schema=public
     ports:
       - "3001:3001"
+    volumes:
+      - api-logs:/app/logs
 
   web:
     build:
@@ -41,3 +43,4 @@ services:
 
 volumes:
   postgres-data:
+  api-logs:

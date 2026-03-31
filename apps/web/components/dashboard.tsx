@@ -123,6 +123,15 @@ type PasswordFormState = {
   confirmPassword: string;
 };
 
+type LogEntry = {
+  timestamp: string;
+  level: 'debug' | 'info' | 'warn' | 'error';
+  source: string;
+  event: string;
+  message: string;
+  context?: Record<string, unknown>;
+};
+
 class UnauthorizedError extends Error {
   constructor() {
     super('Сессия истекла, войдите снова');
@@ -130,7 +139,7 @@ class UnauthorizedError extends Error {
   }
 }
 
-const sections = ['overview', 'operations', 'categories', 'users', 'settings'] as const;
+const sections = ['overview', 'operations', 'categories', 'users', 'settings', 'logs'] as const;
 type Section = (typeof sections)[number];
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
@@ -186,6 +195,7 @@ const sectionLabels: Record<Section, string> = {
   categories: 'Категории',
   users: 'Пользователи',
   settings: 'Настройки',
+  logs: 'Логи',
 };
 
 function formatTransactionTypeLabel(type: 'INCOME' | 'EXPENSE' | 'income' | 'expense' | null) {
@@ -228,6 +238,11 @@ export function Dashboard() {
   const [passwordForm, setPasswordForm] = useState<PasswordFormState>(emptyPasswordForm);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logsError, setLogsError] = useState<string | null>(null);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logLevelFilter, setLogLevelFilter] = useState<'all' | LogEntry['level']>('all');
+  const [logSourceFilter, setLogSourceFilter] = useState('all');
 
   const clearSession = (message = 'Сессия истекла, войдите снова') => {
     window.localStorage.removeItem('denga-auth');
@@ -237,6 +252,9 @@ export function Dashboard() {
     setUsers([]);
     setSettings(null);
     setSummary(null);
+    setLogs([]);
+    setLogsError(null);
+    setLogsLoading(false);
     setLoading(false);
     setSettingsMessage(null);
     setPasswordError(null);
@@ -282,6 +300,10 @@ export function Dashboard() {
     });
   }, [categories, categoryStatusFilter, categoryTypeFilter]);
 
+  const logSources = useMemo(() => {
+    return Array.from(new Set(logs.map((item) => item.source))).sort();
+  }, [logs]);
+
   useEffect(() => {
     const raw = window.localStorage.getItem('denga-auth');
     if (raw) {
@@ -299,6 +321,13 @@ export function Dashboard() {
     }
     void reloadData(auth.accessToken, statusFilter, typeFilter);
   }, [auth, statusFilter, typeFilter]);
+
+  useEffect(() => {
+    if (!auth || section !== 'logs') {
+      return;
+    }
+    void reloadLogs(auth.accessToken, logLevelFilter, logSourceFilter);
+  }, [auth, section, logLevelFilter, logSourceFilter]);
 
   const reloadData = async (
     token: string,
@@ -333,6 +362,31 @@ export function Dashboard() {
     }
   };
 
+  const reloadLogs = async (
+    token: string,
+    level: typeof logLevelFilter,
+    source: string,
+  ) => {
+    setLogsLoading(true);
+    setLogsError(null);
+    try {
+      const query = new URLSearchParams();
+      query.set('limit', '100');
+      if (level !== 'all') query.set('level', level);
+      if (source !== 'all') query.set('source', source);
+      const nextLogs = await api<LogEntry[]>(`/logs?${query.toString()}`, token);
+      setLogs(nextLogs);
+    } catch (logsLoadError) {
+      if (!handleApiError(logsLoadError, 'Не удалось загрузить логи')) {
+        setLogsError(
+          logsLoadError instanceof Error ? logsLoadError.message : 'Не удалось загрузить логи',
+        );
+      }
+    } finally {
+      setLogsLoading(false);
+    }
+  };
+
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
@@ -354,15 +408,17 @@ export function Dashboard() {
       return;
     }
 
-    const payload: AuthState = await response.json();
-    window.localStorage.setItem('denga-auth', JSON.stringify(payload));
-    setTransactions([]);
-    setCategories([]);
-    setUsers([]);
-    setSettings(null);
-    setSummary(null);
-    setAuth(payload);
-  };
+  const payload: AuthState = await response.json();
+  window.localStorage.setItem('denga-auth', JSON.stringify(payload));
+  setTransactions([]);
+  setCategories([]);
+  setUsers([]);
+  setSettings(null);
+  setSummary(null);
+  setLogs([]);
+  setLogsError(null);
+  setAuth(payload);
+};
 
   const handleSaveSettings = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -943,6 +999,98 @@ export function Dashboard() {
                   ))}
                 </tbody>
               </table>
+            </section>
+          ) : null}
+
+          {section === 'logs' ? (
+            <section className="panel card">
+              <div className="hero" style={{ marginBottom: 20 }}>
+                <div>
+                  <h3 style={{ margin: 0 }}>Системные логи</h3>
+                  <p style={{ margin: '8px 0 0' }}>
+                    Последние события backend и системные ошибки.
+                  </p>
+                </div>
+                <div className="actions">
+                  <select
+                    value={logLevelFilter}
+                    onChange={(event) =>
+                      setLogLevelFilter(event.target.value as typeof logLevelFilter)
+                    }
+                  >
+                    <option value="all">все уровни</option>
+                    <option value="info">info</option>
+                    <option value="warn">warn</option>
+                    <option value="error">error</option>
+                    <option value="debug">debug</option>
+                  </select>
+                  <select
+                    value={logSourceFilter}
+                    onChange={(event) => setLogSourceFilter(event.target.value)}
+                  >
+                    <option value="all">все источники</option>
+                    {logSources.map((source) => (
+                      <option key={source} value={source}>
+                        {source}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="button secondary"
+                    type="button"
+                    onClick={() =>
+                      auth
+                        ? void reloadLogs(auth.accessToken, logLevelFilter, logSourceFilter)
+                        : undefined
+                    }
+                  >
+                    Обновить
+                  </button>
+                </div>
+              </div>
+
+              {logsLoading ? <p style={{ margin: 0 }}>Загрузка логов...</p> : null}
+              {logsError ? <p className="error">{logsError}</p> : null}
+              {!logsLoading && !logsError && logs.length === 0 ? (
+                <p style={{ margin: 0 }}>Записей пока нет.</p>
+              ) : null}
+
+              {logs.length > 0 ? (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Время</th>
+                      <th>Уровень</th>
+                      <th>Источник</th>
+                      <th>Событие</th>
+                      <th>Сообщение</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logs.map((item, index) => (
+                      <tr key={`${item.timestamp}-${item.event}-${index}`}>
+                        <td>{format(new Date(item.timestamp), 'dd.MM.yyyy HH:mm:ss')}</td>
+                        <td>
+                          <span
+                            className={
+                              item.level === 'error'
+                                ? 'badge danger'
+                                : item.level === 'warn'
+                                  ? 'badge warn'
+                                  : 'badge'
+                            }
+                          >
+                            {item.level}
+                          </span>
+                        </td>
+                        <td>{item.source}</td>
+                        <td>{item.event}</td>
+                        <td>{item.message}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : null}
             </section>
           ) : null}
 

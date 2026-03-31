@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Telegraf } from 'telegraf';
+import { LoggingService } from '../../logging/logging.service';
 import { TelegramService } from '../telegram.service';
 
 @Injectable()
@@ -7,7 +8,10 @@ export class TelegramBotService implements OnModuleInit {
   private readonly logger = new Logger(TelegramBotService.name);
   private bot?: Telegraf;
 
-  constructor(private readonly telegramService: TelegramService) {}
+  constructor(
+    private readonly telegramService: TelegramService,
+    private readonly loggingService: LoggingService,
+  ) {}
 
   async onModuleInit() {
     const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -15,6 +19,7 @@ export class TelegramBotService implements OnModuleInit {
 
     if (!token) {
       this.logger.warn('TELEGRAM_BOT_TOKEN is not configured');
+      this.loggingService.warn('telegram', 'bot_token_missing', 'Telegram bot token is not configured');
       return;
     }
 
@@ -35,9 +40,13 @@ export class TelegramBotService implements OnModuleInit {
         .launch()
         .then(() => {
           this.logger.log('Telegram bot launched in polling mode');
+          this.loggingService.info('telegram', 'polling_started', 'Telegram bot launched in polling mode');
         })
         .catch((error) => {
           this.logger.error('Telegram polling launch failed', error);
+          this.loggingService.error('telegram', 'polling_failed', 'Telegram polling launch failed', {
+            exception: error,
+          });
         });
     }
   }

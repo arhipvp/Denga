@@ -16,6 +16,7 @@ import axios from 'axios';
 import { format } from 'date-fns';
 import { Decimal } from '@prisma/client/runtime/library';
 import { BOOTSTRAP_HOUSEHOLD_ID } from '../common/household.constants';
+import { LoggingService } from '../logging/logging.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import {
@@ -90,6 +91,7 @@ export class TelegramService {
     private readonly prisma: PrismaService,
     private readonly settingsService: SettingsService,
     private readonly aiParsingService: AiParsingService,
+    private readonly loggingService: LoggingService,
   ) {}
 
   async getStatus() {
@@ -115,6 +117,9 @@ export class TelegramService {
       return await this.handleMessage(payload.message, update);
     } catch (error) {
       this.logger.error('telegram_update_failed', error);
+      this.loggingService.error('telegram', 'update_failed', 'Telegram update processing failed', {
+        exception: error,
+      });
       return { accepted: true, error: true };
     }
   }
@@ -182,6 +187,12 @@ export class TelegramService {
     });
 
     const attachments = await this.persistAttachments(message, sourceMessage.id);
+    this.loggingService.info('telegram', 'message_received', 'Telegram message received', {
+      sourceMessageId: sourceMessage.id,
+      telegramMessageId: sourceMessage.telegramMessageId,
+      authorId: author.id,
+      hasAttachment,
+    });
     return this.createDraftFromMessage(sourceMessage.id, author.id, chatId, text, attachments);
   }
 

@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import bcrypt from 'bcrypt';
+import { LoggingService } from '../logging/logging.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -10,6 +11,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly loggingService: LoggingService,
   ) {}
 
   async login(dto: LoginDto) {
@@ -22,6 +24,9 @@ export class AuthService {
       !user.passwordHash ||
       !(await bcrypt.compare(dto.password, user.passwordHash))
     ) {
+      this.loggingService.warn('auth', 'login_failed', 'Login failed', {
+        email: dto.email,
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -30,6 +35,12 @@ export class AuthService {
       email: user.email,
       role: user.role,
     };
+
+    this.loggingService.info('auth', 'login_succeeded', 'Login succeeded', {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+    });
 
     return {
       accessToken: await this.jwtService.signAsync(payload),
@@ -47,6 +58,9 @@ export class AuthService {
       !user.passwordHash ||
       !(await bcrypt.compare(dto.currentPassword, user.passwordHash))
     ) {
+      this.loggingService.warn('auth', 'change_password_failed', 'Password change failed', {
+        userId,
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -57,6 +71,11 @@ export class AuthService {
       data: {
         passwordHash,
       },
+    });
+
+    this.loggingService.info('auth', 'change_password_succeeded', 'Password changed', {
+      userId: user.id,
+      email: user.email,
     });
 
     return { success: true };
