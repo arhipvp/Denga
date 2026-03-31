@@ -90,7 +90,6 @@ jobs:
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
             set -e
             cd '$REMOTE_APP_DIR'
-            docker compose pull --ignore-pull-failures
             docker compose up --build -d
           "
 
