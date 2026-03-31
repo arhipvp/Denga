@@ -25,12 +25,11 @@ jobs:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
-          PROD_ENV_FILE: ${{ secrets.PROD_ENV_FILE }}
           APP_URL: ${{ secrets.APP_URL }}
           API_HEALTHCHECK_URL: ${{ secrets.API_HEALTHCHECK_URL }}
         run: |
           missing=0
-          for key in SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS REMOTE_APP_DIR PROD_ENV_FILE APP_URL API_HEALTHCHECK_URL; do
+          for key in SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS REMOTE_APP_DIR APP_URL API_HEALTHCHECK_URL; do
             if [ -z "${!key}" ]; then
               echo "Missing required secret: $key" >&2
               missing=1
@@ -70,15 +69,19 @@ jobs:
             -e "ssh -p $SSH_PORT" \
             ./ "$SSH_USER@$SSH_HOST:$REMOTE_APP_DIR/"
 
-      - name: Upload production environment file
+      - name: Verify server environment file
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
-          PROD_ENV_FILE: ${{ secrets.PROD_ENV_FILE }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "cat > '$REMOTE_APP_DIR/.env'" <<< "$PROD_ENV_FILE"
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
+            if [ ! -f '$REMOTE_APP_DIR/.env' ]; then
+              echo 'Missing server env file: $REMOTE_APP_DIR/.env' >&2
+              exit 1
+            fi
+          "
 
       - name: Deploy with Docker Compose
         env:

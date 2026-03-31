@@ -159,7 +159,7 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 
 - проверяет наличие обязательных secrets
 - копирует репозиторий на сервер через `rsync`
-- создает или обновляет серверный `.env` из GitHub Secret
+- проверяет, что серверный `.env` уже существует
 - выполняет `docker compose up --build -d`
 - проверяет доступность API и web после выката
 
@@ -171,11 +171,19 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 - `SSH_PRIVATE_KEY`
 - `SSH_KNOWN_HOSTS`
 - `REMOTE_APP_DIR`: абсолютный путь проекта на сервере
-- `PROD_ENV_FILE`: полный production `.env` одним многострочным secret
 - `APP_URL`: URL главной страницы для post-deploy проверки
 - `API_HEALTHCHECK_URL`: URL API для post-deploy проверки
 
-Рекомендуется хранить production-конфигурацию целиком в `PROD_ENV_FILE`, а не раскладывать ее по десяткам шагов workflow. Внутри него должны быть все обязательные env проекта, включая `DATABASE_URL`, `JWT_SECRET`, `NEXT_PUBLIC_API_URL`, `TELEGRAM_BOT_TOKEN`, `POLZA_API_KEY` и остальные production-значения.
+Production `.env` должен храниться только на сервере в `$REMOTE_APP_DIR/.env`. GitHub Actions деплоит код, но не хранит и не перезаписывает боевые секреты.
+
+Первичная настройка сервера:
+
+```bash
+scp PROD_ENV_FILE.env root@<server>:/root/denga/.env
+ssh root@<server> "chown root:root /root/denga/.env && chmod 600 /root/denga/.env"
+```
+
+Если файла `/root/denga/.env` нет, deploy завершится с явной ошибкой.
 
 ## Веточная модель
 
@@ -196,6 +204,7 @@ docker compose up --build -d
 ```bash
 docker compose logs -f api
 tail -f logs/app.log
+ls -l /root/denga/.env
 ```
 
 Остановка сервисов:
