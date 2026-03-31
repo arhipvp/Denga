@@ -1,0 +1,13 @@
+node_modules
+.next
+dist
+coverage
+.git
+.gitignore
+tmp-api.log
+tmp-api.err.log
+tmp-web.log
+tmp-web.err.log
+uploads
+postgres-data
+npm-debug.log
