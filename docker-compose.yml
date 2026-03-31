@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: denga
       POSTGRES_PASSWORD: denga
     ports:
-      - "5433:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
 

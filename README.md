@@ -83,6 +83,7 @@ docker compose up --build -d
 ## Основные env
 
 - `DATABASE_URL`: PostgreSQL connection string
+- `POSTGRES_PORT`: публикуемый порт PostgreSQL на хосте, по умолчанию `5433`
 - `JWT_SECRET`: secret for admin auth
 - `ADMIN_EMAIL` / `ADMIN_PASSWORD`: bootstrap-администратор
 - `NEXT_PUBLIC_API_URL`: обязательный публичный base URL API для Next.js админки
@@ -98,7 +99,7 @@ docker compose up --build -d
 - `UPLOAD_DIR`: директория для загрузок
 - `CLARIFICATION_TIMEOUT_MINUTES`: таймаут ожидания уточнения
 
-Локальный `docker compose` поднимает PostgreSQL на `localhost:5433`, чтобы не конфликтовать с локальным Postgres на стандартном `5432`.
+Локальный `docker compose` поднимает PostgreSQL на `localhost:5433`, чтобы не конфликтовать с локальным Postgres на стандартном `5432`. При необходимости порт можно переопределить через `POSTGRES_PORT`.
 
 ## Telegram flow
 
