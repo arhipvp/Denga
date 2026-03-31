@@ -6,7 +6,10 @@ import { TelegramService } from '../telegram.service';
 @Injectable()
 export class TelegramBotService implements OnModuleInit {
   private readonly logger = new Logger(TelegramBotService.name);
+  private readonly pollingRetryDelayMs = 30000;
   private bot?: Telegraf;
+  private pollingLaunchPromise?: Promise<void>;
+  private pollingRetryTimer?: NodeJS.Timeout;
 
   constructor(
     private readonly telegramService: TelegramService,
@@ -36,18 +39,52 @@ export class TelegramBotService implements OnModuleInit {
     });
 
     if (mode === 'polling') {
-      void this.bot
-        .launch()
-        .then(() => {
-          this.logger.log('Telegram bot launched in polling mode');
-          this.loggingService.info('telegram', 'polling_started', 'Telegram bot launched in polling mode');
-        })
-        .catch((error) => {
-          this.logger.error('Telegram polling launch failed', error);
-          this.loggingService.error('telegram', 'polling_failed', 'Telegram polling launch failed', {
-            exception: error,
-          });
-        });
+      this.launchPollingWithRetry();
     }
+  }
+
+  private launchPollingWithRetry() {
+    if (!this.bot || this.pollingLaunchPromise) {
+      return;
+    }
+
+    this.pollingLaunchPromise = this.bot
+      .launch()
+      .then(() => {
+        this.logger.log('Telegram bot launched in polling mode');
+        this.loggingService.info(
+          'telegram',
+          'polling_started',
+          'Telegram bot launched in polling mode',
+        );
+      })
+      .catch((error) => {
+        this.logger.error('Telegram polling launch failed', error);
+        this.loggingService.error(
+          'telegram',
+          'polling_failed',
+          'Telegram polling launch failed',
+          {
+            exception: error,
+            retryDelayMs: this.pollingRetryDelayMs,
+          },
+        );
+
+        this.schedulePollingRetry();
+      })
+      .finally(() => {
+        this.pollingLaunchPromise = undefined;
+      });
+  }
+
+  private schedulePollingRetry() {
+    if (this.pollingRetryTimer) {
+      return;
+    }
+
+    this.pollingRetryTimer = setTimeout(() => {
+      this.pollingRetryTimer = undefined;
+      this.launchPollingWithRetry();
+    }, this.pollingRetryDelayMs);
   }
 }

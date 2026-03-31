@@ -22,6 +22,10 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://denga:denga@postgres:5432/denga?schema=public
+      NODE_OPTIONS: --dns-result-order=ipv4first
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     ports:
       - "3001:3001"
     volumes:
