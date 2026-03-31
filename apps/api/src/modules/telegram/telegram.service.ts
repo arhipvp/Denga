@@ -12,7 +12,7 @@ import {
   TransactionType,
   UserRole,
 } from '@prisma/client';
-import axios from 'axios';
+import axios, { AxiosRequestConfig } from 'axios';
 import { format } from 'date-fns';
 import { Decimal } from '@prisma/client/runtime/library';
 import { BOOTSTRAP_HOUSEHOLD_ID } from '../common/household.constants';
@@ -86,6 +86,8 @@ type ConversationEntry = {
 @Injectable()
 export class TelegramService {
   private readonly logger = new Logger(TelegramService.name);
+  private readonly telegramRequestRetries = 3;
+  private readonly telegramRequestBaseDelayMs = 1000;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -979,9 +981,18 @@ export class TelegramService {
       return [];
     }
 
-    const fileMeta = await axios.get<{ ok: boolean; result: { file_path: string } }>(
-      `https://api.telegram.org/bot${token}/getFile`,
-      { params: { file_id: fileId } },
+    const fileMeta = await this.requestTelegramApi<{
+      ok: boolean;
+      result: { file_path: string };
+    }>(
+      {
+        method: 'GET',
+        url: `https://api.telegram.org/bot${token}/getFile`,
+        params: { file_id: fileId },
+      },
+      'telegram_get_file',
+      'Telegram getFile request failed',
+      { sourceMessageId, fileId },
     );
 
     const filePath = fileMeta.data.result.file_path;
@@ -1011,9 +1022,15 @@ export class TelegramService {
     }
 
     const filePath = telegramFilePath ?? await this.resolveTelegramFilePath(telegramFileId);
-    const fileResponse = await axios.get<ArrayBuffer>(
-      `https://api.telegram.org/file/bot${token}/${filePath}`,
-      { responseType: 'arraybuffer' },
+    const fileResponse = await this.requestTelegramApi<ArrayBuffer>(
+      {
+        method: 'GET',
+        url: `https://api.telegram.org/file/bot${token}/${filePath}`,
+        responseType: 'arraybuffer',
+      },
+      'telegram_download_file',
+      'Telegram file download failed',
+      { telegramFileId, filePath },
     );
     const fileBuffer = Buffer.from(fileResponse.data);
     const resolvedMimeType = mimeType || this.detectMimeType(filePath);
@@ -1026,9 +1043,18 @@ export class TelegramService {
       throw new Error('TELEGRAM_BOT_TOKEN is not configured');
     }
 
-    const fileMeta = await axios.get<{ ok: boolean; result: { file_path: string } }>(
-      `https://api.telegram.org/bot${token}/getFile`,
-      { params: { file_id: fileId } },
+    const fileMeta = await this.requestTelegramApi<{
+      ok: boolean;
+      result: { file_path: string };
+    }>(
+      {
+        method: 'GET',
+        url: `https://api.telegram.org/bot${token}/getFile`,
+        params: { file_id: fileId },
+      },
+      'telegram_resolve_file_path',
+      'Telegram file path resolution failed',
+      { fileId },
     );
 
     return fileMeta.data.result.file_path;
@@ -1042,6 +1068,64 @@ export class TelegramService {
     return 'image/jpeg';
   }
 
+  private isRetriableTelegramNetworkError(error: unknown) {
+    if (!axios.isAxiosError(error) || error.response) {
+      return false;
+    }
+
+    return ['EAI_AGAIN', 'ENOTFOUND', 'ECONNRESET', 'ETIMEDOUT'].includes(
+      error.code ?? '',
+    );
+  }
+
+  private async delay(ms: number) {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async requestTelegramApi<T>(
+    config: AxiosRequestConfig,
+    event: string,
+    message: string,
+    context?: Record<string, unknown>,
+  ) {
+    let lastError: unknown;
+
+    for (
+      let attempt = 1;
+      attempt <= this.telegramRequestRetries;
+      attempt += 1
+    ) {
+      try {
+        return await axios.request<T>(config);
+      } catch (error) {
+        lastError = error;
+
+        if (
+          !this.isRetriableTelegramNetworkError(error) ||
+          attempt === this.telegramRequestRetries
+        ) {
+          throw error;
+        }
+
+        const delayMs = this.telegramRequestBaseDelayMs * attempt;
+        this.loggingService.warn(
+          'telegram',
+          `${event}_retry_scheduled`,
+          `${message}; retry scheduled`,
+          {
+            ...context,
+            attempt,
+            delayMs,
+            errorCode: axios.isAxiosError(error) ? error.code : undefined,
+          },
+        );
+        await this.delay(delayMs);
+      }
+    }
+
+    throw lastError;
+  }
+
   private async sendTelegramMessage(
     chatId: string,
     text: string,
@@ -1052,14 +1136,20 @@ export class TelegramService {
       return { message_id: 0 };
     }
 
-    const response = await axios.post(
-      `https://api.telegram.org/bot${token}/sendMessage`,
+    const response = await this.requestTelegramApi<{ result: { message_id: number } }>(
       {
-        chat_id: chatId,
-        text,
-        parse_mode: 'HTML',
-        reply_markup: replyMarkup,
+        method: 'POST',
+        url: `https://api.telegram.org/bot${token}/sendMessage`,
+        data: {
+          chat_id: chatId,
+          text,
+          parse_mode: 'HTML',
+          reply_markup: replyMarkup,
+        },
       },
+      'telegram_send_message',
+      'Telegram sendMessage failed',
+      { chatId },
     );
 
     return response.data.result as { message_id: number };
@@ -1075,13 +1165,22 @@ export class TelegramService {
     if (!token) return false;
 
     try {
-      await axios.post(`https://api.telegram.org/bot${token}/editMessageText`, {
-        chat_id: chatId,
-        message_id: messageId,
-        text,
-        parse_mode: 'HTML',
-        reply_markup: replyMarkup,
-      });
+        await this.requestTelegramApi(
+          {
+            method: 'POST',
+            url: `https://api.telegram.org/bot${token}/editMessageText`,
+            data: {
+              chat_id: chatId,
+              message_id: messageId,
+              text,
+              parse_mode: 'HTML',
+              reply_markup: replyMarkup,
+            },
+          },
+          'telegram_edit_message',
+          'Telegram editMessageText failed',
+          { chatId, messageId },
+        );
       return true;
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -1108,10 +1207,19 @@ export class TelegramService {
     if (!token) return;
 
     try {
-      await axios.post(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
-        callback_query_id: callbackQueryId,
-        ...(text ? { text } : {}),
-      });
+        await this.requestTelegramApi(
+          {
+            method: 'POST',
+            url: `https://api.telegram.org/bot${token}/answerCallbackQuery`,
+            data: {
+              callback_query_id: callbackQueryId,
+              ...(text ? { text } : {}),
+            },
+          },
+          'telegram_answer_callback',
+          'Telegram answerCallbackQuery failed',
+          { callbackQueryId },
+        );
     } catch (error) {
       this.logger.error('telegram_answer_callback_failed', error);
     }
