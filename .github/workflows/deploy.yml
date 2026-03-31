@@ -102,7 +102,25 @@ jobs:
           "
 
       - name: Verify API
-        run: curl --fail --show-error --silent "${{ secrets.API_HEALTHCHECK_URL }}"
+        run: |
+          for attempt in $(seq 1 12); do
+            if curl --fail --show-error --silent "${{ secrets.API_HEALTHCHECK_URL }}" >/dev/null; then
+              exit 0
+            fi
+            echo "API is not ready yet (attempt $attempt/12), waiting 5s..."
+            sleep 5
+          done
+          echo "API did not become ready in time" >&2
+          exit 1
 
       - name: Verify web
-        run: curl --fail --show-error --silent "${{ secrets.APP_URL }}"
+        run: |
+          for attempt in $(seq 1 12); do
+            if curl --fail --show-error --silent "${{ secrets.APP_URL }}" >/dev/null; then
+              exit 0
+            fi
+            echo "Web is not ready yet (attempt $attempt/12), waiting 5s..."
+            sleep 5
+          done
+          echo "Web did not become ready in time" >&2
+          exit 1
