@@ -123,6 +123,13 @@ type PasswordFormState = {
   confirmPassword: string;
 };
 
+class UnauthorizedError extends Error {
+  constructor() {
+    super('Сессия истекла, войдите снова');
+    this.name = 'UnauthorizedError';
+  }
+}
+
 const sections = ['overview', 'operations', 'categories', 'users', 'settings'] as const;
 type Section = (typeof sections)[number];
 
@@ -143,6 +150,9 @@ async function api<T>(path: string, token: string, init?: RequestInit): Promise<
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new UnauthorizedError();
+    }
     throw new Error(await response.text());
   }
 
@@ -219,6 +229,36 @@ export function Dashboard() {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
 
+  const clearSession = (message = 'Сессия истекла, войдите снова') => {
+    window.localStorage.removeItem('denga-auth');
+    setAuth(null);
+    setTransactions([]);
+    setCategories([]);
+    setUsers([]);
+    setSettings(null);
+    setSummary(null);
+    setLoading(false);
+    setSettingsMessage(null);
+    setPasswordError(null);
+    setPasswordSuccess(null);
+    setOperationModalOpen(false);
+    setCategoryModalOpen(false);
+    setOperationForm(emptyOperationForm);
+    setCategoryForm(emptyCategoryForm);
+    setPasswordForm(emptyPasswordForm);
+    setError(message);
+  };
+
+  const handleApiError = (candidate: unknown, fallbackMessage: string) => {
+    if (candidate instanceof UnauthorizedError) {
+      clearSession(candidate.message);
+      return true;
+    }
+
+    setError(candidate instanceof Error ? candidate.message : fallbackMessage);
+    return false;
+  };
+
   const filteredCategories = useMemo(
     () =>
       categories.filter(
@@ -245,7 +285,11 @@ export function Dashboard() {
   useEffect(() => {
     const raw = window.localStorage.getItem('denga-auth');
     if (raw) {
-      setAuth(JSON.parse(raw));
+      try {
+        setAuth(JSON.parse(raw));
+      } catch {
+        clearSession('Не удалось восстановить сессию, войдите снова');
+      }
     }
   }, []);
 
@@ -283,7 +327,7 @@ export function Dashboard() {
       setSettings(settingsData);
       setSummary(summaryData);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Не удалось загрузить данные');
+      handleApiError(loadError, 'Не удалось загрузить данные');
     } finally {
       setLoading(false);
     }
@@ -312,6 +356,11 @@ export function Dashboard() {
 
     const payload: AuthState = await response.json();
     window.localStorage.setItem('denga-auth', JSON.stringify(payload));
+    setTransactions([]);
+    setCategories([]);
+    setUsers([]);
+    setSettings(null);
+    setSummary(null);
     setAuth(payload);
   };
 
@@ -320,22 +369,26 @@ export function Dashboard() {
     if (!auth || !settings) return;
     const formData = new FormData(event.currentTarget);
     setSettingsMessage(null);
-    const next = await api<Settings>('/settings', auth.accessToken, {
-      method: 'PUT',
-      body: JSON.stringify({
-        householdName: formData.get('householdName'),
-        defaultCurrency: formData.get('defaultCurrency'),
-        telegramMode: formData.get('telegramMode'),
-        aiModel: formData.get('aiModel'),
-        clarificationTimeoutMinutes: Number(
-          formData.get('clarificationTimeoutMinutes'),
-        ),
-        parsingPrompt: formData.get('parsingPrompt'),
-        clarificationPrompt: formData.get('clarificationPrompt'),
-      }),
-    });
-    setSettings(next);
-    setSettingsMessage('Настройки сохранены');
+    try {
+      const next = await api<Settings>('/settings', auth.accessToken, {
+        method: 'PUT',
+        body: JSON.stringify({
+          householdName: formData.get('householdName'),
+          defaultCurrency: formData.get('defaultCurrency'),
+          telegramMode: formData.get('telegramMode'),
+          aiModel: formData.get('aiModel'),
+          clarificationTimeoutMinutes: Number(
+            formData.get('clarificationTimeoutMinutes'),
+          ),
+          parsingPrompt: formData.get('parsingPrompt'),
+          clarificationPrompt: formData.get('clarificationPrompt'),
+        }),
+      });
+      setSettings(next);
+      setSettingsMessage('Настройки сохранены');
+    } catch (settingsError) {
+      handleApiError(settingsError, 'Не удалось сохранить настройки');
+    }
   };
 
   const handleChangePassword = async (event: FormEvent<HTMLFormElement>) => {
@@ -361,6 +414,10 @@ export function Dashboard() {
       setPasswordForm(emptyPasswordForm);
       setPasswordSuccess('Пароль обновлен');
     } catch (passwordChangeError) {
+      if (passwordChangeError instanceof UnauthorizedError) {
+        clearSession(passwordChangeError.message);
+        return;
+      }
       setPasswordError(
         passwordChangeError instanceof Error
           ? passwordChangeError.message
@@ -418,15 +475,25 @@ export function Dashboard() {
     };
 
     if (operationForm.id) {
-      await api(`/transactions/${operationForm.id}`, auth.accessToken, {
-        method: 'PATCH',
-        body: JSON.stringify(payload),
-      });
+      try {
+        await api(`/transactions/${operationForm.id}`, auth.accessToken, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        });
+      } catch (operationError) {
+        handleApiError(operationError, 'Не удалось сохранить операцию');
+        return;
+      }
     } else {
-      await api('/transactions', auth.accessToken, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+      try {
+        await api('/transactions', auth.accessToken, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+      } catch (operationError) {
+        handleApiError(operationError, 'Не удалось сохранить операцию');
+        return;
+      }
     }
 
     setOperationModalOpen(false);
@@ -436,9 +503,14 @@ export function Dashboard() {
 
   const handleCancelOperation = async (id: string) => {
     if (!auth) return;
-    await api(`/transactions/${id}`, auth.accessToken, {
-      method: 'DELETE',
-    });
+    try {
+      await api(`/transactions/${id}`, auth.accessToken, {
+        method: 'DELETE',
+      });
+    } catch (operationError) {
+      handleApiError(operationError, 'Не удалось отменить операцию');
+      return;
+    }
     await reloadData(auth.accessToken, statusFilter, typeFilter);
   };
 
@@ -453,15 +525,25 @@ export function Dashboard() {
     };
 
     if (categoryForm.id) {
-      await api(`/categories/${categoryForm.id}`, auth.accessToken, {
-        method: 'PATCH',
-        body: JSON.stringify(payload),
-      });
+      try {
+        await api(`/categories/${categoryForm.id}`, auth.accessToken, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        });
+      } catch (categoryError) {
+        handleApiError(categoryError, 'Не удалось сохранить категорию');
+        return;
+      }
     } else {
-      await api('/categories', auth.accessToken, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+      try {
+        await api('/categories', auth.accessToken, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+      } catch (categoryError) {
+        handleApiError(categoryError, 'Не удалось сохранить категорию');
+        return;
+      }
     }
 
     setCategoryModalOpen(false);
@@ -471,18 +553,28 @@ export function Dashboard() {
 
   const handleDeactivateCategory = async (id: string) => {
     if (!auth) return;
-    await api(`/categories/${id}`, auth.accessToken, {
-      method: 'DELETE',
-    });
+    try {
+      await api(`/categories/${id}`, auth.accessToken, {
+        method: 'DELETE',
+      });
+    } catch (categoryError) {
+      handleApiError(categoryError, 'Не удалось отключить категорию');
+      return;
+    }
     await reloadData(auth.accessToken, statusFilter, typeFilter);
   };
 
   const handleRestoreCategory = async (id: string) => {
     if (!auth) return;
-    await api(`/categories/${id}`, auth.accessToken, {
-      method: 'PATCH',
-      body: JSON.stringify({ isActive: true }),
-    });
+    try {
+      await api(`/categories/${id}`, auth.accessToken, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: true }),
+      });
+    } catch (categoryError) {
+      handleApiError(categoryError, 'Не удалось включить категорию');
+      return;
+    }
     await reloadData(auth.accessToken, statusFilter, typeFilter);
   };
 
