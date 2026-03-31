@@ -12,3 +12,4 @@ apps/api/uploads
 *.log
 tmp
 .turbo
+PROD_ENV_FILE.env
