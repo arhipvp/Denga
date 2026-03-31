@@ -31,7 +31,11 @@ jobs:
       - name: Validate web build environment
         env:
           NEXT_PUBLIC_API_URL: ${{ vars.CI_NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_API_URL_SECRET: ${{ secrets.CI_NEXT_PUBLIC_API_URL }}
         run: |
+          if [ -z "$NEXT_PUBLIC_API_URL" ]; then
+            NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL_SECRET"
+          fi
           if [ -z "$NEXT_PUBLIC_API_URL" ]; then
             NEXT_PUBLIC_API_URL="http://localhost:3001/api"
           fi
@@ -43,7 +47,11 @@ jobs:
       - name: Build application
         env:
           NEXT_PUBLIC_API_URL: ${{ vars.CI_NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_API_URL_SECRET: ${{ secrets.CI_NEXT_PUBLIC_API_URL }}
         run: |
+          if [ -z "$NEXT_PUBLIC_API_URL" ]; then
+            export NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL_SECRET"
+          fi
           if [ -z "$NEXT_PUBLIC_API_URL" ]; then
             export NEXT_PUBLIC_API_URL="http://localhost:3001/api"
           fi
