@@ -16,6 +16,38 @@ type Actor = { sub?: string; email?: string; role?: string };
 
 const BACKUP_FILE_PREFIX = 'denga-ops-';
 const BACKUP_FILE_EXTENSION = '.dump';
+const PG_DUMP_ALLOWED_QUERY_PARAMS = new Set([
+  'application_name',
+  'channel_binding',
+  'client_encoding',
+  'connect_timeout',
+  'gssencmode',
+  'hostaddr',
+  'keepalives',
+  'keepalives_count',
+  'keepalives_idle',
+  'keepalives_interval',
+  'krbsrvname',
+  'options',
+  'passfile',
+  'requiressl',
+  'requirepeer',
+  'service',
+  'sslcert',
+  'sslcompression',
+  'sslcrl',
+  'sslcrldir',
+  'sslkey',
+  'ssl_max_protocol_version',
+  'ssl_min_protocol_version',
+  'sslmode',
+  'sslnegotiation',
+  'sslpassword',
+  'sslrootcert',
+  'sslsni',
+  'target_session_attrs',
+  'tcp_user_timeout',
+]);
 const BACKUP_TABLES = [
   'public."Household"',
   'public."User"',
@@ -103,10 +135,12 @@ export class BackupService {
       throw new InternalServerErrorException('DATABASE_URL is not configured');
     }
 
+    const pgDumpDatabaseUrl = this.normalizeDatabaseUrlForPgDump(databaseUrl);
+
     const args = [
       '--format=custom',
       `--file=${filePath}`,
-      `--dbname=${databaseUrl}`,
+      `--dbname=${pgDumpDatabaseUrl}`,
       ...BACKUP_TABLES.map((table) => `--table=${table}`),
     ];
 
@@ -156,6 +190,26 @@ export class BackupService {
 
   private findLatestBackupPath() {
     return this.listBackupPaths()[0] ?? null;
+  }
+
+  private normalizeDatabaseUrlForPgDump(databaseUrl: string) {
+    let parsedUrl: URL;
+
+    try {
+      parsedUrl = new URL(databaseUrl);
+    } catch {
+      throw new InternalServerErrorException(
+        'DATABASE_URL is not a valid PostgreSQL connection URI',
+      );
+    }
+
+    for (const [key] of [...parsedUrl.searchParams.entries()]) {
+      if (!PG_DUMP_ALLOWED_QUERY_PARAMS.has(key.toLowerCase())) {
+        parsedUrl.searchParams.delete(key);
+      }
+    }
+
+    return parsedUrl.toString();
   }
 
   private listBackupPaths() {

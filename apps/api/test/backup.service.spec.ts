@@ -28,7 +28,8 @@ describe('BackupService', () => {
     workspaceDir = mkdtempSync(join(tmpdir(), 'denga-backup-'));
     process.env = {
       ...originalEnv,
-      DATABASE_URL: 'postgresql://denga:denga@localhost:5433/denga?schema=public',
+      DATABASE_URL:
+        'postgresql://denga:denga@localhost:5433/denga?schema=public&sslmode=require',
       BACKUP_DIR: 'backups',
       BACKUP_KEEP_COUNT: '10',
     };
@@ -76,6 +77,25 @@ describe('BackupService', () => {
     const backups = readdirSync(join(workspaceDir, 'backups'));
     expect(backups).toHaveLength(10);
     expect(service.getLatestBackup({ role: 'ADMIN' })).not.toBeNull();
+    cwdSpy.mockRestore();
+  });
+
+  it('sanitizes Prisma query params before calling pg_dump', async () => {
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(workspaceDir);
+    const service = new BackupService(loggingService);
+
+    await service.createBackup({
+      sub: 'user-1',
+      email: 'admin@example.com',
+      role: 'ADMIN',
+    });
+
+    const [, args] = spawn.mock.calls[0] as [string, string[]];
+    const dbNameArg = args.find((item) => item.startsWith('--dbname='));
+
+    expect(dbNameArg).toBeDefined();
+    expect(dbNameArg).not.toContain('schema=');
+    expect(dbNameArg).toContain('sslmode=require');
     cwdSpy.mockRestore();
   });
 

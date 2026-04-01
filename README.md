@@ -208,15 +208,16 @@ ssh root@<server> "chown root:root /root/denga/.env && chmod 600 /root/denga/.en
 - Backup не включает Telegram raw payload, AI-историю, вложения и каталог `uploads`.
 - API хранит только последние `BACKUP_KEEP_COUNT` файлов, по умолчанию `10`.
 - При docker-развертывании backup-файлы сохраняются на хосте в каталоге `./backups`.
+- Для создания backup API использует текущий `DATABASE_URL`, но автоматически убирает Prisma-специфичные query-параметры вроде `schema` перед вызовом `pg_dump`.
 
 Восстановление из backup:
 
 ```bash
 npx prisma db push
-pg_restore --clean --if-exists --no-owner --dbname "$DATABASE_URL" ./backups/<backup-file>.dump
+pg_restore --clean --if-exists --no-owner --host localhost --port 5433 --username denga --dbname denga ./backups/<backup-file>.dump
 ```
 
-Если восстановление выполняется внутри API-контейнера, используйте путь `/app/backups/<backup-file>.dump`.
+Если восстановление выполняется внутри API-контейнера, используйте путь `/app/backups/<backup-file>.dump`. Для `pg_restore` не передавайте Prisma-style URI с query-параметрами вроде `?schema=public` как `--dbname`.
 
 Перезапуск контейнеров:
 
