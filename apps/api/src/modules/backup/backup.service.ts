@@ -4,6 +4,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -35,7 +36,7 @@ export class BackupService {
   async createBackup(actor: Actor): Promise<BackupInfo> {
     this.assertAdmin(actor);
 
-    const fileName = `${BACKUP_FILE_PREFIX}${this.buildTimestamp()}.${Date.now()}${BACKUP_FILE_EXTENSION}`;
+    const fileName = `${BACKUP_FILE_PREFIX}${this.buildTimestamp()}-${randomUUID()}${BACKUP_FILE_EXTENSION}`;
     const filePath = join(this.backupDir, fileName);
 
     try {
