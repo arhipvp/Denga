@@ -14,3 +14,4 @@ tmp
 .turbo
 logs
 PROD_ENV_FILE.env
+docs/local/

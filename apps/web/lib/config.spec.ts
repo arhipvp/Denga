@@ -2,10 +2,14 @@
 
 describe('web config', () => {
   it('returns trimmed api url without trailing slash', () => {
-    expect(
-      getWebAppConfig({ NEXT_PUBLIC_API_URL: 'http://localhost:3001/api/' } as NodeJS.ProcessEnv),
-    ).toEqual({
+    expect(getWebAppConfig('http://localhost:3001/api/')).toEqual({
       apiUrl: 'http://localhost:3001/api',
+    });
+  });
+
+  it('returns null config when api url is empty', () => {
+    expect(getWebAppConfig('')).toEqual({
+      apiUrl: null,
     });
   });
 

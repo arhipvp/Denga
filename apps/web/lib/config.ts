@@ -11,13 +11,19 @@ export type WebAppConfig = {
   apiUrl: string | null;
 };
 
-export function getWebAppConfig(
-  env: NodeJS.ProcessEnv = process.env,
-): WebAppConfig {
-  const apiUrl = env.NEXT_PUBLIC_API_URL?.trim();
+function normalizeApiUrl(apiUrl?: string | null) {
+  const trimmed = apiUrl?.trim();
 
+  return trimmed ? trimmed.replace(/\/+$/, '') : null;
+}
+
+// Next.js inlines NEXT_PUBLIC_* vars into the client bundle at build time.
+// Reading directly here keeps server and client on the same source of truth.
+const compileTimeApiUrl = process.env.NEXT_PUBLIC_API_URL;
+
+export function getWebAppConfig(apiUrl = compileTimeApiUrl): WebAppConfig {
   return {
-    apiUrl: apiUrl ? apiUrl.replace(/\/+$/, '') : null,
+    apiUrl: normalizeApiUrl(apiUrl),
   };
 }
 
