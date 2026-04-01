@@ -14,10 +14,29 @@ type ApiClientOptions = {
   fetchImpl?: FetchLike;
 };
 
+type DownloadResult = {
+  blob: Blob;
+  fileName: string | null;
+};
+
 function resolveApiUrl(apiUrl?: string | null) {
   return requireApiUrl({
     apiUrl: apiUrl ?? getWebAppConfig().apiUrl,
   });
+}
+
+function extractFileName(contentDisposition: string | null) {
+  if (!contentDisposition) {
+    return null;
+  }
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match) {
+    return decodeURIComponent(utf8Match[1]);
+  }
+
+  const plainMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+  return plainMatch?.[1] ?? null;
 }
 
 export function buildApiUrl(path: string, apiUrl?: string | null) {
@@ -48,6 +67,29 @@ export function createApiClient(options: ApiClientOptions = {}) {
       }
 
       return response.json() as Promise<T>;
+    },
+
+    async download(path: string, token: string, init?: RequestInit): Promise<DownloadResult> {
+      const response = await fetchImpl(buildApiUrl(path, options.apiUrl), {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(init?.headers ?? {}),
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new UnauthorizedError();
+        }
+
+        throw new Error(await response.text());
+      }
+
+      return {
+        blob: await response.blob(),
+        fileName: extractFileName(response.headers.get('content-disposition')),
+      };
     },
 
     async login(email: FormDataEntryValue | null, password: FormDataEntryValue | null) {

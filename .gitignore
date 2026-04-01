@@ -8,6 +8,7 @@ coverage
 .env.staging
 .env.test
 uploads
+backups
 apps/api/uploads
 *.log
 tmp

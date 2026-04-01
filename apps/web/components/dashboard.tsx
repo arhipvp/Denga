@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { UnauthorizedError } from '../lib/api';
 import { getWebAppConfig } from '../lib/config';
 import {
+  type BackupInfo,
   emptyCategoryForm,
   emptyOperationForm,
   emptyPasswordForm,
@@ -38,6 +39,8 @@ export function Dashboard() {
     users,
     settings,
     setSettings,
+    latestBackup,
+    setLatestBackup,
     summary,
     logs,
     loading,
@@ -66,6 +69,10 @@ export function Dashboard() {
   const [isCategoryModalOpen, setCategoryModalOpen] = useState(false);
   const [categoryForm, setCategoryForm] = useState(emptyCategoryForm);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
+  const [backupMessage, setBackupMessage] = useState<string | null>(null);
+  const [backupError, setBackupError] = useState<string | null>(null);
+  const [backupCreating, setBackupCreating] = useState(false);
+  const [backupDownloading, setBackupDownloading] = useState(false);
   const [passwordForm, setPasswordForm] = useState(emptyPasswordForm);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
@@ -77,6 +84,10 @@ export function Dashboard() {
       clearAuth();
       resetData();
       setSettingsMessage(null);
+      setBackupMessage(null);
+      setBackupError(null);
+      setBackupCreating(false);
+      setBackupDownloading(false);
       setPasswordError(null);
       setPasswordSuccess(null);
       setOperationModalOpen(false);
@@ -211,6 +222,70 @@ export function Dashboard() {
       setSettingsMessage('Настройки сохранены');
     } catch (settingsError) {
       handleApiError(settingsError, 'Не удалось сохранить настройки');
+    }
+  };
+
+  const handleCreateBackup = async () => {
+    if (!auth) {
+      return;
+    }
+
+    setBackupCreating(true);
+    setBackupError(null);
+    setBackupMessage(null);
+
+    try {
+      const backup = await apiClient.request<BackupInfo>('/backups', auth.accessToken, {
+        method: 'POST',
+      });
+      setLatestBackup(backup);
+      setBackupMessage(`Бэкап ${backup.fileName} создан`);
+    } catch (backupCreateError) {
+      if (!handleApiError(backupCreateError, 'Не удалось создать бэкап')) {
+        setBackupError(
+          backupCreateError instanceof Error
+            ? backupCreateError.message
+            : 'Не удалось создать бэкап',
+        );
+      }
+    } finally {
+      setBackupCreating(false);
+    }
+  };
+
+  const handleDownloadLatestBackup = async () => {
+    if (!auth) {
+      return;
+    }
+
+    setBackupDownloading(true);
+    setBackupError(null);
+    setBackupMessage(null);
+
+    try {
+      const { blob, fileName } = await apiClient.download(
+        '/backups/latest/download',
+        auth.accessToken,
+      );
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = fileName ?? latestBackup?.fileName ?? 'denga-backup.dump';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+      setBackupMessage(`Бэкап ${link.download} скачан`);
+    } catch (backupDownloadError) {
+      if (!handleApiError(backupDownloadError, 'Не удалось скачать бэкап')) {
+        setBackupError(
+          backupDownloadError instanceof Error
+            ? backupDownloadError.message
+            : 'Не удалось скачать бэкап',
+        );
+      }
+    } finally {
+      setBackupDownloading(false);
     }
   };
 
@@ -506,10 +581,17 @@ export function Dashboard() {
         {section === 'settings' && settings ? (
           <SettingsSection
             settings={settings}
+            latestBackup={latestBackup}
+            backupMessage={backupMessage}
+            backupError={backupError}
+            backupCreating={backupCreating}
+            backupDownloading={backupDownloading}
             settingsMessage={settingsMessage}
             passwordForm={passwordForm}
             passwordError={passwordError}
             passwordSuccess={passwordSuccess}
+            onCreateBackup={handleCreateBackup}
+            onDownloadLatestBackup={handleDownloadLatestBackup}
             onSaveSettings={handleSaveSettings}
             onChangePassword={handleChangePassword}
             onPasswordFormChange={(updater) => setPasswordForm(updater)}

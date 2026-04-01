@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'node:path';
 import { AppController } from './app.controller';
+import { BackupModule } from './backup/backup.module';
 import { AuthModule } from './auth/auth.module';
 import { CategoryModule } from './category/category.module';
 import { HealthModule } from './health/health.module';
@@ -29,6 +30,7 @@ const runtimeConfig = getApiRuntimeConfig();
     PrismaModule,
     LoggingModule,
     HealthModule,
+    BackupModule,
     AuthModule,
     CategoryModule,
     TransactionModule,

@@ -78,6 +78,13 @@ export type Settings = {
   clarificationPrompt: string;
 };
 
+export type BackupInfo = {
+  id: string;
+  fileName: string;
+  sizeBytes: number;
+  createdAt: string;
+};
+
 export type Summary = {
   totals: {
     income: number;

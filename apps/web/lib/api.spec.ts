@@ -21,4 +21,23 @@ describe('api client', () => {
       UnauthorizedError,
     );
   });
+
+  it('downloads binary responses and extracts filename', async () => {
+    const blob = new Blob(['backup']);
+    const client = createApiClient({
+      apiUrl: 'http://localhost:3001/api',
+      fetchImpl: jest.fn().mockResolvedValue({
+        ok: true,
+        headers: {
+          get: jest.fn().mockReturnValue('attachment; filename="denga-ops.dump"'),
+        },
+        blob: jest.fn().mockResolvedValue(blob),
+      }),
+    });
+
+    await expect(client.download('/backups/latest/download', 'token')).resolves.toEqual({
+      blob,
+      fileName: 'denga-ops.dump',
+    });
+  });
 });

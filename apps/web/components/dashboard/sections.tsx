@@ -10,6 +10,7 @@ import {
 } from '../../lib/dashboard';
 import type {
   AuthState,
+  BackupInfo,
   Category,
   LogEntry,
   PasswordFormState,
@@ -19,6 +20,18 @@ import type {
   Transaction,
   User,
 } from '../../lib/types';
+
+function formatBackupSize(sizeBytes: number) {
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
+
+  if (sizeBytes < 1024 * 1024) {
+    return `${(sizeBytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 type LayoutProps = {
   auth: AuthState;
@@ -550,10 +563,17 @@ export function LogsSection({
 
 type SettingsSectionProps = {
   settings: Settings;
+  latestBackup: BackupInfo | null;
+  backupMessage: string | null;
+  backupError: string | null;
+  backupCreating: boolean;
+  backupDownloading: boolean;
   settingsMessage: string | null;
   passwordForm: PasswordFormState;
   passwordError: string | null;
   passwordSuccess: string | null;
+  onCreateBackup: () => Promise<void>;
+  onDownloadLatestBackup: () => Promise<void>;
   onSaveSettings: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onChangePassword: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onPasswordFormChange: (
@@ -563,10 +583,17 @@ type SettingsSectionProps = {
 
 export function SettingsSection({
   settings,
+  latestBackup,
+  backupMessage,
+  backupError,
+  backupCreating,
+  backupDownloading,
   settingsMessage,
   passwordForm,
   passwordError,
   passwordSuccess,
+  onCreateBackup,
+  onDownloadLatestBackup,
   onSaveSettings,
   onChangePassword,
   onPasswordFormChange,
@@ -616,6 +643,64 @@ export function SettingsSection({
           <p style={{ gridColumn: '1 / -1', margin: 0 }}>{settingsMessage}</p>
         ) : null}
       </form>
+
+      <div
+        style={{
+          marginTop: 32,
+          paddingTop: 24,
+          borderTop: '1px solid rgba(148, 163, 184, 0.24)',
+        }}
+      >
+        <h3>Бэкапы</h3>
+        <p style={{ marginTop: 0 }}>
+          Создается локальный backup PostgreSQL только для операций и справочников.
+        </p>
+
+        {latestBackup ? (
+          <div className="grid" style={{ marginBottom: 16 }}>
+            <article className="panel stat">
+              <span>Последний файл</span>
+              <strong style={{ fontSize: '1rem' }}>{latestBackup.fileName}</strong>
+            </article>
+            <article className="panel stat">
+              <span>Создан</span>
+              <strong style={{ fontSize: '1rem' }}>
+                {format(new Date(latestBackup.createdAt), 'dd.MM.yyyy HH:mm:ss')}
+              </strong>
+            </article>
+            <article className="panel stat">
+              <span>Размер</span>
+              <strong style={{ fontSize: '1rem' }}>
+                {formatBackupSize(latestBackup.sizeBytes)}
+              </strong>
+            </article>
+          </div>
+        ) : (
+          <p style={{ marginBottom: 16 }}>Бэкапов пока нет.</p>
+        )}
+
+        {backupError ? <p className="error">{backupError}</p> : null}
+        {backupMessage ? <p style={{ marginBottom: 16 }}>{backupMessage}</p> : null}
+
+        <div className="actions">
+          <button
+            className="button"
+            type="button"
+            disabled={backupCreating}
+            onClick={() => void onCreateBackup()}
+          >
+            {backupCreating ? 'Создание...' : 'Создать бэкап'}
+          </button>
+          <button
+            className="button secondary"
+            type="button"
+            disabled={!latestBackup || backupDownloading}
+            onClick={() => void onDownloadLatestBackup()}
+          >
+            {backupDownloading ? 'Скачивание...' : 'Скачать последний'}
+          </button>
+        </div>
+      </div>
 
       <div
         style={{

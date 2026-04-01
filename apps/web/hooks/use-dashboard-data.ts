@@ -1,7 +1,15 @@
 ﻿'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import type { Category, LogEntry, Settings, Summary, Transaction, User } from '../lib/types';
+import type {
+  BackupInfo,
+  Category,
+  LogEntry,
+  Settings,
+  Summary,
+  Transaction,
+  User,
+} from '../lib/types';
 import { createApiClient } from '../lib/api';
 
 export function useDashboardData(apiUrl: string | null) {
@@ -10,6 +18,7 @@ export function useDashboardData(apiUrl: string | null) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [latestBackup, setLatestBackup] = useState<BackupInfo | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -22,6 +31,7 @@ export function useDashboardData(apiUrl: string | null) {
     setCategories([]);
     setUsers([]);
     setSettings(null);
+    setLatestBackup(null);
     setSummary(null);
     setLogs([]);
     setError(null);
@@ -50,7 +60,14 @@ export function useDashboardData(apiUrl: string | null) {
           query.set('type', type);
         }
 
-        const [transactionData, categoryData, userData, settingsData, summaryData] =
+        const [
+          transactionData,
+          categoryData,
+          userData,
+          settingsData,
+          summaryData,
+          latestBackupData,
+        ] =
           await Promise.all([
             apiClient.request<Transaction[]>(
               `/transactions${query.toString() ? `?${query.toString()}` : ''}`,
@@ -60,12 +77,14 @@ export function useDashboardData(apiUrl: string | null) {
             apiClient.request<User[]>('/users', token),
             apiClient.request<Settings>('/settings', token),
             apiClient.request<Summary>('/transactions/summary', token),
+            apiClient.request<BackupInfo | null>('/backups/latest', token),
           ]);
 
         setTransactions(transactionData);
         setCategories(categoryData);
         setUsers(userData);
         setSettings(settingsData);
+        setLatestBackup(latestBackupData);
         setSummary(summaryData);
       } finally {
         setLoading(false);
@@ -114,6 +133,8 @@ export function useDashboardData(apiUrl: string | null) {
     users,
     settings,
     setSettings,
+    latestBackup,
+    setLatestBackup,
     summary,
     logs,
     loading,

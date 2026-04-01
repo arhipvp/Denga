@@ -30,6 +30,7 @@ services:
       - "3001:3001"
     volumes:
       - ./logs:/app/logs
+      - ./backups:/app/backups
 
   web:
     build:

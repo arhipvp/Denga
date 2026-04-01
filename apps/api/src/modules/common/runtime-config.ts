@@ -4,6 +4,8 @@ export type ApiRuntimeConfig = {
   port: number;
   nodeEnv: string;
   uploadDir: string;
+  backupDir: string;
+  backupKeepCount: number;
   jwtSecret: string;
   logDir: string;
   logLevel?: string;
@@ -20,11 +22,15 @@ export function getApiRuntimeConfig(
 ): ApiRuntimeConfig {
   const telegramMode =
     env.TELEGRAM_MODE === 'webhook' ? 'webhook' : 'polling';
+  const backupKeepCount = Number(env.BACKUP_KEEP_COUNT ?? 10);
 
   return {
     port: Number(env.PORT ?? 3001),
     nodeEnv: env.NODE_ENV ?? 'development',
     uploadDir: env.UPLOAD_DIR ?? 'uploads',
+    backupDir: env.BACKUP_DIR ?? 'backups',
+    backupKeepCount:
+      Number.isFinite(backupKeepCount) && backupKeepCount > 0 ? backupKeepCount : 10,
     jwtSecret: env.JWT_SECRET ?? 'change-me',
     logDir: env.LOG_DIR ?? 'logs',
     logLevel: env.LOG_LEVEL,

@@ -74,6 +74,7 @@ docker compose up --build -d
 - API-контейнер автоматически применяет `prisma db push`
 - API-контейнер автоматически выполняет `npm run prisma:seed`
 - затем запускаются backend и frontend
+- файловые логи сохраняются в `./logs`, а локальные бэкапы базы в `./backups`
 
 После запуска доступны:
 
@@ -97,6 +98,8 @@ docker compose up --build -d
 - `API_URL`: публичный URL API для доступа к сохраненным изображениям чеков
 - `DEFAULT_CURRENCY`: по умолчанию `EUR`
 - `UPLOAD_DIR`: директория для загрузок
+- `BACKUP_DIR`: каталог локальных backup-файлов API, по умолчанию `backups`
+- `BACKUP_KEEP_COUNT`: сколько последних backup-файлов хранить локально, по умолчанию `10`
 - `LOG_DIR`: каталог файловых логов API, по умолчанию `logs`
 - `LOG_LEVEL`: минимальный уровень логирования, по умолчанию `info`
 - `CLARIFICATION_TIMEOUT_MINUTES`: таймаут ожидания уточнения
@@ -118,6 +121,9 @@ docker compose up --build -d
 - `POST /api/auth/change-password`
 - `GET /api/auth/me`
 - `GET /api/logs`
+- `POST /api/backups`
+- `GET /api/backups/latest`
+- `GET /api/backups/latest/download`
 - `GET/POST/PATCH/DELETE /api/transactions`
 - `GET /api/transactions/summary`
 - `GET/POST/PATCH/DELETE /api/categories`
@@ -195,6 +201,23 @@ ssh root@<server> "chown root:root /root/denga/.env && chmod 600 /root/denga/.en
 
 ## Ручные операции на сервере
 
+## Бэкапы операций
+
+- В админке в разделе `Настройки` доступны действия `Создать бэкап` и `Скачать последний`.
+- Backup включает только таблицы `Household`, `User`, `Category`, `Transaction`, `AppSetting`.
+- Backup не включает Telegram raw payload, AI-историю, вложения и каталог `uploads`.
+- API хранит только последние `BACKUP_KEEP_COUNT` файлов, по умолчанию `10`.
+- При docker-развертывании backup-файлы сохраняются на хосте в каталоге `./backups`.
+
+Восстановление из backup:
+
+```bash
+npx prisma db push
+pg_restore --clean --if-exists --no-owner --dbname "$DATABASE_URL" ./backups/<backup-file>.dump
+```
+
+Если восстановление выполняется внутри API-контейнера, используйте путь `/app/backups/<backup-file>.dump`.
+
 Перезапуск контейнеров:
 
 ```bash
@@ -206,6 +229,7 @@ docker compose up --build -d
 ```bash
 docker compose logs -f api
 tail -f logs/app.log
+ls -lh backups
 ls -l /root/denga/.env
 ```
 
