@@ -1,4 +1,9 @@
-﻿import { buildApiUrl, createApiClient, UnauthorizedError } from './api';
+import {
+  ApiResponseParseError,
+  buildApiUrl,
+  createApiClient,
+  UnauthorizedError,
+} from './api';
 
 describe('api client', () => {
   it('builds endpoint urls from config', () => {
@@ -39,5 +44,45 @@ describe('api client', () => {
       blob,
       fileName: 'denga-ops.dump',
     });
+  });
+
+  it('returns null for a successful empty JSON body', async () => {
+    const client = createApiClient({
+      apiUrl: 'http://localhost:3001/api',
+      fetchImpl: jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: {
+          get: jest.fn().mockReturnValue('application/json'),
+        },
+        text: jest.fn().mockResolvedValue(''),
+      }),
+    });
+
+    await expect(client.request('/backups/latest', 'token')).resolves.toBeNull();
+  });
+
+  it('throws a parse error with path context for invalid json', async () => {
+    const client = createApiClient({
+      apiUrl: 'http://localhost:3001/api',
+      fetchImpl: jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: {
+          get: jest.fn().mockReturnValue('application/json'),
+        },
+        text: jest.fn().mockResolvedValue('{'),
+      }),
+    });
+
+    await expect(client.request('/settings', 'token')).rejects.toMatchObject({
+      name: 'ApiResponseParseError',
+      details: {
+        path: '/settings',
+        status: 200,
+        contentType: 'application/json',
+        bodyEmpty: false,
+      },
+    } satisfies Partial<ApiResponseParseError>);
   });
 });

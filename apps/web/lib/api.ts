@@ -7,6 +7,21 @@ export class UnauthorizedError extends Error {
   }
 }
 
+export class ApiResponseParseError extends Error {
+  constructor(
+    message: string,
+    readonly details: {
+      path: string;
+      status: number;
+      contentType: string | null;
+      bodyEmpty: boolean;
+    },
+  ) {
+    super(message);
+    this.name = 'ApiResponseParseError';
+  }
+}
+
 type FetchLike = typeof fetch;
 
 type ApiClientOptions = {
@@ -39,6 +54,39 @@ function extractFileName(contentDisposition: string | null) {
   return plainMatch?.[1] ?? null;
 }
 
+async function parseJsonResponse<T>(
+  response: Response,
+  path: string,
+  options: { allowEmpty: boolean } = { allowEmpty: true },
+): Promise<T | null> {
+  const rawBody = await response.text();
+  const body = rawBody.trim();
+
+  if (!body) {
+    if (options.allowEmpty) {
+      return null;
+    }
+
+    throw new ApiResponseParseError(`Пустой ответ от API: ${path}`, {
+      path,
+      status: response.status,
+      contentType: response.headers.get('content-type'),
+      bodyEmpty: true,
+    });
+  }
+
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    throw new ApiResponseParseError(`Некорректный JSON от API: ${path}`, {
+      path,
+      status: response.status,
+      contentType: response.headers.get('content-type'),
+      bodyEmpty: false,
+    });
+  }
+}
+
 export function buildApiUrl(path: string, apiUrl?: string | null) {
   const baseUrl = resolveApiUrl(apiUrl);
   return `${baseUrl}${path}`;
@@ -63,10 +111,11 @@ export function createApiClient(options: ApiClientOptions = {}) {
           throw new UnauthorizedError();
         }
 
-        throw new Error(await response.text());
+        const message = (await response.text()).trim();
+        throw new Error(message || `API request failed: ${path} (${response.status})`);
       }
 
-      return response.json() as Promise<T>;
+      return (await parseJsonResponse<T>(response, path)) as T;
     },
 
     async download(path: string, token: string, init?: RequestInit): Promise<DownloadResult> {
@@ -93,7 +142,8 @@ export function createApiClient(options: ApiClientOptions = {}) {
     },
 
     async login(email: FormDataEntryValue | null, password: FormDataEntryValue | null) {
-      const response = await fetchImpl(buildApiUrl('/auth/login', options.apiUrl), {
+      const path = '/auth/login';
+      const response = await fetchImpl(buildApiUrl(path, options.apiUrl), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -108,7 +158,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
         throw new Error('Не удалось выполнить вход');
       }
 
-      return response.json();
+      return parseJsonResponse(response, path, { allowEmpty: false });
     },
   };
 }

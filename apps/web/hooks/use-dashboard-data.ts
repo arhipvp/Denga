@@ -11,6 +11,11 @@ import type {
   User,
 } from '../lib/types';
 import { createApiClient } from '../lib/api';
+import {
+  DashboardDataLoadError,
+  loadDashboardDataset,
+  loadLogsDataset,
+} from '../lib/dashboard-loader';
 
 export function useDashboardData(apiUrl: string | null) {
   const apiClient = useMemo(() => createApiClient({ apiUrl }), [apiUrl]);
@@ -68,42 +73,20 @@ export function useDashboardData(apiUrl: string | null) {
       setError(null);
 
       try {
-        const query = new URLSearchParams();
+        const dataset = await loadDashboardDataset(apiClient, token, { status, type });
 
-        if (status !== 'all') {
-          query.set('status', status);
+        setTransactions(dataset.transactions);
+        setCategories(dataset.categories);
+        setUsers(dataset.users);
+        setSettings(dataset.settings);
+        setLatestBackup(dataset.latestBackup);
+        setSummary(dataset.summary);
+      } catch (error) {
+        if (error instanceof DashboardDataLoadError) {
+          throw new Error(`${error.message}: ${error.path}`);
         }
 
-        if (type !== 'all') {
-          query.set('type', type);
-        }
-
-        const [
-          transactionData,
-          categoryData,
-          userData,
-          settingsData,
-          summaryData,
-          latestBackupData,
-        ] =
-          await Promise.all([
-            apiClient.request<Transaction[]>(
-              `/transactions${query.toString() ? `?${query.toString()}` : ''}`,
-              token,
-            ),
-            apiClient.request<Category[]>('/categories', token),
-            apiClient.request<User[]>('/users', token),
-            apiClient.request<Settings>('/settings', token),
-            apiClient.request<Summary>('/transactions/summary', token),
-            apiClient.request<BackupInfo | null>('/backups/latest', token),
-          ]);
-
-        setTransactions(transactionData);
-        setCategories(categoryData);
-        setUsers(userData);
-        setSettings(settingsData);
-        setLatestBackup(latestBackupData);
-        setSummary(summaryData);
+        throw error;
       } finally {
         setLoading(false);
       }
@@ -121,22 +104,14 @@ export function useDashboardData(apiUrl: string | null) {
       setLogsError(null);
 
       try {
-        const query = new URLSearchParams();
-        query.set('limit', '100');
-
-        if (level !== 'all') {
-          query.set('level', level);
-        }
-
-        if (source !== 'all') {
-          query.set('source', source);
-        }
-
-        const nextLogs = await apiClient.request<LogEntry[]>(
-          `/logs?${query.toString()}`,
-          token,
-        );
+        const nextLogs = await loadLogsDataset(apiClient, token, { level, source });
         setLogs(nextLogs);
+      } catch (error) {
+        if (error instanceof DashboardDataLoadError) {
+          throw new Error(`${error.message}: ${error.path}`);
+        }
+
+        throw error;
       } finally {
         setLogsLoading(false);
       }
