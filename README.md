@@ -154,7 +154,7 @@ Workflow [`.github/workflows/ci.yml`](/C:/Dev/Denga/.github/workflows/ci.yml) з
 
 ## CD
 
-Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy.yml) запускается только на `push` в `main` и деплоит проект на VPS через `SSH + Docker Compose`.
+Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy.yml) запускается только после успешного завершения workflow `CI` для ветки `main` и деплоит проект на VPS через `SSH + Docker Compose`.
 
 Логика деплоя:
 
@@ -190,7 +190,8 @@ ssh root@<server> "chown root:root /root/denga/.env && chmod 600 /root/denga/.en
 
 - Любой `push` и `pull_request` запускает CI.
 - Pull request в `main` используется для проверки изменений до merge.
-- Merge или прямой `push` в `main` запускает production deploy.
+- Merge или прямой `push` в `main` сначала запускает CI.
+- Production deploy стартует только если этот CI завершился успешно.
 
 ## Ручные операции на сервере
 
