@@ -21,10 +21,30 @@ export function useDashboardData(apiUrl: string | null) {
   const [latestBackup, setLatestBackup] = useState<BackupInfo | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [logsError, setLogsError] = useState<string | null>(null);
-  const [logsLoading, setLogsLoading] = useState(false);
+  const [mainState, setMainState] = useState({
+    loading: false,
+    error: null as string | null,
+  });
+  const [logsState, setLogsState] = useState({
+    loading: false,
+    error: null as string | null,
+  });
+
+  const setLoading = useCallback((loading: boolean) => {
+    setMainState((current) => ({ ...current, loading }));
+  }, []);
+
+  const setError = useCallback((error: string | null) => {
+    setMainState((current) => ({ ...current, error }));
+  }, []);
+
+  const setLogsLoading = useCallback((loading: boolean) => {
+    setLogsState((current) => ({ ...current, loading }));
+  }, []);
+
+  const setLogsError = useCallback((error: string | null) => {
+    setLogsState((current) => ({ ...current, error }));
+  }, []);
 
   const resetData = useCallback(() => {
     setTransactions([]);
@@ -34,10 +54,8 @@ export function useDashboardData(apiUrl: string | null) {
     setLatestBackup(null);
     setSummary(null);
     setLogs([]);
-    setError(null);
-    setLogsError(null);
-    setLoading(false);
-    setLogsLoading(false);
+    setMainState({ loading: false, error: null });
+    setLogsState({ loading: false, error: null });
   }, []);
 
   const reloadData = useCallback(
@@ -90,7 +108,7 @@ export function useDashboardData(apiUrl: string | null) {
         setLoading(false);
       }
     },
-    [apiClient],
+    [apiClient, setError, setLoading],
   );
 
   const reloadLogs = useCallback(
@@ -123,7 +141,7 @@ export function useDashboardData(apiUrl: string | null) {
         setLogsLoading(false);
       }
     },
-    [apiClient],
+    [apiClient, setLogsError, setLogsLoading],
   );
 
   return {
@@ -137,12 +155,12 @@ export function useDashboardData(apiUrl: string | null) {
     setLatestBackup,
     summary,
     logs,
-    loading,
-    error,
+    loading: mainState.loading,
+    error: mainState.error,
     setError,
-    logsError,
+    logsError: logsState.error,
     setLogsError,
-    logsLoading,
+    logsLoading: logsState.loading,
     resetData,
     reloadData,
     reloadLogs,

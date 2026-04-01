@@ -69,35 +69,47 @@ export function Dashboard() {
   const [isCategoryModalOpen, setCategoryModalOpen] = useState(false);
   const [categoryForm, setCategoryForm] = useState(emptyCategoryForm);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
-  const [backupMessage, setBackupMessage] = useState<string | null>(null);
-  const [backupError, setBackupError] = useState<string | null>(null);
-  const [backupCreating, setBackupCreating] = useState(false);
-  const [backupDownloading, setBackupDownloading] = useState(false);
-  const [passwordForm, setPasswordForm] = useState(emptyPasswordForm);
-  const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
+  const [backupState, setBackupState] = useState({
+    message: null as string | null,
+    error: null as string | null,
+    creating: false,
+    downloading: false,
+  });
+  const [passwordState, setPasswordState] = useState({
+    form: emptyPasswordForm,
+    error: null as string | null,
+    success: null as string | null,
+  });
   const [logLevelFilter, setLogLevelFilter] = useState<'all' | LogEntry['level']>('all');
   const [logSourceFilter, setLogSourceFilter] = useState('all');
+
+  const resetDashboardUi = useCallback(() => {
+    setSettingsMessage(null);
+    setBackupState({
+      message: null,
+      error: null,
+      creating: false,
+      downloading: false,
+    });
+    setPasswordState({
+      form: emptyPasswordForm,
+      error: null,
+      success: null,
+    });
+    setOperationModalOpen(false);
+    setCategoryModalOpen(false);
+    setOperationForm(emptyOperationForm);
+    setCategoryForm(emptyCategoryForm);
+  }, []);
 
   const clearSession = useCallback(
     (message = 'Сессия истекла, войдите снова') => {
       clearAuth();
       resetData();
-      setSettingsMessage(null);
-      setBackupMessage(null);
-      setBackupError(null);
-      setBackupCreating(false);
-      setBackupDownloading(false);
-      setPasswordError(null);
-      setPasswordSuccess(null);
-      setOperationModalOpen(false);
-      setCategoryModalOpen(false);
-      setOperationForm(emptyOperationForm);
-      setCategoryForm(emptyCategoryForm);
-      setPasswordForm(emptyPasswordForm);
+      resetDashboardUi();
       setError(message);
     },
-    [clearAuth, resetData, setError],
+    [clearAuth, resetDashboardUi, resetData, setError],
   );
 
   const handleApiError = useCallback(
@@ -140,39 +152,51 @@ export function Dashboard() {
     return Array.from(new Set(logs.map((item) => item.source))).sort();
   }, [logs]);
 
-  useEffect(() => {
+  const loadDashboard = useCallback(async () => {
     if (!auth) {
       return;
     }
 
-    void (async () => {
-      try {
-        await reloadData(auth.accessToken, statusFilter, typeFilter);
-      } catch (loadError) {
-        handleApiError(loadError, 'Не удалось загрузить данные');
-      }
-    })();
+    try {
+      await reloadData(auth.accessToken, statusFilter, typeFilter);
+    } catch (loadError) {
+      handleApiError(loadError, 'Не удалось загрузить данные');
+    }
   }, [auth, handleApiError, reloadData, statusFilter, typeFilter]);
 
-  useEffect(() => {
+  const loadLogs = useCallback(async () => {
     if (!auth || section !== 'logs') {
       return;
     }
 
-    void (async () => {
-      try {
-        await reloadLogs(auth.accessToken, logLevelFilter, logSourceFilter);
-      } catch (logsLoadError) {
-        if (!handleApiError(logsLoadError, 'Не удалось загрузить логи')) {
-          setLogsError(
-            logsLoadError instanceof Error
-              ? logsLoadError.message
-              : 'Не удалось загрузить логи',
-          );
-        }
+    try {
+      await reloadLogs(auth.accessToken, logLevelFilter, logSourceFilter);
+    } catch (logsLoadError) {
+      if (!handleApiError(logsLoadError, 'Не удалось загрузить логи')) {
+        setLogsError(
+          logsLoadError instanceof Error
+            ? logsLoadError.message
+            : 'Не удалось загрузить логи',
+        );
       }
-    })();
-  }, [auth, handleApiError, logLevelFilter, logSourceFilter, reloadLogs, section, setLogsError]);
+    }
+  }, [
+    auth,
+    handleApiError,
+    logLevelFilter,
+    logSourceFilter,
+    reloadLogs,
+    section,
+    setLogsError,
+  ]);
+
+  useEffect(() => {
+    void loadDashboard();
+  }, [loadDashboard]);
+
+  useEffect(() => {
+    void loadLogs();
+  }, [loadLogs]);
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -230,26 +254,34 @@ export function Dashboard() {
       return;
     }
 
-    setBackupCreating(true);
-    setBackupError(null);
-    setBackupMessage(null);
+    setBackupState((current) => ({
+      ...current,
+      creating: true,
+      error: null,
+      message: null,
+    }));
 
     try {
       const backup = await apiClient.request<BackupInfo>('/backups', auth.accessToken, {
         method: 'POST',
       });
       setLatestBackup(backup);
-      setBackupMessage(`Бэкап ${backup.fileName} создан`);
+      setBackupState((current) => ({
+        ...current,
+        message: `Бэкап ${backup.fileName} создан`,
+      }));
     } catch (backupCreateError) {
       if (!handleApiError(backupCreateError, 'Не удалось создать бэкап')) {
-        setBackupError(
-          backupCreateError instanceof Error
-            ? backupCreateError.message
-            : 'Не удалось создать бэкап',
-        );
+        setBackupState((current) => ({
+          ...current,
+          error:
+            backupCreateError instanceof Error
+              ? backupCreateError.message
+              : 'Не удалось создать бэкап',
+        }));
       }
     } finally {
-      setBackupCreating(false);
+      setBackupState((current) => ({ ...current, creating: false }));
     }
   };
 
@@ -258,9 +290,12 @@ export function Dashboard() {
       return;
     }
 
-    setBackupDownloading(true);
-    setBackupError(null);
-    setBackupMessage(null);
+    setBackupState((current) => ({
+      ...current,
+      downloading: true,
+      error: null,
+      message: null,
+    }));
 
     try {
       const { blob, fileName } = await apiClient.download(
@@ -275,17 +310,22 @@ export function Dashboard() {
       link.click();
       link.remove();
       URL.revokeObjectURL(objectUrl);
-      setBackupMessage(`Бэкап ${link.download} скачан`);
+      setBackupState((current) => ({
+        ...current,
+        message: `Бэкап ${link.download} скачан`,
+      }));
     } catch (backupDownloadError) {
       if (!handleApiError(backupDownloadError, 'Не удалось скачать бэкап')) {
-        setBackupError(
-          backupDownloadError instanceof Error
-            ? backupDownloadError.message
-            : 'Не удалось скачать бэкап',
-        );
+        setBackupState((current) => ({
+          ...current,
+          error:
+            backupDownloadError instanceof Error
+              ? backupDownloadError.message
+              : 'Не удалось скачать бэкап',
+        }));
       }
     } finally {
-      setBackupDownloading(false);
+      setBackupState((current) => ({ ...current, downloading: false }));
     }
   };
 
@@ -295,11 +335,17 @@ export function Dashboard() {
       return;
     }
 
-    setPasswordError(null);
-    setPasswordSuccess(null);
+    setPasswordState((current) => ({
+      ...current,
+      error: null,
+      success: null,
+    }));
 
-    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      setPasswordError('Новый пароль и подтверждение не совпадают');
+    if (passwordState.form.newPassword !== passwordState.form.confirmPassword) {
+      setPasswordState((current) => ({
+        ...current,
+        error: 'Новый пароль и подтверждение не совпадают',
+      }));
       return;
     }
 
@@ -307,23 +353,28 @@ export function Dashboard() {
       await apiClient.request<{ success: true }>('/auth/change-password', auth.accessToken, {
         method: 'POST',
         body: JSON.stringify({
-          currentPassword: passwordForm.currentPassword,
-          newPassword: passwordForm.newPassword,
+          currentPassword: passwordState.form.currentPassword,
+          newPassword: passwordState.form.newPassword,
         }),
       });
-      setPasswordForm(emptyPasswordForm);
-      setPasswordSuccess('Пароль обновлен');
+      setPasswordState({
+        form: emptyPasswordForm,
+        error: null,
+        success: 'Пароль обновлен',
+      });
     } catch (passwordChangeError) {
       if (passwordChangeError instanceof UnauthorizedError) {
         clearSession(passwordChangeError.message);
         return;
       }
 
-      setPasswordError(
-        passwordChangeError instanceof Error
-          ? passwordChangeError.message
-          : 'Не удалось обновить пароль',
-      );
+      setPasswordState((current) => ({
+        ...current,
+        error:
+          passwordChangeError instanceof Error
+            ? passwordChangeError.message
+            : 'Не удалось обновить пароль',
+      }));
     }
   };
 
@@ -363,18 +414,6 @@ export function Dashboard() {
     setOperationModalOpen(true);
   };
 
-  const refreshDashboard = async () => {
-    if (!auth) {
-      return;
-    }
-
-    try {
-      await reloadData(auth.accessToken, statusFilter, typeFilter);
-    } catch (loadError) {
-      handleApiError(loadError, 'Не удалось загрузить данные');
-    }
-  };
-
   const handleSaveOperation = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!auth) {
@@ -406,7 +445,7 @@ export function Dashboard() {
 
     setOperationModalOpen(false);
     setOperationForm(emptyOperationForm);
-    await refreshDashboard();
+    await loadDashboard();
   };
 
   const handleCancelOperation = async (id: string) => {
@@ -423,7 +462,7 @@ export function Dashboard() {
       return;
     }
 
-    await refreshDashboard();
+    await loadDashboard();
   };
 
   const handleSaveCategory = async (event: FormEvent<HTMLFormElement>) => {
@@ -454,7 +493,7 @@ export function Dashboard() {
 
     setCategoryModalOpen(false);
     setCategoryForm(emptyCategoryForm);
-    await refreshDashboard();
+    await loadDashboard();
   };
 
   const handleDeactivateCategory = async (id: string) => {
@@ -471,7 +510,7 @@ export function Dashboard() {
       return;
     }
 
-    await refreshDashboard();
+    await loadDashboard();
   };
 
   const handleRestoreCategory = async (id: string) => {
@@ -489,25 +528,7 @@ export function Dashboard() {
       return;
     }
 
-    await refreshDashboard();
-  };
-
-  const refreshLogs = async () => {
-    if (!auth) {
-      return;
-    }
-
-    try {
-      await reloadLogs(auth.accessToken, logLevelFilter, logSourceFilter);
-    } catch (logsLoadError) {
-      if (!handleApiError(logsLoadError, 'Не удалось загрузить логи')) {
-        setLogsError(
-          logsLoadError instanceof Error
-            ? logsLoadError.message
-            : 'Не удалось загрузить логи',
-        );
-      }
-    }
+    await loadDashboard();
   };
 
   if (!apiUrl) {
@@ -575,26 +596,31 @@ export function Dashboard() {
             logSourceFilter={logSourceFilter}
             onLogLevelChange={setLogLevelFilter}
             onLogSourceChange={setLogSourceFilter}
-            onRefresh={() => void refreshLogs()}
+            onRefresh={() => void loadLogs()}
           />
         ) : null}
         {section === 'settings' && settings ? (
           <SettingsSection
             settings={settings}
             latestBackup={latestBackup}
-            backupMessage={backupMessage}
-            backupError={backupError}
-            backupCreating={backupCreating}
-            backupDownloading={backupDownloading}
+            backupMessage={backupState.message}
+            backupError={backupState.error}
+            backupCreating={backupState.creating}
+            backupDownloading={backupState.downloading}
             settingsMessage={settingsMessage}
-            passwordForm={passwordForm}
-            passwordError={passwordError}
-            passwordSuccess={passwordSuccess}
+            passwordForm={passwordState.form}
+            passwordError={passwordState.error}
+            passwordSuccess={passwordState.success}
             onCreateBackup={handleCreateBackup}
             onDownloadLatestBackup={handleDownloadLatestBackup}
             onSaveSettings={handleSaveSettings}
             onChangePassword={handleChangePassword}
-            onPasswordFormChange={(updater) => setPasswordForm(updater)}
+            onPasswordFormChange={(updater) =>
+              setPasswordState((current) => ({
+                ...current,
+                form: updater(current.form),
+              }))
+            }
           />
         ) : null}
       </DashboardLayout>
