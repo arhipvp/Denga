@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { LoggingService } from '../logging/logging.service';
 import { getApiRuntimeConfig } from '../common/runtime-config';
@@ -40,6 +40,7 @@ export class BackupService {
     const filePath = join(this.backupDir, fileName);
 
     try {
+      this.ensureDirectoryExists(dirname(filePath));
       await this.runPgDump(filePath);
       this.pruneOldBackups();
       const backup = this.toBackupInfo(filePath);
@@ -59,6 +60,10 @@ export class BackupService {
       });
       throw error;
     }
+  }
+
+  private ensureDirectoryExists(directoryPath: string) {
+    mkdirSync(directoryPath, { recursive: true });
   }
 
   getLatestBackup(actor: Actor): BackupInfo | null {
