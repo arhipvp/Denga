@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { getApiRuntimeConfig } from '../common/runtime-config';
 import { PrismaService } from '../prisma/prisma.service';
 import { BOOTSTRAP_HOUSEHOLD_ID } from '../common/household.constants';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
@@ -8,6 +9,7 @@ export class SettingsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getSettings() {
+    const runtimeConfig = getApiRuntimeConfig();
     const household = await this.prisma.household.findUniqueOrThrow({
       where: { id: BOOTSTRAP_HOUSEHOLD_ID },
     });
@@ -21,7 +23,7 @@ export class SettingsService {
       householdName: household.name,
       defaultCurrency: 'EUR',
       telegramMode: values.telegramMode ?? 'polling',
-      aiModel: values.aiModel ?? process.env.POLZA_MODEL ?? 'google/gemini-2.5-flash',
+      aiModel: values.aiModel ?? runtimeConfig.polzaModel,
       clarificationTimeoutMinutes: Number(
         values.clarificationTimeoutMinutes ?? '30',
       ),

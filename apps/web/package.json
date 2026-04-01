@@ -5,6 +5,7 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
-    "lint": "next lint"
+    "lint": "eslint . --max-warnings=0",
+    "test": "jest --config jest.config.ts --runInBand"
   }
 }

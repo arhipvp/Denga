@@ -13,7 +13,7 @@
     "dev": "npm run dev --workspace @denga/api",
     "dev:api": "npm run dev --workspace @denga/api",
     "dev:web": "npm run dev --workspace @denga/web",
-    "test": "npm run test --workspace @denga/api && npm run test --workspace @denga/shared",
+    "test": "npm run test --workspace @denga/api && npm run test --workspace @denga/shared && npm run test --workspace @denga/web",
     "lint": "npm run lint --workspace @denga/web",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

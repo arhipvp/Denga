@@ -53,7 +53,7 @@ npm run dev:api
 npm run dev:web
 ```
 
-`NEXT_PUBLIC_API_URL` обязателен для запуска и production build админки. Для локальной разработки используйте значение вида `http://localhost:3001/api`.
+`NEXT_PUBLIC_API_URL` обязателен для production build и для корректной работы админки. Если переменная не задана, web-приложение не падает на prerender, а показывает явную ошибку конфигурации в UI. Для локальной разработки используйте значение вида `http://localhost:3001/api`.
 
 5. Откройте:
 
@@ -146,6 +146,7 @@ Workflow [`.github/workflows/ci.yml`](/C:/Dev/Denga/.github/workflows/ci.yml) з
 
 - `npm ci`
 - `npm run prisma:generate`
+- `npm run lint`
 - `npm test`
 - `npm run build`
 

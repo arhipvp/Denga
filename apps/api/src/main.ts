@@ -2,11 +2,13 @@ import 'reflect-metadata';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './modules/app.module';
+import { getApiRuntimeConfig } from './modules/common/runtime-config';
 import { LoggingService } from './modules/logging/logging.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const loggingService = app.get(LoggingService);
+  const runtimeConfig = getApiRuntimeConfig();
   app.enableCors({
     origin: true,
     credentials: true,
@@ -19,14 +21,13 @@ async function bootstrap() {
     }),
   );
 
-  const port = Number(process.env.PORT ?? 3001);
   loggingService.info('runtime', 'api_bootstrap_started', 'API bootstrap started', {
-    port,
-    nodeEnv: process.env.NODE_ENV ?? 'development',
+    port: runtimeConfig.port,
+    nodeEnv: runtimeConfig.nodeEnv,
   });
-  await app.listen(port);
+  await app.listen(runtimeConfig.port);
   loggingService.info('runtime', 'api_bootstrap_completed', 'API bootstrap completed', {
-    port,
+    port: runtimeConfig.port,
   });
 }
 

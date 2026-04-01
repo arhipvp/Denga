@@ -1,4 +1,4 @@
-import {
+﻿import {
   Injectable,
   Logger,
 } from '@nestjs/common';
@@ -16,6 +16,7 @@ import axios, { AxiosRequestConfig } from 'axios';
 import { format } from 'date-fns';
 import { Decimal } from '@prisma/client/runtime/library';
 import { BOOTSTRAP_HOUSEHOLD_ID } from '../common/household.constants';
+import { getApiRuntimeConfig } from '../common/runtime-config';
 import { LoggingService } from '../logging/logging.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
@@ -97,10 +98,11 @@ export class TelegramService {
   ) {}
 
   async getStatus() {
+    const runtimeConfig = getApiRuntimeConfig();
     return {
-      mode: process.env.TELEGRAM_MODE ?? 'polling',
-      botConfigured: Boolean(process.env.TELEGRAM_BOT_TOKEN),
-      webhookUrl: process.env.TELEGRAM_WEBHOOK_URL || null,
+      mode: runtimeConfig.telegramMode,
+      botConfigured: Boolean(runtimeConfig.telegramBotToken),
+      webhookUrl: runtimeConfig.telegramWebhookUrl,
     };
   }
 
@@ -976,7 +978,7 @@ export class TelegramService {
       return [];
     }
 
-    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const token = getApiRuntimeConfig().telegramBotToken;
     if (!token) {
       return [];
     }
@@ -1016,7 +1018,7 @@ export class TelegramService {
     telegramFilePath?: string | null,
     mimeType?: string | null,
   ) {
-    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const token = getApiRuntimeConfig().telegramBotToken;
     if (!token || !telegramFileId) {
       return undefined;
     }
@@ -1038,7 +1040,7 @@ export class TelegramService {
   }
 
   private async resolveTelegramFilePath(fileId: string) {
-    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const token = getApiRuntimeConfig().telegramBotToken;
     if (!token) {
       throw new Error('TELEGRAM_BOT_TOKEN is not configured');
     }
@@ -1131,7 +1133,7 @@ export class TelegramService {
     text: string,
     replyMarkup?: Record<string, unknown>,
   ) {
-    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const token = getApiRuntimeConfig().telegramBotToken;
     if (!token) {
       return { message_id: 0 };
     }
@@ -1161,7 +1163,7 @@ export class TelegramService {
     text: string,
     replyMarkup?: Record<string, unknown>,
   ) {
-    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const token = getApiRuntimeConfig().telegramBotToken;
     if (!token) return false;
 
     try {
@@ -1203,7 +1205,7 @@ export class TelegramService {
   }
 
   private async answerCallbackQuery(callbackQueryId: string, text?: string) {
-    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const token = getApiRuntimeConfig().telegramBotToken;
     if (!token) return;
 
     try {
@@ -1225,3 +1227,4 @@ export class TelegramService {
     }
   }
 }
+

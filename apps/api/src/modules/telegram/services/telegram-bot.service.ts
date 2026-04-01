@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Telegraf } from 'telegraf';
+import { getApiRuntimeConfig } from '../../common/runtime-config';
 import { LoggingService } from '../../logging/logging.service';
 import { TelegramService } from '../telegram.service';
 
@@ -17,8 +18,9 @@ export class TelegramBotService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    const token = process.env.TELEGRAM_BOT_TOKEN;
-    const mode = process.env.TELEGRAM_MODE ?? 'polling';
+    const runtimeConfig = getApiRuntimeConfig();
+    const token = runtimeConfig.telegramBotToken;
+    const mode = runtimeConfig.telegramMode;
 
     if (!token) {
       this.logger.warn('TELEGRAM_BOT_TOKEN is not configured');

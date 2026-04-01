@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import OpenAI from 'openai';
 import { z } from 'zod';
+import { getApiRuntimeConfig } from '../../common/runtime-config';
 
 const parseSchema = z.object({
   type: z.enum(['income', 'expense']).nullable(),
@@ -33,9 +34,10 @@ export class AiParsingService {
   private readonly client: OpenAI;
 
   constructor() {
+    const runtimeConfig = getApiRuntimeConfig();
     this.client = new OpenAI({
-      apiKey: process.env.POLZA_API_KEY,
-      baseURL: process.env.POLZA_BASE_URL ?? 'https://polza.ai/api/v1',
+      apiKey: runtimeConfig.polzaApiKey,
+      baseURL: runtimeConfig.polzaBaseUrl,
     });
   }
 

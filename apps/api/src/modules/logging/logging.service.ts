@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { mkdirSync, appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { getApiRuntimeConfig } from '../common/runtime-config';
 import { LogLevel, LogRecord } from './logging.types';
 
 const levelWeights: Record<LogLevel, number> = {
@@ -12,9 +13,10 @@ const levelWeights: Record<LogLevel, number> = {
 
 @Injectable()
 export class LoggingService {
-  private readonly logDir = process.env.LOG_DIR ?? 'logs';
+  private readonly runtimeConfig = getApiRuntimeConfig();
+  private readonly logDir = this.runtimeConfig.logDir;
   private readonly logFile = join(process.cwd(), this.logDir, 'app.log');
-  private readonly minLevel = this.resolveLogLevel(process.env.LOG_LEVEL);
+  private readonly minLevel = this.resolveLogLevel(this.runtimeConfig.logLevel);
 
   constructor() {
     mkdirSync(join(process.cwd(), this.logDir), { recursive: true });

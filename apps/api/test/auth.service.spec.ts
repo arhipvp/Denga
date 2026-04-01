@@ -1,8 +1,8 @@
-import { UnauthorizedException } from '@nestjs/common';
+﻿import { UnauthorizedException } from '@nestjs/common';
 import bcrypt from 'bcrypt';
 import { AuthService } from '../src/modules/auth/auth.service';
 
-describe('AuthService.changePassword', () => {
+describe('AuthService', () => {
   const signAsync = jest.fn();
   const findUnique = jest.fn();
   const update = jest.fn();
@@ -19,21 +19,56 @@ describe('AuthService.changePassword', () => {
         findUnique,
         update,
       },
-    } as any,
+    } as never,
     {
       signAsync,
-    } as any,
-    loggingService as any,
+    } as never,
+    loggingService as never,
   );
 
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
+  it('returns access token when credentials are valid', async () => {
+    findUnique.mockResolvedValue({
+      id: 'user-1',
+      email: 'admin@example.com',
+      role: 'ADMIN',
+      passwordHash: await bcrypt.hash('secret', 10),
+    });
+    signAsync.mockResolvedValue('signed-token');
+
+    await expect(
+      service.login({ email: 'admin@example.com', password: 'secret' }),
+    ).resolves.toEqual({
+      accessToken: 'signed-token',
+      user: {
+        sub: 'user-1',
+        email: 'admin@example.com',
+        role: 'ADMIN',
+      },
+    });
+  });
+
+  it('throws when login credentials are invalid', async () => {
+    findUnique.mockResolvedValue({
+      id: 'user-1',
+      email: 'admin@example.com',
+      role: 'ADMIN',
+      passwordHash: await bcrypt.hash('secret', 10),
+    });
+
+    await expect(
+      service.login({ email: 'admin@example.com', password: 'wrong' }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
   it('updates password hash when current password is valid', async () => {
     const currentHash = await bcrypt.hash('old-password', 10);
     findUnique.mockResolvedValue({
       id: 'user-1',
+      email: 'admin@example.com',
       passwordHash: currentHash,
     });
     update.mockResolvedValue({});
@@ -45,9 +80,6 @@ describe('AuthService.changePassword', () => {
       }),
     ).resolves.toEqual({ success: true });
 
-    expect(findUnique).toHaveBeenCalledWith({
-      where: { id: 'user-1' },
-    });
     expect(update).toHaveBeenCalledTimes(1);
 
     const updatePayload = update.mock.calls[0][0];

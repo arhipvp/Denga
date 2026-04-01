@@ -12,6 +12,9 @@ import { SettingsModule } from './settings/settings.module';
 import { TelegramModule } from './telegram/telegram.module';
 import { TransactionModule } from './transaction/transaction.module';
 import { UserModule } from './user/user.module';
+import { getApiRuntimeConfig } from './common/runtime-config';
+
+const runtimeConfig = getApiRuntimeConfig();
 
 @Module({
   imports: [
@@ -20,7 +23,7 @@ import { UserModule } from './user/user.module';
       envFilePath: ['.env'],
     }),
     ServeStaticModule.forRoot({
-      rootPath: join(process.cwd(), process.env.UPLOAD_DIR ?? 'uploads'),
+      rootPath: join(process.cwd(), runtimeConfig.uploadDir),
       serveRoot: '/uploads',
     }),
     PrismaModule,
