@@ -87,12 +87,45 @@ export type BackupInfo = {
 
 export type Summary = {
   totals: {
+    currentPeriod: {
+      income: number;
+      expense: number;
+      balance: number;
+    };
+    previousPeriod: {
+      income: number;
+      expense: number;
+      balance: number;
+    };
+  };
+  diffs: {
     income: number;
     expense: number;
     balance: number;
-    reviewCount: number;
-    cancelledCount: number;
   };
+  counts: {
+    operations: number;
+    income: number;
+    expense: number;
+    cancelled: number;
+  };
+  average: {
+    income: number;
+    expense: number;
+    transaction: number;
+  };
+  topExpenseCategories: Array<{
+    categoryId: string | null;
+    categoryName: string;
+    amount: number;
+    share: number;
+  }>;
+  topIncomeCategories: Array<{
+    categoryId: string | null;
+    categoryName: string;
+    amount: number;
+    share: number;
+  }>;
   monthly: Array<{
     month: string;
     income: number;

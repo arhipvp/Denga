@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { readFile } from 'node:fs/promises';
 import axios, { AxiosRequestConfig } from 'axios';
 import { getApiRuntimeConfig } from '../common/runtime-config';
 import { LoggingService } from '../logging/logging.service';
@@ -44,6 +45,46 @@ export class TelegramDeliveryService {
       'telegram_send_message',
       'Telegram sendMessage failed',
       { chatId },
+    );
+
+    return response.data.result as { message_id: number };
+  }
+
+  async sendTelegramDocument(input: {
+    chatId: string;
+    filePath: string;
+    fileName: string;
+    caption?: string;
+  }) {
+    const token = getApiRuntimeConfig().telegramBotToken;
+    if (!token) {
+      return { message_id: 0 };
+    }
+
+    const formData = new FormData();
+    const buffer = await readFile(input.filePath);
+    const documentBlob = new Blob([buffer], {
+      type: 'application/octet-stream',
+    });
+
+    formData.append('chat_id', input.chatId);
+    formData.append('document', documentBlob, input.fileName);
+    if (input.caption) {
+      formData.append('caption', input.caption);
+    }
+
+    const response = await this.requestTelegramApi<{ result: { message_id: number } }>(
+      {
+        method: 'POST',
+        url: `https://api.telegram.org/bot${token}/sendDocument`,
+        data: formData,
+      },
+      'telegram_send_document',
+      'Telegram sendDocument failed',
+      {
+        chatId: input.chatId,
+        fileName: input.fileName,
+      },
     );
 
     return response.data.result as { message_id: number };

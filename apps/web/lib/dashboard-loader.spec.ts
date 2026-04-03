@@ -5,6 +5,33 @@ import {
 } from './dashboard-loader';
 
 describe('dashboard loader', () => {
+  const summaryPayload = {
+    totals: {
+      currentPeriod: { income: 1200, expense: 400, balance: 800 },
+      previousPeriod: { income: 1000, expense: 500, balance: 500 },
+    },
+    diffs: {
+      income: 200,
+      expense: -100,
+      balance: 300,
+    },
+    counts: {
+      operations: 4,
+      income: 1,
+      expense: 3,
+      cancelled: 1,
+    },
+    average: {
+      income: 1200,
+      expense: 133.33,
+      transaction: 400,
+    },
+    topExpenseCategories: [],
+    topIncomeCategories: [],
+    monthly: [],
+    recent: [],
+  };
+
   it('loads all primary dashboard resources', async () => {
     const request = jest.fn(async (path: string) => {
       switch (path) {
@@ -17,7 +44,7 @@ describe('dashboard loader', () => {
         case '/settings':
           return { householdName: 'Denga' };
         case '/transactions/summary':
-          return { totals: {}, monthly: [], recent: [] };
+          return summaryPayload;
         case '/backups/latest':
           return null;
         default:
@@ -36,7 +63,7 @@ describe('dashboard loader', () => {
       categories: [{ id: 'cat-1' }],
       users: [{ id: 'user-1' }],
       settings: { householdName: 'Denga' },
-      summary: { totals: {}, monthly: [], recent: [] },
+      summary: summaryPayload,
       latestBackup: null,
     });
   });
@@ -53,7 +80,7 @@ describe('dashboard loader', () => {
         case '/settings':
           return null;
         case '/transactions/summary':
-          return { totals: {}, monthly: [], recent: [] };
+          return summaryPayload;
         case '/backups/latest':
           return null;
         default:

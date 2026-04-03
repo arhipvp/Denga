@@ -1,4 +1,8 @@
-﻿import { CategoryType, SourceMessageStatus, TransactionType } from '@prisma/client';
+import {
+  CategoryType,
+  TransactionStatus,
+  TransactionType,
+} from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { CategoryService } from '../src/modules/category/category.service';
 import { HouseholdContextService } from '../src/modules/common/household-context.service';
@@ -46,6 +50,7 @@ describe('TransactionService', () => {
   const transactionCreate = jest.fn();
   const transactionUpdate = jest.fn();
   const transactionFindUniqueOrThrow = jest.fn();
+  const transactionFindMany = jest.fn();
   const categoryFindUniqueOrThrow = jest.fn();
   const settingsService = {
     getSettings: jest.fn().mockResolvedValue({ defaultCurrency: 'EUR' }),
@@ -79,6 +84,7 @@ describe('TransactionService', () => {
         create: transactionCreate,
         update: transactionUpdate,
         findUniqueOrThrow: transactionFindUniqueOrThrow,
+        findMany: transactionFindMany,
       },
       category: {
         findUniqueOrThrow: categoryFindUniqueOrThrow,
@@ -93,6 +99,54 @@ describe('TransactionService', () => {
     jest.clearAllMocks();
     settingsService.getSettings.mockResolvedValue({ defaultCurrency: 'EUR' });
   });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function createTransaction(input: {
+    id: string;
+    amount: number;
+    occurredAt: string;
+    type: TransactionType;
+    status?: TransactionStatus;
+    categoryId?: string | null;
+    categoryName?: string | null;
+    comment?: string | null;
+  }) {
+    return {
+      id: input.id,
+      householdId: 'household-1',
+      authorId: null,
+      categoryId: input.categoryId ?? null,
+      sourceMessageId: null,
+      type: input.type,
+      amount: new Decimal(input.amount),
+      currency: 'EUR',
+      occurredAt: new Date(input.occurredAt),
+      comment: input.comment ?? null,
+      status: input.status ?? TransactionStatus.CONFIRMED,
+      createdAt: new Date(input.occurredAt),
+      updatedAt: new Date(input.occurredAt),
+      author: null,
+      category:
+        input.categoryId === undefined && input.categoryName === undefined
+          ? null
+          : {
+              id: input.categoryId ?? `${input.id}-category`,
+              householdId: 'household-1',
+              name: input.categoryName ?? 'Без категории',
+              type:
+                input.type === TransactionType.INCOME
+                  ? CategoryType.INCOME
+                  : CategoryType.EXPENSE,
+              isActive: true,
+              createdAt: new Date(input.occurredAt),
+              updatedAt: new Date(input.occurredAt),
+            },
+      sourceMessage: null,
+    };
+  }
 
   it('creates manual transactions with validated category type', async () => {
     sourceMessageCreate.mockResolvedValue({ id: 'source-1' });
@@ -154,6 +208,243 @@ describe('TransactionService', () => {
     expect(transactionUpdate).toHaveBeenCalledWith({
       where: { id: 'tx-1' },
       data: { status: 'CANCELLED' },
+    });
+  });
+
+  it('returns empty summary when there are no transactions', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-04-20T12:00:00.000Z'));
+    transactionFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    const summary = await service.summary();
+
+    expect(summary).toMatchObject({
+      totals: {
+        currentPeriod: { income: 0, expense: 0, balance: 0 },
+        previousPeriod: { income: 0, expense: 0, balance: 0 },
+      },
+      diffs: { income: 0, expense: 0, balance: 0 },
+      counts: { operations: 0, income: 0, expense: 0, cancelled: 0 },
+      average: { income: 0, expense: 0, transaction: 0 },
+      topExpenseCategories: [],
+      topIncomeCategories: [],
+      recent: [],
+    });
+    expect(summary.monthly).toEqual([
+      { month: '2025-11', income: 0, expense: 0, net: 0 },
+      { month: '2025-12', income: 0, expense: 0, net: 0 },
+      { month: '2026-01', income: 0, expense: 0, net: 0 },
+      { month: '2026-02', income: 0, expense: 0, net: 0 },
+      { month: '2026-03', income: 0, expense: 0, net: 0 },
+      { month: '2026-04', income: 0, expense: 0, net: 0 },
+    ]);
+  });
+
+  it('builds income-only summary for the current month', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-04-20T12:00:00.000Z'));
+    const recentTransactions = [
+      createTransaction({
+        id: 'tx-2',
+        amount: 500,
+        occurredAt: '2026-04-10T12:00:00.000Z',
+        type: TransactionType.INCOME,
+        categoryId: 'salary',
+        categoryName: 'Зарплата',
+      }),
+      createTransaction({
+        id: 'tx-1',
+        amount: 1000,
+        occurredAt: '2026-04-05T12:00:00.000Z',
+        type: TransactionType.INCOME,
+        categoryId: 'freelance',
+        categoryName: 'Фриланс',
+      }),
+    ];
+
+    transactionFindMany
+      .mockResolvedValueOnce(recentTransactions)
+      .mockResolvedValueOnce([...recentTransactions].reverse());
+
+    const summary = await service.summary();
+
+    expect(summary.totals.currentPeriod).toEqual({
+      income: 1500,
+      expense: 0,
+      balance: 1500,
+    });
+    expect(summary.counts).toEqual({
+      operations: 2,
+      income: 2,
+      expense: 0,
+      cancelled: 0,
+    });
+    expect(summary.average).toEqual({
+      income: 750,
+      expense: 0,
+      transaction: 750,
+    });
+    expect(summary.topIncomeCategories).toEqual([
+      expect.objectContaining({ categoryName: 'Фриланс', amount: 1000, share: 1000 / 1500 }),
+      expect.objectContaining({ categoryName: 'Зарплата', amount: 500, share: 500 / 1500 }),
+    ]);
+    expect(summary.topExpenseCategories).toEqual([]);
+  });
+
+  it('builds expense-only summary for the current month', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-04-20T12:00:00.000Z'));
+    const recentTransactions = [
+      createTransaction({
+        id: 'tx-2',
+        amount: 60,
+        occurredAt: '2026-04-07T12:00:00.000Z',
+        type: TransactionType.EXPENSE,
+        categoryId: 'food',
+        categoryName: 'Еда',
+      }),
+      createTransaction({
+        id: 'tx-1',
+        amount: 40,
+        occurredAt: '2026-04-03T12:00:00.000Z',
+        type: TransactionType.EXPENSE,
+        categoryId: 'taxi',
+        categoryName: 'Такси',
+      }),
+    ];
+
+    transactionFindMany
+      .mockResolvedValueOnce(recentTransactions)
+      .mockResolvedValueOnce([...recentTransactions].reverse());
+
+    const summary = await service.summary();
+
+    expect(summary.totals.currentPeriod).toEqual({
+      income: 0,
+      expense: 100,
+      balance: -100,
+    });
+    expect(summary.average).toEqual({
+      income: 0,
+      expense: 50,
+      transaction: 50,
+    });
+    expect(summary.topExpenseCategories).toEqual([
+      expect.objectContaining({ categoryName: 'Еда', amount: 60, share: 0.6 }),
+      expect.objectContaining({ categoryName: 'Такси', amount: 40, share: 0.4 }),
+    ]);
+    expect(summary.topIncomeCategories).toEqual([]);
+  });
+
+  it('calculates diffs, category shares and monthly buckets with gaps', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-04-20T12:00:00.000Z'));
+    const recentTransactions = [
+      createTransaction({
+        id: 'tx-recent-cancelled',
+        amount: 30,
+        occurredAt: '2026-04-16T12:00:00.000Z',
+        type: TransactionType.EXPENSE,
+        status: TransactionStatus.CANCELLED,
+        categoryId: 'taxi',
+        categoryName: 'Такси',
+        comment: 'Отмена',
+      }),
+      createTransaction({
+        id: 'tx-current-income-1',
+        amount: 400,
+        occurredAt: '2026-04-15T12:00:00.000Z',
+        type: TransactionType.INCOME,
+        categoryId: 'salary',
+        categoryName: 'Зарплата',
+      }),
+      createTransaction({
+        id: 'tx-current-expense-1',
+        amount: 120,
+        occurredAt: '2026-04-12T12:00:00.000Z',
+        type: TransactionType.EXPENSE,
+        categoryId: 'food',
+        categoryName: 'Еда',
+        comment: 'Супермаркет',
+      }),
+      createTransaction({
+        id: 'tx-current-expense-2',
+        amount: 80,
+        occurredAt: '2026-04-06T12:00:00.000Z',
+        type: TransactionType.EXPENSE,
+        categoryId: 'taxi',
+        categoryName: 'Такси',
+      }),
+      createTransaction({
+        id: 'tx-previous-income',
+        amount: 300,
+        occurredAt: '2026-03-11T12:00:00.000Z',
+        type: TransactionType.INCOME,
+        categoryId: 'salary',
+        categoryName: 'Зарплата',
+      }),
+      createTransaction({
+        id: 'tx-previous-expense',
+        amount: 50,
+        occurredAt: '2026-03-05T12:00:00.000Z',
+        type: TransactionType.EXPENSE,
+        categoryId: 'food',
+        categoryName: 'Еда',
+      }),
+    ];
+    const allTransactions = [
+      ...recentTransactions,
+      createTransaction({
+        id: 'tx-january-income',
+        amount: 200,
+        occurredAt: '2026-01-09T12:00:00.000Z',
+        type: TransactionType.INCOME,
+        categoryId: 'bonus',
+        categoryName: 'Бонус',
+      }),
+    ];
+
+    transactionFindMany
+      .mockResolvedValueOnce(recentTransactions)
+      .mockResolvedValueOnce([...allTransactions].reverse());
+
+    const summary = await service.summary();
+
+    expect(summary.totals).toEqual({
+      currentPeriod: { income: 400, expense: 200, balance: 200 },
+      previousPeriod: { income: 300, expense: 50, balance: 250 },
+    });
+    expect(summary.diffs).toEqual({
+      income: 100,
+      expense: 150,
+      balance: -50,
+    });
+    expect(summary.counts).toEqual({
+      operations: 3,
+      income: 1,
+      expense: 2,
+      cancelled: 1,
+    });
+    expect(summary.average).toEqual({
+      income: 400,
+      expense: 100,
+      transaction: 200,
+    });
+    expect(summary.topExpenseCategories).toEqual([
+      expect.objectContaining({ categoryName: 'Еда', amount: 120, share: 0.6 }),
+      expect.objectContaining({ categoryName: 'Такси', amount: 80, share: 0.4 }),
+    ]);
+    expect(summary.topIncomeCategories).toEqual([
+      expect.objectContaining({ categoryName: 'Зарплата', amount: 400, share: 1 }),
+    ]);
+    expect(summary.monthly).toEqual([
+      { month: '2025-11', income: 0, expense: 0, net: 0 },
+      { month: '2025-12', income: 0, expense: 0, net: 0 },
+      { month: '2026-01', income: 200, expense: 0, net: 200 },
+      { month: '2026-02', income: 0, expense: 0, net: 0 },
+      { month: '2026-03', income: 300, expense: 50, net: 250 },
+      { month: '2026-04', income: 400, expense: 200, net: 200 },
+    ]);
+    expect(summary.recent[0]).toMatchObject({
+      id: 'tx-recent-cancelled',
+      status: TransactionStatus.CANCELLED,
+      comment: 'Отмена',
     });
   });
 });

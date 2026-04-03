@@ -144,6 +144,169 @@ textarea {
   font-size: 28px;
 }
 
+.stat small {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.overview-grid {
+  align-items: stretch;
+}
+
+.overview-stat {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 168px;
+}
+
+.delta {
+  color: var(--muted);
+}
+
+.delta.positive {
+  color: var(--accent);
+}
+
+.delta.negative {
+  color: var(--danger);
+}
+
+.delta.neutral {
+  color: var(--muted);
+}
+
+.overview-secondary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.overview-mini-stats {
+  display: grid;
+  gap: 14px;
+}
+
+.mini-stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.mini-stat:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.mini-stat span,
+.comparison-row span,
+.trend-card span,
+.category-breakdown-row span,
+.trend-label {
+  color: var(--muted);
+}
+
+.mini-stat strong,
+.comparison-row strong,
+.category-breakdown-row strong {
+  font-size: 18px;
+}
+
+.comparison-list {
+  display: grid;
+  gap: 14px;
+}
+
+.comparison-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.comparison-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.monthly-trend {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.trend-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 20px;
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+}
+
+.trend-bars {
+  display: grid;
+  gap: 10px;
+}
+
+.trend-bar {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(54, 47, 36, 0.08);
+}
+
+.trend-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+}
+
+.trend-bar-fill.income {
+  background: var(--accent);
+}
+
+.trend-bar-fill.expense {
+  background: var(--danger);
+}
+
+.trend-net {
+  font-size: 22px;
+}
+
+.trend-net.positive {
+  color: var(--accent);
+}
+
+.trend-net.negative {
+  color: var(--danger);
+}
+
+.category-breakdown {
+  display: grid;
+  gap: 12px;
+}
+
+.category-breakdown-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+}
+
+.category-breakdown-row > div {
+  display: grid;
+  gap: 4px;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -261,5 +424,12 @@ textarea {
 
   .sidebar {
     position: static;
+  }
+
+  .comparison-row,
+  .mini-stat,
+  .category-breakdown-row {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

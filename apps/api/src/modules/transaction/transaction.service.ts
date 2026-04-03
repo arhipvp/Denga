@@ -51,10 +51,28 @@ export class TransactionService {
   }
 
   async summary() {
-    const transactions = await this.prisma.transaction.findMany({
+    const householdId = this.householdContext.getHouseholdId();
+    const now = new Date();
+    const currentPeriodStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+    );
+    const nextPeriodStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+    );
+    const previousPeriodStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1),
+    );
+    const monthKeys = Array.from({ length: 6 }, (_, index) => {
+      const value = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (5 - index), 1),
+      );
+
+      return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, '0')}`;
+    });
+
+    const recent = await this.prisma.transaction.findMany({
       where: {
-        householdId: this.householdContext.getHouseholdId(),
-        status: TransactionStatus.CONFIRMED,
+        householdId,
       },
       orderBy: {
         occurredAt: 'desc',
@@ -62,87 +80,174 @@ export class TransactionService {
       take: 8,
       include: {
         category: true,
+        author: true,
+        sourceMessage: {
+          include: {
+            attachments: true,
+            clarificationSession: true,
+            reviewDraft: true,
+            parseAttempts: {
+              orderBy: {
+                createdAt: 'desc',
+              },
+            },
+          },
+        },
       },
     });
 
-    const totals = transactions.reduce(
-      (acc, item) => {
-        const amount = Number(item.amount);
-        if (item.type === TransactionType.INCOME) {
-          acc.income += amount;
-        } else {
-          acc.expense += amount;
-        }
-        return acc;
-      },
-      { income: 0, expense: 0 },
-    );
-
-    const allConfirmed = await this.prisma.transaction.findMany({
+    const allTransactions = await this.prisma.transaction.findMany({
       where: {
-        householdId: this.householdContext.getHouseholdId(),
-        status: TransactionStatus.CONFIRMED,
+        householdId,
       },
-      select: {
-        amount: true,
-        type: true,
-        occurredAt: true,
+      include: {
+        category: true,
       },
       orderBy: {
         occurredAt: 'asc',
       },
     });
 
-    const monthlyMap = new Map<
-      string,
-      { month: string; income: number; expense: number; net: number }
-    >();
+    const monthlyMap = new Map<string, { month: string; income: number; expense: number; net: number }>(
+      monthKeys.map((month) => [month, { month, income: 0, expense: 0, net: 0 }]),
+    );
+    const currentCategoryExpenseMap = new Map<string, { categoryId: string | null; categoryName: string; amount: number }>();
+    const currentCategoryIncomeMap = new Map<string, { categoryId: string | null; categoryName: string; amount: number }>();
+    const currentPeriodTotals = { income: 0, expense: 0, balance: 0 };
+    const previousPeriodTotals = { income: 0, expense: 0, balance: 0 };
+    const counts = { operations: 0, income: 0, expense: 0, cancelled: 0 };
+    const averageAccumulator = { incomeTotal: 0, incomeCount: 0, expenseTotal: 0, expenseCount: 0, total: 0, totalCount: 0 };
 
-    for (const item of allConfirmed) {
+    for (const item of allTransactions) {
+      const amount = Number(item.amount);
       const month = `${item.occurredAt.getUTCFullYear()}-${String(
         item.occurredAt.getUTCMonth() + 1,
       ).padStart(2, '0')}`;
-      const current = monthlyMap.get(month) ?? {
-        month,
-        income: 0,
-        expense: 0,
-        net: 0,
-      };
-      const amount = Number(item.amount);
-      if (item.type === TransactionType.INCOME) {
-        current.income += amount;
-        current.net += amount;
-      } else {
-        current.expense += amount;
-        current.net -= amount;
+
+      if (item.status === TransactionStatus.CONFIRMED) {
+        const monthlyEntry = monthlyMap.get(month);
+        if (monthlyEntry) {
+          if (item.type === TransactionType.INCOME) {
+            monthlyEntry.income += amount;
+            monthlyEntry.net += amount;
+          } else {
+            monthlyEntry.expense += amount;
+            monthlyEntry.net -= amount;
+          }
+        }
       }
-      monthlyMap.set(month, current);
+
+      const isCurrentPeriod =
+        item.occurredAt >= currentPeriodStart && item.occurredAt < nextPeriodStart;
+      const isPreviousPeriod =
+        item.occurredAt >= previousPeriodStart && item.occurredAt < currentPeriodStart;
+
+      if (item.status === TransactionStatus.CANCELLED && isCurrentPeriod) {
+        counts.cancelled += 1;
+      }
+
+      if (item.status !== TransactionStatus.CONFIRMED) {
+        continue;
+      }
+
+      if (isCurrentPeriod) {
+        counts.operations += 1;
+        averageAccumulator.total += amount;
+        averageAccumulator.totalCount += 1;
+
+        if (item.type === TransactionType.INCOME) {
+          counts.income += 1;
+          currentPeriodTotals.income += amount;
+          currentPeriodTotals.balance += amount;
+          averageAccumulator.incomeTotal += amount;
+          averageAccumulator.incomeCount += 1;
+
+          const key = item.categoryId ?? 'uncategorized-income';
+          const current =
+            currentCategoryIncomeMap.get(key) ?? {
+              categoryId: item.categoryId ?? null,
+              categoryName: item.category?.name ?? 'Без категории',
+              amount: 0,
+            };
+          current.amount += amount;
+          currentCategoryIncomeMap.set(key, current);
+        } else {
+          counts.expense += 1;
+          currentPeriodTotals.expense += amount;
+          currentPeriodTotals.balance -= amount;
+          averageAccumulator.expenseTotal += amount;
+          averageAccumulator.expenseCount += 1;
+
+          const key = item.categoryId ?? 'uncategorized-expense';
+          const current =
+            currentCategoryExpenseMap.get(key) ?? {
+              categoryId: item.categoryId ?? null,
+              categoryName: item.category?.name ?? 'Без категории',
+              amount: 0,
+            };
+          current.amount += amount;
+          currentCategoryExpenseMap.set(key, current);
+        }
+      }
+
+      if (isPreviousPeriod) {
+        if (item.type === TransactionType.INCOME) {
+          previousPeriodTotals.income += amount;
+          previousPeriodTotals.balance += amount;
+        } else {
+          previousPeriodTotals.expense += amount;
+          previousPeriodTotals.balance -= amount;
+        }
+      }
     }
 
-    const reviewCount = await this.prisma.transaction.count({
-      where: {
-        householdId: this.householdContext.getHouseholdId(),
-        status: TransactionStatus.NEEDS_CLARIFICATION,
-      },
-    });
+    const topExpenseCategories = Array.from(currentCategoryExpenseMap.values())
+      .sort((left, right) => right.amount - left.amount)
+      .slice(0, 5)
+      .map((item) => ({
+        ...item,
+        share:
+          currentPeriodTotals.expense > 0 ? item.amount / currentPeriodTotals.expense : 0,
+      }));
 
-    const cancelledCount = await this.prisma.transaction.count({
-      where: {
-        householdId: this.householdContext.getHouseholdId(),
-        status: TransactionStatus.CANCELLED,
-      },
-    });
+    const topIncomeCategories = Array.from(currentCategoryIncomeMap.values())
+      .sort((left, right) => right.amount - left.amount)
+      .slice(0, 5)
+      .map((item) => ({
+        ...item,
+        share:
+          currentPeriodTotals.income > 0 ? item.amount / currentPeriodTotals.income : 0,
+      }));
 
     return {
       totals: {
-        income: totals.income,
-        expense: totals.expense,
-        balance: totals.income - totals.expense,
-        reviewCount,
-        cancelledCount,
+        currentPeriod: currentPeriodTotals,
+        previousPeriod: previousPeriodTotals,
       },
-      monthly: Array.from(monthlyMap.values()).slice(-6),
-      recent: transactions,
+      diffs: {
+        income: currentPeriodTotals.income - previousPeriodTotals.income,
+        expense: currentPeriodTotals.expense - previousPeriodTotals.expense,
+        balance: currentPeriodTotals.balance - previousPeriodTotals.balance,
+      },
+      counts,
+      average: {
+        income:
+          averageAccumulator.incomeCount > 0
+            ? averageAccumulator.incomeTotal / averageAccumulator.incomeCount
+            : 0,
+        expense:
+          averageAccumulator.expenseCount > 0
+            ? averageAccumulator.expenseTotal / averageAccumulator.expenseCount
+            : 0,
+        transaction:
+          averageAccumulator.totalCount > 0
+            ? averageAccumulator.total / averageAccumulator.totalCount
+            : 0,
+      },
+      topExpenseCategories,
+      topIncomeCategories,
+      monthly: Array.from(monthlyMap.values()),
+      recent,
     };
   }
 

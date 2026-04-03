@@ -33,6 +33,42 @@ function formatBackupSize(sizeBytes: number) {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatMoney(value: number) {
+  return value.toLocaleString('ru-RU', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatDelta(value: number) {
+  const formatted = formatMoney(Math.abs(value));
+  return `${value > 0 ? '+' : value < 0 ? '-' : ''}${formatted}`;
+}
+
+function formatMonthLabel(month: string) {
+  const [year, value] = month.split('-').map(Number);
+  const labels = [
+    'Янв',
+    'Фев',
+    'Мар',
+    'Апр',
+    'Май',
+    'Июн',
+    'Июл',
+    'Авг',
+    'Сен',
+    'Окт',
+    'Ноя',
+    'Дек',
+  ];
+
+  return `${labels[(value ?? 1) - 1]} ${year}`;
+}
+
+function formatShare(share: number) {
+  return `${(share * 100).toFixed(0)}%`;
+}
+
 type LayoutProps = {
   auth: AuthState;
   section: Section;
@@ -98,64 +134,204 @@ export function DashboardLayout({
 }
 
 export function OverviewSection({ summary }: { summary: Summary }) {
+  const monthlyScale = Math.max(
+    ...summary.monthly.flatMap((item) => [item.income, item.expense, Math.abs(item.net)]),
+    1,
+  );
+
   return (
     <>
-      <section className="grid">
-        <article className="panel stat">
-          <span>Доходы</span>
-          <strong>{summary.totals.income.toFixed(2)}</strong>
+      <section className="grid overview-grid">
+        <article className="panel stat overview-stat">
+          <span>Доходы за месяц</span>
+          <strong>{formatMoney(summary.totals.currentPeriod.income)}</strong>
+          <small
+            className={
+              summary.diffs.income > 0
+                ? 'delta positive'
+                : summary.diffs.income < 0
+                  ? 'delta negative'
+                  : 'delta'
+            }
+          >
+            К прошлому месяцу: {formatDelta(summary.diffs.income)}
+          </small>
         </article>
-        <article className="panel stat">
-          <span>Расходы</span>
-          <strong>{summary.totals.expense.toFixed(2)}</strong>
+        <article className="panel stat overview-stat">
+          <span>Расходы за месяц</span>
+          <strong>{formatMoney(summary.totals.currentPeriod.expense)}</strong>
+          <small
+            className={
+              summary.diffs.expense > 0
+                ? 'delta negative'
+                : summary.diffs.expense < 0
+                  ? 'delta positive'
+                  : 'delta'
+            }
+          >
+            К прошлому месяцу: {formatDelta(summary.diffs.expense)}
+          </small>
         </article>
-        <article className="panel stat">
+        <article className="panel stat overview-stat">
           <span>Баланс</span>
-          <strong>{summary.totals.balance.toFixed(2)}</strong>
+          <strong>{formatMoney(summary.totals.currentPeriod.balance)}</strong>
+          <small
+            className={
+              summary.diffs.balance > 0
+                ? 'delta positive'
+                : summary.diffs.balance < 0
+                  ? 'delta negative'
+                  : 'delta'
+            }
+          >
+            К прошлому месяцу: {formatDelta(summary.diffs.balance)}
+          </small>
         </article>
-        <article className="panel stat">
-          <span>Отмененные</span>
-          <strong>{summary.totals.cancelledCount}</strong>
+        <article className="panel stat overview-stat">
+          <span>Подтвержденные операции</span>
+          <strong>{summary.counts.operations}</strong>
+          <small className="delta neutral">
+            Доходов: {summary.counts.income}, расходов: {summary.counts.expense}, отмен: {summary.counts.cancelled}
+          </small>
+        </article>
+      </section>
+
+      <section className="grid overview-secondary-grid">
+        <article className="panel card">
+          <div className="hero" style={{ alignItems: 'flex-start' }}>
+            <div>
+              <h3 style={{ margin: 0 }}>Средние значения</h3>
+              <p style={{ margin: '8px 0 0' }}>Текущий календарный месяц.</p>
+            </div>
+          </div>
+          <div className="overview-mini-stats">
+            <article className="mini-stat">
+              <span>Средний доход</span>
+              <strong>{formatMoney(summary.average.income)}</strong>
+            </article>
+            <article className="mini-stat">
+              <span>Средний расход</span>
+              <strong>{formatMoney(summary.average.expense)}</strong>
+            </article>
+            <article className="mini-stat">
+              <span>Средняя операция</span>
+              <strong>{formatMoney(summary.average.transaction)}</strong>
+            </article>
+          </div>
+        </article>
+
+        <article className="panel card">
+          <div className="hero" style={{ alignItems: 'flex-start' }}>
+            <div>
+              <h3 style={{ margin: 0 }}>Сравнение периодов</h3>
+              <p style={{ margin: '8px 0 0' }}>Текущий месяц против предыдущего.</p>
+            </div>
+          </div>
+          <div className="comparison-list">
+            <div className="comparison-row">
+              <span>Доходы</span>
+              <strong>
+                {formatMoney(summary.totals.currentPeriod.income)} / {formatMoney(summary.totals.previousPeriod.income)}
+              </strong>
+            </div>
+            <div className="comparison-row">
+              <span>Расходы</span>
+              <strong>
+                {formatMoney(summary.totals.currentPeriod.expense)} / {formatMoney(summary.totals.previousPeriod.expense)}
+              </strong>
+            </div>
+            <div className="comparison-row">
+              <span>Баланс</span>
+              <strong>
+                {formatMoney(summary.totals.currentPeriod.balance)} / {formatMoney(summary.totals.previousPeriod.balance)}
+              </strong>
+            </div>
+          </div>
         </article>
       </section>
 
       <section className="panel card">
-        <h3>Месячный тренд</h3>
-        <div className="grid">
-          {summary.monthly.map((item) => {
-            const scale = Math.max(item.income, item.expense, Math.abs(item.net), 1);
-            return (
-              <article key={item.month} className="stat">
-                <span>{item.month}</span>
-                <div style={{ display: 'grid', gap: 8 }}>
-                  <div>
-                    <div>Доходы: {item.income.toFixed(2)}</div>
-                    <div
-                      style={{
-                        height: 10,
-                        width: `${(item.income / scale) * 100}%`,
-                        background: 'var(--accent)',
-                        borderRadius: 999,
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <div>Расходы: {item.expense.toFixed(2)}</div>
-                    <div
-                      style={{
-                        height: 10,
-                        width: `${(item.expense / scale) * 100}%`,
-                        background: 'var(--danger)',
-                        borderRadius: 999,
-                      }}
-                    />
-                  </div>
-                  <div>Баланс: {item.net.toFixed(2)}</div>
-                </div>
-              </article>
-            );
-          })}
+        <div className="hero" style={{ marginBottom: 20, alignItems: 'flex-start' }}>
+          <div>
+            <h3 style={{ margin: 0 }}>Динамика за 6 месяцев</h3>
+            <p style={{ margin: '8px 0 0' }}>Доходы, расходы и итог по месяцам.</p>
+          </div>
         </div>
+        <div className="monthly-trend">
+          {summary.monthly.map((item) => (
+            <article key={item.month} className="trend-card">
+              <span>{formatMonthLabel(item.month)}</span>
+              <div className="trend-bars">
+                <div>
+                  <div className="trend-label">Доходы: {formatMoney(item.income)}</div>
+                  <div className="trend-bar">
+                    <div
+                      className="trend-bar-fill income"
+                      style={{ width: `${(item.income / monthlyScale) * 100}%` }}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <div className="trend-label">Расходы: {formatMoney(item.expense)}</div>
+                  <div className="trend-bar">
+                    <div
+                      className="trend-bar-fill expense"
+                      style={{ width: `${(item.expense / monthlyScale) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+              <strong className={item.net >= 0 ? 'trend-net positive' : 'trend-net negative'}>
+                {item.net >= 0 ? '+' : ''}
+                {formatMoney(item.net)}
+              </strong>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="grid overview-secondary-grid">
+        <article className="panel card">
+          <h3>Топ категорий расходов</h3>
+          {summary.topExpenseCategories.length > 0 ? (
+            <div className="category-breakdown">
+              {summary.topExpenseCategories.map((item) => (
+                <article key={`expense-${item.categoryId ?? item.categoryName}`} className="category-breakdown-row">
+                  <div>
+                    <strong>{item.categoryName}</strong>
+                    <span>{formatShare(item.share)}</span>
+                  </div>
+                  <div>
+                    <strong>{formatMoney(item.amount)}</strong>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p style={{ margin: 0 }}>В этом месяце подтвержденных расходов пока нет.</p>
+          )}
+        </article>
+
+        <article className="panel card">
+          <h3>Топ категорий доходов</h3>
+          {summary.topIncomeCategories.length > 0 ? (
+            <div className="category-breakdown">
+              {summary.topIncomeCategories.map((item) => (
+                <article key={`income-${item.categoryId ?? item.categoryName}`} className="category-breakdown-row">
+                  <div>
+                    <strong>{item.categoryName}</strong>
+                    <span>{formatShare(item.share)}</span>
+                  </div>
+                  <div>
+                    <strong>{formatMoney(item.amount)}</strong>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p style={{ margin: 0 }}>В этом месяце подтвержденных доходов пока нет.</p>
+          )}
+        </article>
       </section>
 
       <section className="panel card">
@@ -167,6 +343,9 @@ export function OverviewSection({ summary }: { summary: Summary }) {
               <th>Тип</th>
               <th>Сумма</th>
               <th>Категория</th>
+              <th>Статус</th>
+              <th>Комментарий</th>
+              <th>Источник</th>
             </tr>
           </thead>
           <tbody>
@@ -178,6 +357,21 @@ export function OverviewSection({ summary }: { summary: Summary }) {
                   {item.amount} {item.currency}
                 </td>
                 <td>{item.category?.name ?? 'Не определена'}</td>
+                <td>
+                  <span
+                    className={
+                      item.status === 'CONFIRMED'
+                        ? 'badge'
+                        : item.status === 'NEEDS_CLARIFICATION'
+                          ? 'badge warn'
+                          : 'badge danger'
+                    }
+                  >
+                    {formatTransactionStatusLabel(item.status)}
+                  </span>
+                </td>
+                <td>{item.comment?.trim() ? item.comment : '—'}</td>
+                <td>{item.sourceMessage?.type ?? '—'}</td>
               </tr>
             ))}
           </tbody>

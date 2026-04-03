@@ -10,9 +10,7 @@ import { dirname, join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { LoggingService } from '../logging/logging.service';
 import { getApiRuntimeConfig } from '../common/runtime-config';
-import type { BackupInfo } from './backup.types';
-
-type Actor = { sub?: string; email?: string; role?: string };
+import type { BackupActor, BackupArtifact, BackupInfo } from './backup.types';
 
 const BACKUP_FILE_PREFIX = 'denga-ops-';
 const BACKUP_FILE_EXTENSION = '.dump';
@@ -65,9 +63,12 @@ export class BackupService {
     mkdirSync(this.backupDir, { recursive: true });
   }
 
-  async createBackup(actor: Actor): Promise<BackupInfo> {
-    this.assertAdmin(actor);
+  async createBackup(actor: BackupActor): Promise<BackupInfo> {
+    return (await this.createBackupArtifact(actor)).info;
+  }
 
+  async createBackupArtifact(actor: BackupActor): Promise<BackupArtifact> {
+    this.assertAdmin(actor);
     const fileName = `${BACKUP_FILE_PREFIX}${this.buildTimestamp()}-${randomUUID()}${BACKUP_FILE_EXTENSION}`;
     const filePath = join(this.backupDir, fileName);
 
@@ -82,7 +83,10 @@ export class BackupService {
         fileName: backup.fileName,
         sizeBytes: backup.sizeBytes,
       });
-      return backup;
+      return {
+        info: backup,
+        filePath,
+      };
     } catch (error) {
       rmSync(filePath, { force: true });
       this.loggingService.error('backup', 'backup_create_failed', 'Backup creation failed', {
@@ -98,13 +102,13 @@ export class BackupService {
     mkdirSync(directoryPath, { recursive: true });
   }
 
-  getLatestBackup(actor: Actor): BackupInfo | null {
+  getLatestBackup(actor: BackupActor): BackupInfo | null {
     this.assertAdmin(actor);
     const latest = this.findLatestBackupPath();
     return latest ? this.toBackupInfo(latest) : null;
   }
 
-  async openLatestBackup(actor: Actor) {
+  async openLatestBackup(actor: BackupActor) {
     this.assertAdmin(actor);
     const latest = this.findLatestBackupPath();
 
@@ -118,7 +122,7 @@ export class BackupService {
     };
   }
 
-  private assertAdmin(actor: Actor) {
+  private assertAdmin(actor: BackupActor) {
     if (actor.role !== 'ADMIN') {
       throw new ForbiddenException('Admin access required');
     }
