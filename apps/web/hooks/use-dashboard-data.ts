@@ -11,14 +11,11 @@ import type {
   User,
 } from '../lib/types';
 import { createApiClient } from '../lib/api';
-import {
-  DashboardDataLoadError,
-  loadDashboardDataset,
-  loadLogsDataset,
-} from '../lib/dashboard-loader';
+import { createDashboardFeatureApi, DashboardDataLoadError } from '../lib/dashboard-api';
 
 export function useDashboardData(apiUrl: string | null) {
   const apiClient = useMemo(() => createApiClient({ apiUrl }), [apiUrl]);
+  const featureApi = useMemo(() => createDashboardFeatureApi(apiClient), [apiClient]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -73,7 +70,7 @@ export function useDashboardData(apiUrl: string | null) {
       setError(null);
 
       try {
-        const dataset = await loadDashboardDataset(apiClient, token, { status, type });
+        const dataset = await featureApi.dataset.loadMain(token, { status, type });
 
         setTransactions(dataset.transactions);
         setCategories(dataset.categories);
@@ -91,7 +88,7 @@ export function useDashboardData(apiUrl: string | null) {
         setLoading(false);
       }
     },
-    [apiClient, setError, setLoading],
+    [featureApi, setError, setLoading],
   );
 
   const reloadLogs = useCallback(
@@ -104,7 +101,7 @@ export function useDashboardData(apiUrl: string | null) {
       setLogsError(null);
 
       try {
-        const nextLogs = await loadLogsDataset(apiClient, token, { level, source });
+        const nextLogs = await featureApi.dataset.loadLogs(token, { level, source });
         setLogs(nextLogs);
       } catch (error) {
         if (error instanceof DashboardDataLoadError) {
@@ -116,11 +113,12 @@ export function useDashboardData(apiUrl: string | null) {
         setLogsLoading(false);
       }
     },
-    [apiClient, setLogsError, setLogsLoading],
+    [featureApi, setLogsError, setLogsLoading],
   );
 
   return {
     apiClient,
+    featureApi,
     transactions,
     categories,
     users,

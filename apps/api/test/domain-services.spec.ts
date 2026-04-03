@@ -1,6 +1,8 @@
 ﻿import { CategoryType, SourceMessageStatus, TransactionType } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { CategoryService } from '../src/modules/category/category.service';
+import { HouseholdContextService } from '../src/modules/common/household-context.service';
+import { TransactionCoreService } from '../src/modules/transaction/transaction-core.service';
 import { TransactionService } from '../src/modules/transaction/transaction.service';
 
 describe('CategoryService', () => {
@@ -48,6 +50,27 @@ describe('TransactionService', () => {
   const settingsService = {
     getSettings: jest.fn().mockResolvedValue({ defaultCurrency: 'EUR' }),
   };
+  const householdContext = {
+    getHouseholdId: jest.fn().mockReturnValue('household-1'),
+  };
+  const transactionCoreService = new TransactionCoreService(
+    {
+      category: {
+        findUniqueOrThrow: categoryFindUniqueOrThrow,
+      },
+      transaction: {
+        create: transactionCreate,
+      },
+      sourceMessage: {
+        update: jest.fn(),
+      },
+      pendingOperationReview: {
+        update: jest.fn(),
+      },
+    } as never,
+    settingsService as never,
+    householdContext as HouseholdContextService,
+  );
 
   const service = new TransactionService(
     {
@@ -62,6 +85,8 @@ describe('TransactionService', () => {
       },
     } as never,
     settingsService as never,
+    transactionCoreService,
+    householdContext as HouseholdContextService,
   );
 
   beforeEach(() => {

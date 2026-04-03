@@ -13,6 +13,7 @@ import { SettingsModule } from './settings/settings.module';
 import { TelegramModule } from './telegram/telegram.module';
 import { TransactionModule } from './transaction/transaction.module';
 import { UserModule } from './user/user.module';
+import { CommonModule } from './common/common.module';
 import { getApiRuntimeConfig } from './common/runtime-config';
 
 const runtimeConfig = getApiRuntimeConfig();
@@ -23,6 +24,7 @@ const runtimeConfig = getApiRuntimeConfig();
       isGlobal: true,
       envFilePath: ['.env'],
     }),
+    CommonModule,
     ServeStaticModule.forRoot({
       rootPath: join(process.cwd(), runtimeConfig.uploadDir),
       serveRoot: '/uploads',

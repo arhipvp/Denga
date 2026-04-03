@@ -1,22 +1,15 @@
-﻿'use client';
+'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { UnauthorizedError } from '../lib/api';
 import { getWebAppConfig } from '../lib/config';
-import {
-  type BackupInfo,
-  emptyCategoryForm,
-  emptyOperationForm,
-  emptyPasswordForm,
-  type AuthState,
-  type Category,
-  type LogEntry,
-  type Section,
-  type Settings,
-  type Transaction,
-} from '../lib/types';
+import { type Section, type Settings } from '../lib/types';
 import { useAuthSession } from '../hooks/use-auth-session';
+import { useCategoriesSection } from '../hooks/use-categories-section';
 import { useDashboardData } from '../hooks/use-dashboard-data';
+import { useLogsSection } from '../hooks/use-logs-section';
+import { useOperationsSection } from '../hooks/use-operations-section';
+import { useSettingsSection } from '../hooks/use-settings-section';
 import { LoginView } from './dashboard/login-view';
 import { CategoryModal, OperationModal } from './dashboard/modals';
 import {
@@ -33,7 +26,7 @@ export function Dashboard() {
   const { apiUrl } = getWebAppConfig();
   const { auth, saveAuth, clearAuth } = useAuthSession();
   const {
-    apiClient,
+    featureApi,
     transactions,
     categories,
     users,
@@ -54,53 +47,16 @@ export function Dashboard() {
     reloadLogs,
   } = useDashboardData(apiUrl);
   const [section, setSection] = useState<Section>('overview');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'confirmed' | 'cancelled'>(
-    'confirmed',
-  );
-  const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense'>('all');
-  const [isOperationModalOpen, setOperationModalOpen] = useState(false);
-  const [operationForm, setOperationForm] = useState(emptyOperationForm);
-  const [categoryStatusFilter, setCategoryStatusFilter] = useState<
-    'active' | 'inactive' | 'all'
-  >('active');
-  const [categoryTypeFilter, setCategoryTypeFilter] = useState<
-    'all' | 'income' | 'expense'
-  >('all');
-  const [isCategoryModalOpen, setCategoryModalOpen] = useState(false);
-  const [categoryForm, setCategoryForm] = useState(emptyCategoryForm);
-  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
-  const [backupState, setBackupState] = useState({
-    message: null as string | null,
-    error: null as string | null,
-    creating: false,
-    downloading: false,
-  });
-  const [passwordState, setPasswordState] = useState({
-    form: emptyPasswordForm,
-    error: null as string | null,
-    success: null as string | null,
-  });
-  const [logLevelFilter, setLogLevelFilter] = useState<'all' | LogEntry['level']>('all');
-  const [logSourceFilter, setLogSourceFilter] = useState('all');
+  const operations = useOperationsSection(categories);
+  const categorySection = useCategoriesSection(categories);
+  const settingsSection = useSettingsSection();
+  const logsSection = useLogsSection(logs);
 
   const resetDashboardUi = useCallback(() => {
-    setSettingsMessage(null);
-    setBackupState({
-      message: null,
-      error: null,
-      creating: false,
-      downloading: false,
-    });
-    setPasswordState({
-      form: emptyPasswordForm,
-      error: null,
-      success: null,
-    });
-    setOperationModalOpen(false);
-    setCategoryModalOpen(false);
-    setOperationForm(emptyOperationForm);
-    setCategoryForm(emptyCategoryForm);
-  }, []);
+    operations.reset();
+    categorySection.reset();
+    settingsSection.reset();
+  }, [categorySection, operations, settingsSection]);
 
   const clearSession = useCallback(
     (message = 'Сессия истекла, войдите снова') => {
@@ -125,44 +81,17 @@ export function Dashboard() {
     [clearSession, setError],
   );
 
-  const filteredCategories = useMemo(
-    () =>
-      categories.filter(
-        (item) =>
-          item.isActive &&
-          item.type === (operationForm.type === 'income' ? 'INCOME' : 'EXPENSE'),
-      ),
-    [categories, operationForm.type],
-  );
-
-  const visibleCategories = useMemo(() => {
-    return categories.filter((item) => {
-      const matchesStatus =
-        categoryStatusFilter === 'all' ||
-        (categoryStatusFilter === 'active' ? item.isActive : !item.isActive);
-      const matchesType =
-        categoryTypeFilter === 'all' ||
-        item.type === (categoryTypeFilter === 'income' ? 'INCOME' : 'EXPENSE');
-
-      return matchesStatus && matchesType;
-    });
-  }, [categories, categoryStatusFilter, categoryTypeFilter]);
-
-  const logSources = useMemo(() => {
-    return Array.from(new Set(logs.map((item) => item.source))).sort();
-  }, [logs]);
-
   const loadDashboard = useCallback(async () => {
     if (!auth) {
       return;
     }
 
     try {
-      await reloadData(auth.accessToken, statusFilter, typeFilter);
+      await reloadData(auth.accessToken, operations.statusFilter, operations.typeFilter);
     } catch (loadError) {
       handleApiError(loadError, 'Не удалось загрузить данные');
     }
-  }, [auth, handleApiError, reloadData, statusFilter, typeFilter]);
+  }, [auth, handleApiError, operations.statusFilter, operations.typeFilter, reloadData]);
 
   const loadLogs = useCallback(async () => {
     if (!auth || section !== 'logs') {
@@ -170,7 +99,7 @@ export function Dashboard() {
     }
 
     try {
-      await reloadLogs(auth.accessToken, logLevelFilter, logSourceFilter);
+      await reloadLogs(auth.accessToken, logsSection.logLevelFilter, logsSection.logSourceFilter);
     } catch (logsLoadError) {
       if (!handleApiError(logsLoadError, 'Не удалось загрузить логи')) {
         setLogsError(
@@ -183,8 +112,8 @@ export function Dashboard() {
   }, [
     auth,
     handleApiError,
-    logLevelFilter,
-    logSourceFilter,
+    logsSection.logLevelFilter,
+    logsSection.logSourceFilter,
     reloadLogs,
     section,
     setLogsError,
@@ -205,10 +134,10 @@ export function Dashboard() {
     setError(null);
 
     try {
-      const payload = (await apiClient.login(
+      const payload = await featureApi.auth.login(
         formData.get('email'),
         formData.get('password'),
-      )) as AuthState;
+      );
       saveAuth(payload);
       resetData();
     } catch (loginError) {
@@ -225,25 +154,22 @@ export function Dashboard() {
     }
 
     const formData = new FormData(event.currentTarget);
-    setSettingsMessage(null);
+    settingsSection.setSettingsMessage(null);
 
     try {
-      const nextSettings = await apiClient.request<Settings>('/settings', auth.accessToken, {
-        method: 'PUT',
-        body: JSON.stringify({
-          householdName: formData.get('householdName'),
-          defaultCurrency: formData.get('defaultCurrency'),
-          telegramMode: formData.get('telegramMode'),
-          aiModel: formData.get('aiModel'),
-          clarificationTimeoutMinutes: Number(
-            formData.get('clarificationTimeoutMinutes'),
-          ),
-          parsingPrompt: formData.get('parsingPrompt'),
-          clarificationPrompt: formData.get('clarificationPrompt'),
-        }),
+      const nextSettings = await featureApi.settings.save(auth.accessToken, {
+        householdName: formData.get('householdName'),
+        defaultCurrency: formData.get('defaultCurrency'),
+        telegramMode: formData.get('telegramMode'),
+        aiModel: formData.get('aiModel'),
+        clarificationTimeoutMinutes: Number(
+          formData.get('clarificationTimeoutMinutes'),
+        ),
+        parsingPrompt: formData.get('parsingPrompt'),
+        clarificationPrompt: formData.get('clarificationPrompt'),
       });
-      setSettings(nextSettings);
-      setSettingsMessage('Настройки сохранены');
+      setSettings(nextSettings as Settings);
+      settingsSection.setSettingsMessage('Настройки сохранены');
     } catch (settingsError) {
       handleApiError(settingsError, 'Не удалось сохранить настройки');
     }
@@ -254,7 +180,7 @@ export function Dashboard() {
       return;
     }
 
-    setBackupState((current) => ({
+    settingsSection.setBackupState((current) => ({
       ...current,
       creating: true,
       error: null,
@@ -262,17 +188,15 @@ export function Dashboard() {
     }));
 
     try {
-      const backup = await apiClient.request<BackupInfo>('/backups', auth.accessToken, {
-        method: 'POST',
-      });
+      const backup = await featureApi.settings.createBackup(auth.accessToken);
       setLatestBackup(backup);
-      setBackupState((current) => ({
+      settingsSection.setBackupState((current) => ({
         ...current,
         message: `Бэкап ${backup.fileName} создан`,
       }));
     } catch (backupCreateError) {
       if (!handleApiError(backupCreateError, 'Не удалось создать бэкап')) {
-        setBackupState((current) => ({
+        settingsSection.setBackupState((current) => ({
           ...current,
           error:
             backupCreateError instanceof Error
@@ -281,7 +205,7 @@ export function Dashboard() {
         }));
       }
     } finally {
-      setBackupState((current) => ({ ...current, creating: false }));
+      settingsSection.setBackupState((current) => ({ ...current, creating: false }));
     }
   };
 
@@ -290,7 +214,7 @@ export function Dashboard() {
       return;
     }
 
-    setBackupState((current) => ({
+    settingsSection.setBackupState((current) => ({
       ...current,
       downloading: true,
       error: null,
@@ -298,10 +222,7 @@ export function Dashboard() {
     }));
 
     try {
-      const { blob, fileName } = await apiClient.download(
-        '/backups/latest/download',
-        auth.accessToken,
-      );
+      const { blob, fileName } = await featureApi.settings.downloadLatestBackup(auth.accessToken);
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = objectUrl;
@@ -310,13 +231,13 @@ export function Dashboard() {
       link.click();
       link.remove();
       URL.revokeObjectURL(objectUrl);
-      setBackupState((current) => ({
+      settingsSection.setBackupState((current) => ({
         ...current,
         message: `Бэкап ${link.download} скачан`,
       }));
     } catch (backupDownloadError) {
       if (!handleApiError(backupDownloadError, 'Не удалось скачать бэкап')) {
-        setBackupState((current) => ({
+        settingsSection.setBackupState((current) => ({
           ...current,
           error:
             backupDownloadError instanceof Error
@@ -325,7 +246,7 @@ export function Dashboard() {
         }));
       }
     } finally {
-      setBackupState((current) => ({ ...current, downloading: false }));
+      settingsSection.setBackupState((current) => ({ ...current, downloading: false }));
     }
   };
 
@@ -335,14 +256,17 @@ export function Dashboard() {
       return;
     }
 
-    setPasswordState((current) => ({
+    settingsSection.setPasswordState((current) => ({
       ...current,
       error: null,
       success: null,
     }));
 
-    if (passwordState.form.newPassword !== passwordState.form.confirmPassword) {
-      setPasswordState((current) => ({
+    if (
+      settingsSection.passwordState.form.newPassword !==
+      settingsSection.passwordState.form.confirmPassword
+    ) {
+      settingsSection.setPasswordState((current) => ({
         ...current,
         error: 'Новый пароль и подтверждение не совпадают',
       }));
@@ -350,15 +274,16 @@ export function Dashboard() {
     }
 
     try {
-      await apiClient.request<{ success: true }>('/auth/change-password', auth.accessToken, {
-        method: 'POST',
-        body: JSON.stringify({
-          currentPassword: passwordState.form.currentPassword,
-          newPassword: passwordState.form.newPassword,
-        }),
+      await featureApi.settings.changePassword(auth.accessToken, {
+        currentPassword: settingsSection.passwordState.form.currentPassword,
+        newPassword: settingsSection.passwordState.form.newPassword,
       });
-      setPasswordState({
-        form: emptyPasswordForm,
+      settingsSection.setPasswordState({
+        form: {
+          currentPassword: '',
+          newPassword: '',
+          confirmPassword: '',
+        },
         error: null,
         success: 'Пароль обновлен',
       });
@@ -368,7 +293,7 @@ export function Dashboard() {
         return;
       }
 
-      setPasswordState((current) => ({
+      settingsSection.setPasswordState((current) => ({
         ...current,
         error:
           passwordChangeError instanceof Error
@@ -378,73 +303,28 @@ export function Dashboard() {
     }
   };
 
-  const openCreateOperationModal = () => {
-    setOperationForm({
-      ...emptyOperationForm,
-      categoryId: categories.find((item) => item.type === 'EXPENSE')?.id ?? '',
-    });
-    setOperationModalOpen(true);
-  };
-
-  const openCreateCategoryModal = () => {
-    setCategoryForm(emptyCategoryForm);
-    setCategoryModalOpen(true);
-  };
-
-  const openEditCategoryModal = (category: Category) => {
-    setCategoryForm({
-      id: category.id,
-      name: category.name,
-      type: category.type === 'INCOME' ? 'income' : 'expense',
-      isActive: category.isActive,
-    });
-    setCategoryModalOpen(true);
-  };
-
-  const openEditOperationModal = (transaction: Transaction) => {
-    setOperationForm({
-      id: transaction.id,
-      type: transaction.type === 'INCOME' ? 'income' : 'expense',
-      amount: transaction.amount,
-      occurredAt: transaction.occurredAt.slice(0, 10),
-      categoryId: transaction.category?.id ?? '',
-      comment: transaction.comment ?? '',
-      status: transaction.status === 'CANCELLED' ? 'cancelled' : 'confirmed',
-    });
-    setOperationModalOpen(true);
-  };
-
   const handleSaveOperation = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!auth) {
       return;
     }
 
-    const payload = {
-      type: operationForm.type,
-      amount: Number(operationForm.amount),
-      occurredAt: new Date(operationForm.occurredAt).toISOString(),
-      categoryId: operationForm.categoryId,
-      comment: operationForm.comment,
-      status: operationForm.status,
-    };
-
     try {
-      await apiClient.request<unknown>(
-        operationForm.id ? `/transactions/${operationForm.id}` : '/transactions',
-        auth.accessToken,
-        {
-          method: operationForm.id ? 'PATCH' : 'POST',
-          body: JSON.stringify(payload),
-        },
-      );
+      await featureApi.operations.save(auth.accessToken, {
+        id: operations.operationForm.id,
+        type: operations.operationForm.type,
+        amount: Number(operations.operationForm.amount),
+        occurredAt: new Date(operations.operationForm.occurredAt).toISOString(),
+        categoryId: operations.operationForm.categoryId,
+        comment: operations.operationForm.comment,
+        status: operations.operationForm.status,
+      });
     } catch (operationError) {
       handleApiError(operationError, 'Не удалось сохранить операцию');
       return;
     }
 
-    setOperationModalOpen(false);
-    setOperationForm(emptyOperationForm);
+    operations.reset();
     await loadDashboard();
   };
 
@@ -454,9 +334,7 @@ export function Dashboard() {
     }
 
     try {
-      await apiClient.request<unknown>(`/transactions/${id}`, auth.accessToken, {
-        method: 'DELETE',
-      });
+      await featureApi.operations.cancel(auth.accessToken, id);
     } catch (operationError) {
       handleApiError(operationError, 'Не удалось отменить операцию');
       return;
@@ -471,28 +349,19 @@ export function Dashboard() {
       return;
     }
 
-    const payload = {
-      name: categoryForm.name.trim(),
-      type: categoryForm.type,
-      isActive: categoryForm.isActive,
-    };
-
     try {
-      await apiClient.request<unknown>(
-        categoryForm.id ? `/categories/${categoryForm.id}` : '/categories',
-        auth.accessToken,
-        {
-          method: categoryForm.id ? 'PATCH' : 'POST',
-          body: JSON.stringify(payload),
-        },
-      );
+      await featureApi.categories.save(auth.accessToken, {
+        id: categorySection.categoryForm.id,
+        name: categorySection.categoryForm.name.trim(),
+        type: categorySection.categoryForm.type,
+        isActive: categorySection.categoryForm.isActive,
+      });
     } catch (categoryError) {
       handleApiError(categoryError, 'Не удалось сохранить категорию');
       return;
     }
 
-    setCategoryModalOpen(false);
-    setCategoryForm(emptyCategoryForm);
+    categorySection.reset();
     await loadDashboard();
   };
 
@@ -502,9 +371,7 @@ export function Dashboard() {
     }
 
     try {
-      await apiClient.request<unknown>(`/categories/${id}`, auth.accessToken, {
-        method: 'DELETE',
-      });
+      await featureApi.categories.deactivate(auth.accessToken, id);
     } catch (categoryError) {
       handleApiError(categoryError, 'Не удалось отключить категорию');
       return;
@@ -519,10 +386,7 @@ export function Dashboard() {
     }
 
     try {
-      await apiClient.request<unknown>(`/categories/${id}`, auth.accessToken, {
-        method: 'PATCH',
-        body: JSON.stringify({ isActive: true }),
-      });
+      await featureApi.categories.restore(auth.accessToken, id);
     } catch (categoryError) {
       handleApiError(categoryError, 'Не удалось включить категорию');
       return;
@@ -563,24 +427,24 @@ export function Dashboard() {
         {section === 'operations' ? (
           <OperationsSection
             transactions={transactions}
-            statusFilter={statusFilter}
-            typeFilter={typeFilter}
-            onStatusFilterChange={setStatusFilter}
-            onTypeFilterChange={setTypeFilter}
-            onCreate={openCreateOperationModal}
-            onEdit={openEditOperationModal}
+            statusFilter={operations.statusFilter}
+            typeFilter={operations.typeFilter}
+            onStatusFilterChange={operations.setStatusFilter}
+            onTypeFilterChange={operations.setTypeFilter}
+            onCreate={operations.openCreateOperationModal}
+            onEdit={operations.openEditOperationModal}
             onCancel={(id) => void handleCancelOperation(id)}
           />
         ) : null}
         {section === 'categories' ? (
           <CategoriesSection
-            categories={visibleCategories}
-            statusFilter={categoryStatusFilter}
-            typeFilter={categoryTypeFilter}
-            onStatusFilterChange={setCategoryStatusFilter}
-            onTypeFilterChange={setCategoryTypeFilter}
-            onCreate={openCreateCategoryModal}
-            onEdit={openEditCategoryModal}
+            categories={categorySection.visibleCategories}
+            statusFilter={categorySection.categoryStatusFilter}
+            typeFilter={categorySection.categoryTypeFilter}
+            onStatusFilterChange={categorySection.setCategoryStatusFilter}
+            onTypeFilterChange={categorySection.setCategoryTypeFilter}
+            onCreate={categorySection.openCreateCategoryModal}
+            onEdit={categorySection.openEditCategoryModal}
             onDeactivate={(id) => void handleDeactivateCategory(id)}
             onRestore={(id) => void handleRestoreCategory(id)}
           />
@@ -591,11 +455,11 @@ export function Dashboard() {
             logs={logs}
             logsLoading={logsLoading}
             logsError={logsError}
-            logSources={logSources}
-            logLevelFilter={logLevelFilter}
-            logSourceFilter={logSourceFilter}
-            onLogLevelChange={setLogLevelFilter}
-            onLogSourceChange={setLogSourceFilter}
+            logSources={logsSection.logSources}
+            logLevelFilter={logsSection.logLevelFilter}
+            logSourceFilter={logsSection.logSourceFilter}
+            onLogLevelChange={logsSection.setLogLevelFilter}
+            onLogSourceChange={logsSection.setLogSourceFilter}
             onRefresh={() => void loadLogs()}
           />
         ) : null}
@@ -603,20 +467,20 @@ export function Dashboard() {
           <SettingsSection
             settings={settings}
             latestBackup={latestBackup}
-            backupMessage={backupState.message}
-            backupError={backupState.error}
-            backupCreating={backupState.creating}
-            backupDownloading={backupState.downloading}
-            settingsMessage={settingsMessage}
-            passwordForm={passwordState.form}
-            passwordError={passwordState.error}
-            passwordSuccess={passwordState.success}
+            backupMessage={settingsSection.backupState.message}
+            backupError={settingsSection.backupState.error}
+            backupCreating={settingsSection.backupState.creating}
+            backupDownloading={settingsSection.backupState.downloading}
+            settingsMessage={settingsSection.settingsMessage}
+            passwordForm={settingsSection.passwordState.form}
+            passwordError={settingsSection.passwordState.error}
+            passwordSuccess={settingsSection.passwordState.success}
             onCreateBackup={handleCreateBackup}
             onDownloadLatestBackup={handleDownloadLatestBackup}
             onSaveSettings={handleSaveSettings}
             onChangePassword={handleChangePassword}
             onPasswordFormChange={(updater) =>
-              setPasswordState((current) => ({
+              settingsSection.setPasswordState((current) => ({
                 ...current,
                 form: updater(current.form),
               }))
@@ -626,23 +490,20 @@ export function Dashboard() {
       </DashboardLayout>
 
       <OperationModal
-        isOpen={isOperationModalOpen}
-        form={operationForm}
-        filteredCategories={filteredCategories}
-        onClose={() => setOperationModalOpen(false)}
+        isOpen={operations.isOperationModalOpen}
+        form={operations.operationForm}
+        filteredCategories={operations.filteredCategories}
+        onClose={() => operations.setOperationModalOpen(false)}
         onSubmit={handleSaveOperation}
-        onChange={(updater) => setOperationForm(updater)}
+        onChange={(updater) => operations.setOperationForm(updater)}
       />
       <CategoryModal
-        isOpen={isCategoryModalOpen}
-        form={categoryForm}
-        onClose={() => setCategoryModalOpen(false)}
+        isOpen={categorySection.isCategoryModalOpen}
+        form={categorySection.categoryForm}
+        onClose={() => categorySection.setCategoryModalOpen(false)}
         onSubmit={handleSaveCategory}
-        onChange={(updater) => setCategoryForm(updater)}
+        onChange={(updater) => categorySection.setCategoryForm(updater)}
       />
     </>
   );
 }
-
-
-

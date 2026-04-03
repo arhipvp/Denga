@@ -120,6 +120,8 @@ docker compose up --build -d
 - `POST /api/auth/login`
 - `POST /api/auth/change-password`
 - `GET /api/auth/me`
+- `GET /api/health`
+- `GET /api/health/ready`
 - `GET /api/logs`
 - `POST /api/backups`
 - `GET /api/backups/latest`
@@ -247,3 +249,12 @@ docker compose down
 - Категории строго из ручного справочника
 - Изображения чеков не сохраняются на диск сервера, а используются только во время разбора
 - Для clarification пока нет отдельного UI resolution flow, операции остаются видимыми в журнале
+
+## Runtime и архитектура
+
+- API при старте валидирует runtime-конфигурацию и создает рабочие каталоги `uploads`, `backups` и `logs`.
+- Если отсутствует критичный runtime config вроде `DATABASE_URL` или `TELEGRAM_WEBHOOK_URL` в webhook-режиме, приложение завершает запуск с явной ошибкой.
+- Если отсутствует `POLZA_API_KEY` или `TELEGRAM_BOT_TOKEN` для polling, API поднимается в degraded mode и отражает это в readiness-check.
+- Telegram pipeline больше не сосредоточен в одном сервисе: прием сообщений, clarification-flow, доставка ответов, вложения и draft lifecycle вынесены в отдельные сервисы.
+- Dashboard web-админки разрезан на feature hooks и typed feature API вместо одного orchestration-heavy компонента.
+- Дополнительные заметки по разбиению модулей находятся в [docs/architecture.md](/C:/Dev/Denga/docs/architecture.md).

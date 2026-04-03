@@ -3,12 +3,13 @@ import { CategoryModule } from '../category/category.module';
 import { LoggingModule } from '../logging/logging.module';
 import { SettingsModule } from '../settings/settings.module';
 import { TransactionController } from './transaction.controller';
+import { TransactionCoreService } from './transaction-core.service';
 import { TransactionService } from './transaction.service';
 
 @Module({
   imports: [CategoryModule, LoggingModule, SettingsModule],
   controllers: [TransactionController],
-  providers: [TransactionService],
-  exports: [TransactionService],
+  providers: [TransactionService, TransactionCoreService],
+  exports: [TransactionService, TransactionCoreService],
 })
 export class TransactionModule {}

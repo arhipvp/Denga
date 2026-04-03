@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { AdminGuard } from '../common/guards/admin.guard';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { BackupService } from './backup.service';
 
@@ -16,7 +17,7 @@ type AuthenticatedRequest = {
   user: { sub: string; email: string; role: string };
 };
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, AdminGuard)
 @Controller('backups')
 export class BackupController {
   constructor(private readonly backupService: BackupService) {}

@@ -1,28 +1,30 @@
 import { Injectable } from '@nestjs/common';
 import {
-  CategoryType,
   SourceMessageStatus,
   SourceMessageType,
   TransactionStatus,
   TransactionType,
 } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
-import { BOOTSTRAP_HOUSEHOLD_ID } from '../common/household.constants';
+import { HouseholdContextService } from '../common/household-context.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { CreateTransactionDto, UpdateTransactionDto } from './dto/transaction.dto';
+import { TransactionCoreService } from './transaction-core.service';
 
 @Injectable()
 export class TransactionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settingsService: SettingsService,
+    private readonly transactionCoreService: TransactionCoreService,
+    private readonly householdContext: HouseholdContextService,
   ) {}
 
   list(status?: string, type?: string) {
     return this.prisma.transaction.findMany({
       where: {
-        householdId: BOOTSTRAP_HOUSEHOLD_ID,
+        householdId: this.householdContext.getHouseholdId(),
         ...(status ? { status: this.mapStatus(status) } : {}),
         ...(type ? { type: this.mapType(type) } : {}),
       },
@@ -51,7 +53,7 @@ export class TransactionService {
   async summary() {
     const transactions = await this.prisma.transaction.findMany({
       where: {
-        householdId: BOOTSTRAP_HOUSEHOLD_ID,
+        householdId: this.householdContext.getHouseholdId(),
         status: TransactionStatus.CONFIRMED,
       },
       orderBy: {
@@ -78,7 +80,7 @@ export class TransactionService {
 
     const allConfirmed = await this.prisma.transaction.findMany({
       where: {
-        householdId: BOOTSTRAP_HOUSEHOLD_ID,
+        householdId: this.householdContext.getHouseholdId(),
         status: TransactionStatus.CONFIRMED,
       },
       select: {
@@ -119,14 +121,14 @@ export class TransactionService {
 
     const reviewCount = await this.prisma.transaction.count({
       where: {
-        householdId: BOOTSTRAP_HOUSEHOLD_ID,
+        householdId: this.householdContext.getHouseholdId(),
         status: TransactionStatus.NEEDS_CLARIFICATION,
       },
     });
 
     const cancelledCount = await this.prisma.transaction.count({
       where: {
-        householdId: BOOTSTRAP_HOUSEHOLD_ID,
+        householdId: this.householdContext.getHouseholdId(),
         status: TransactionStatus.CANCELLED,
       },
     });
@@ -146,10 +148,10 @@ export class TransactionService {
 
   async createManual(dto: CreateTransactionDto) {
     const settings = await this.settingsService.getSettings();
-    await this.ensureCategoryType(dto.categoryId, dto.type);
+    await this.transactionCoreService.ensureCategoryType(dto.categoryId, dto.type);
     const sourceMessage = await this.prisma.sourceMessage.create({
       data: {
-        householdId: BOOTSTRAP_HOUSEHOLD_ID,
+        householdId: this.householdContext.getHouseholdId(),
         type: SourceMessageType.ADMIN_MANUAL,
         status: SourceMessageStatus.PARSED,
         rawPayload: {},
@@ -158,7 +160,7 @@ export class TransactionService {
 
     return this.prisma.transaction.create({
       data: {
-        householdId: BOOTSTRAP_HOUSEHOLD_ID,
+        householdId: this.householdContext.getHouseholdId(),
         sourceMessageId: sourceMessage.id,
         type: dto.type === 'income' ? TransactionType.INCOME : TransactionType.EXPENSE,
         amount: new Decimal(dto.amount),
@@ -183,7 +185,7 @@ export class TransactionService {
       dto.type ?? (current.type === TransactionType.INCOME ? 'income' : 'expense');
     const finalCategoryId = dto.categoryId ?? current.categoryId;
     if (finalCategoryId) {
-      await this.ensureCategoryType(finalCategoryId, finalType);
+      await this.transactionCoreService.ensureCategoryType(finalCategoryId, finalType);
     }
 
     return this.prisma.transaction.update({
@@ -229,21 +231,6 @@ export class TransactionService {
       },
     });
     return { success: true };
-  }
-
-  private async ensureCategoryType(
-    categoryId: string,
-    type: 'income' | 'expense',
-  ) {
-    const category = await this.prisma.category.findUniqueOrThrow({
-      where: { id: categoryId },
-    });
-
-    const expected =
-      type === 'income' ? CategoryType.INCOME : CategoryType.EXPENSE;
-    if (category.type !== expected) {
-      throw new Error('Category type does not match transaction type');
-    }
   }
 
   private mapStatus(status: string) {

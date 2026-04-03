@@ -1,20 +1,23 @@
 import { Injectable } from '@nestjs/common';
 import { getApiRuntimeConfig } from '../common/runtime-config';
 import { PrismaService } from '../prisma/prisma.service';
-import { BOOTSTRAP_HOUSEHOLD_ID } from '../common/household.constants';
+import { HouseholdContextService } from '../common/household-context.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 
 @Injectable()
 export class SettingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly householdContext: HouseholdContextService,
+  ) {}
 
   async getSettings() {
     const runtimeConfig = getApiRuntimeConfig();
     const household = await this.prisma.household.findUniqueOrThrow({
-      where: { id: BOOTSTRAP_HOUSEHOLD_ID },
+      where: { id: this.householdContext.getHouseholdId() },
     });
     const settings = await this.prisma.appSetting.findMany({
-      where: { householdId: BOOTSTRAP_HOUSEHOLD_ID },
+      where: { householdId: this.householdContext.getHouseholdId() },
     });
 
     const values = Object.fromEntries(settings.map((item) => [item.key, item.value]));
@@ -38,7 +41,7 @@ export class SettingsService {
 
   async update(dto: UpdateSettingsDto) {
     await this.prisma.household.update({
-      where: { id: BOOTSTRAP_HOUSEHOLD_ID },
+      where: { id: this.householdContext.getHouseholdId() },
       data: {
         name: dto.householdName,
         defaultCurrency: 'EUR',
@@ -58,13 +61,13 @@ export class SettingsService {
         this.prisma.appSetting.upsert({
           where: {
             householdId_key: {
-              householdId: BOOTSTRAP_HOUSEHOLD_ID,
+              householdId: this.householdContext.getHouseholdId(),
               key,
             },
           },
           update: { value },
           create: {
-            householdId: BOOTSTRAP_HOUSEHOLD_ID,
+            householdId: this.householdContext.getHouseholdId(),
             key,
             value,
           },

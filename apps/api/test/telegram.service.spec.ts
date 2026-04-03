@@ -1,21 +1,11 @@
 import { CategoryType } from '@prisma/client';
-import { TelegramService } from '../src/modules/telegram/telegram.service';
+import { TelegramDraftService } from '../src/modules/telegram/telegram-draft.service';
 
-describe('TelegramService heuristics', () => {
-  const service = new TelegramService(
-    {} as never,
-    {} as never,
-    {} as never,
-    {
-      info: jest.fn(),
-      warn: jest.fn(),
-      error: jest.fn(),
-      debug: jest.fn(),
-    } as never,
-  );
+describe('TelegramDraftService heuristics', () => {
+  const service = new TelegramDraftService();
 
   it('fills sensible defaults for taxi expense', () => {
-    const parsed = (service as any).applyHeuristics(
+    const parsed = service.applyHeuristics(
       {
         type: null,
         amount: null,
@@ -43,7 +33,7 @@ describe('TelegramService heuristics', () => {
   });
 
   it('maps Lidl to groceries category', () => {
-    const parsed = (service as any).applyHeuristics(
+    const parsed = service.applyHeuristics(
       {
         type: null,
         amount: null,
@@ -68,7 +58,7 @@ describe('TelegramService heuristics', () => {
   });
 
   it('resolves current date words to today', () => {
-    const parsed = (service as any).applyHeuristics(
+    const parsed = service.applyHeuristics(
       {
         type: 'expense',
         amount: 10,
@@ -89,7 +79,7 @@ describe('TelegramService heuristics', () => {
   });
 
   it('defaults missing date to current date', () => {
-    const parsed = (service as any).applyHeuristics(
+    const parsed = service.applyHeuristics(
       {
         type: 'expense',
         amount: 23.4,

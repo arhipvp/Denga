@@ -1,16 +1,22 @@
-﻿import { CategoryType } from '@prisma/client';
-import { TelegramService } from '../src/modules/telegram/telegram.service';
+import { CategoryType } from '@prisma/client';
+import { DraftLifecycleService } from '../src/modules/telegram/draft-lifecycle.service';
+import { TelegramDraftService } from '../src/modules/telegram/telegram-draft.service';
 
-describe('TelegramService clarification flow', () => {
+describe('DraftLifecycleService clarification flow', () => {
   const findUniqueOrThrow = jest.fn();
   const update = jest.fn();
+  const create = jest.fn();
   const parseTransaction = jest.fn();
 
-  const service = new TelegramService(
+  const draftService = new TelegramDraftService();
+  const service = new DraftLifecycleService(
     {
       pendingOperationReview: {
         findUniqueOrThrow,
         update,
+      },
+      aiParseAttempt: {
+        create,
       },
     } as never,
     {
@@ -30,15 +36,28 @@ describe('TelegramService clarification flow', () => {
       error: jest.fn(),
       debug: jest.fn(),
     } as never,
+    {
+      getHouseholdId: jest.fn().mockReturnValue('household-1'),
+    } as never,
+    {
+      buildAttachmentDataUrl: jest.fn().mockResolvedValue(undefined),
+    } as never,
+    {
+      sendTelegramMessage: jest.fn(),
+      editTelegramMessage: jest.fn(),
+    } as never,
+    draftService,
+    {
+      createConfirmedFromDraft: jest.fn(),
+    } as never,
   );
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (service as any).loadActiveCategories = jest.fn().mockResolvedValue([
+    jest.spyOn(service, 'loadActiveCategories').mockResolvedValue([
       { id: 'cat-1', name: 'Транспорт', type: CategoryType.EXPENSE },
     ]);
-    (service as any).renderDraftCard = jest.fn().mockResolvedValue(undefined);
-    (service as any).recordParseAttempt = jest.fn().mockResolvedValue(undefined);
+    jest.spyOn(service, 'renderDraftCard').mockResolvedValue(undefined);
   });
 
   it('merges follow-up clarification into existing draft', async () => {
@@ -76,7 +95,7 @@ describe('TelegramService clarification flow', () => {
     });
 
     await expect(
-      (service as any).reparseExistingDraft('draft-1', '18 евро на такси', 'chat-1'),
+      service.reparseDraftWithClarification('draft-1', '18 евро на такси', 'chat-1'),
     ).resolves.toEqual({ accepted: true, status: 'pending_review' });
 
     expect(update).toHaveBeenCalledWith(
@@ -93,5 +112,6 @@ describe('TelegramService clarification flow', () => {
         }),
       }),
     );
+    expect(create).toHaveBeenCalled();
   });
 });

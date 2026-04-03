@@ -1,8 +1,9 @@
 import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { AdminGuard } from '../common/guards/admin.guard';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { LogsService } from './logs.service';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, AdminGuard)
 @Controller('logs')
 export class LogsController {
   constructor(private readonly logsService: LogsService) {}
