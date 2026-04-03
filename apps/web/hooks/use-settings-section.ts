@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { emptyPasswordForm } from '../lib/types';
 
 export function useSettingsSection() {
@@ -17,7 +17,7 @@ export function useSettingsSection() {
     success: null as string | null,
   });
 
-  const reset = () => {
+  const reset = useCallback(() => {
     setSettingsMessage(null);
     setBackupState({
       message: null,
@@ -30,7 +30,7 @@ export function useSettingsSection() {
       error: null,
       success: null,
     });
-  };
+  }, []);
 
   return {
     settingsMessage,

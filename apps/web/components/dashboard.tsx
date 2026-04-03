@@ -51,12 +51,15 @@ export function Dashboard() {
   const categorySection = useCategoriesSection(categories);
   const settingsSection = useSettingsSection();
   const logsSection = useLogsSection(logs);
+  const resetOperationsUi = operations.reset;
+  const resetCategoriesUi = categorySection.reset;
+  const resetSettingsUi = settingsSection.reset;
 
   const resetDashboardUi = useCallback(() => {
-    operations.reset();
-    categorySection.reset();
-    settingsSection.reset();
-  }, [categorySection, operations, settingsSection]);
+    resetOperationsUi();
+    resetCategoriesUi();
+    resetSettingsUi();
+  }, [resetCategoriesUi, resetOperationsUi, resetSettingsUi]);
 
   const clearSession = useCallback(
     (message = 'Сессия истекла, войдите снова') => {

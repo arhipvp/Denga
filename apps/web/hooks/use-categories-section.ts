@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { emptyCategoryForm, type Category, type CategoryFormState } from '../lib/types';
 
 export function useCategoriesSection(categories: Category[]) {
@@ -26,12 +26,12 @@ export function useCategoriesSection(categories: Category[]) {
     });
   }, [categories, categoryStatusFilter, categoryTypeFilter]);
 
-  const openCreateCategoryModal = () => {
+  const openCreateCategoryModal = useCallback(() => {
     setCategoryForm(emptyCategoryForm);
     setCategoryModalOpen(true);
-  };
+  }, []);
 
-  const openEditCategoryModal = (category: Category) => {
+  const openEditCategoryModal = useCallback((category: Category) => {
     setCategoryForm({
       id: category.id,
       name: category.name,
@@ -39,12 +39,12 @@ export function useCategoriesSection(categories: Category[]) {
       isActive: category.isActive,
     });
     setCategoryModalOpen(true);
-  };
+  }, []);
 
-  const reset = () => {
+  const reset = useCallback(() => {
     setCategoryModalOpen(false);
     setCategoryForm(emptyCategoryForm);
-  };
+  }, []);
 
   return {
     categoryStatusFilter,

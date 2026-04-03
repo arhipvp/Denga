@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { emptyOperationForm, type Category, type OperationFormState, type Transaction } from '../lib/types';
 
 export function useOperationsSection(categories: Category[]) {
@@ -21,15 +21,15 @@ export function useOperationsSection(categories: Category[]) {
     [categories, operationForm.type],
   );
 
-  const openCreateOperationModal = () => {
+  const openCreateOperationModal = useCallback(() => {
     setOperationForm({
       ...emptyOperationForm,
       categoryId: categories.find((item) => item.type === 'EXPENSE')?.id ?? '',
     });
     setOperationModalOpen(true);
-  };
+  }, [categories]);
 
-  const openEditOperationModal = (transaction: Transaction) => {
+  const openEditOperationModal = useCallback((transaction: Transaction) => {
     setOperationForm({
       id: transaction.id,
       type: transaction.type === 'INCOME' ? 'income' : 'expense',
@@ -40,12 +40,12 @@ export function useOperationsSection(categories: Category[]) {
       status: transaction.status === 'CANCELLED' ? 'cancelled' : 'confirmed',
     });
     setOperationModalOpen(true);
-  };
+  }, []);
 
-  const reset = () => {
+  const reset = useCallback(() => {
     setOperationModalOpen(false);
     setOperationForm(emptyOperationForm);
-  };
+  }, []);
 
   return {
     statusFilter,
