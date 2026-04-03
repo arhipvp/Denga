@@ -30,5 +30,6 @@ import { TelegramBotService } from './services/telegram-bot.service';
     MessageIngestionService,
     UpdateRouterService,
   ],
+  exports: [TelegramDeliveryService],
 })
 export class TelegramModule {}
