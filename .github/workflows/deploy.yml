@@ -111,26 +111,48 @@ jobs:
             \$COMPOSE_CMD up --build -d
           "
 
-      - name: Verify API
+      - name: Verify services on server
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+          APP_URL: ${{ secrets.APP_URL }}
+          API_HEALTHCHECK_URL: ${{ secrets.API_HEALTHCHECK_URL }}
         run: |
-          for attempt in $(seq 1 12); do
-            if curl --fail --show-error --silent "${{ secrets.API_HEALTHCHECK_URL }}" >/dev/null; then
-              exit 0
-            fi
-            echo "API is not ready yet (attempt $attempt/12), waiting 5s..."
-            sleep 5
-          done
-          echo "API did not become ready in time" >&2
-          exit 1
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
+            set -e
+            cd '$REMOTE_APP_DIR'
 
-      - name: Verify web
-        run: |
-          for attempt in $(seq 1 12); do
-            if curl --fail --show-error --silent "${{ secrets.APP_URL }}" >/dev/null; then
-              exit 0
+            if docker compose version >/dev/null 2>&1; then
+              COMPOSE_CMD='docker compose'
+            elif command -v docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD='docker-compose'
+            else
+              echo 'Neither docker compose nor docker-compose is available on the server' >&2
+              exit 1
             fi
-            echo "Web is not ready yet (attempt $attempt/12), waiting 5s..."
-            sleep 5
-          done
-          echo "Web did not become ready in time" >&2
-          exit 1
+
+            verify_url() {
+              name=\"\$1\"
+              url=\"\$2\"
+
+              for attempt in \$(seq 1 18); do
+                if curl --fail --show-error --silent \"\$url\" >/dev/null; then
+                  echo \"\$name is ready\"
+                  return 0
+                fi
+                echo \"\$name is not ready yet (attempt \$attempt/18), waiting 5s...\"
+                sleep 5
+              done
+
+              echo \"\$name did not become ready in time\" >&2
+              \$COMPOSE_CMD ps >&2 || true
+              \$COMPOSE_CMD logs --tail=200 api >&2 || true
+              \$COMPOSE_CMD logs --tail=100 web >&2 || true
+              return 1
+            }
+
+            verify_url 'API' '$API_HEALTHCHECK_URL'
+            verify_url 'Web' '$APP_URL'
+          "

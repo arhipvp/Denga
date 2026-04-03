@@ -170,7 +170,8 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 - копирует репозиторий на сервер через `rsync`
 - проверяет, что серверный `.env` уже существует
 - выполняет `docker compose up --build -d`
-- проверяет доступность API и web после выката
+- проверяет доступность API и web после выката прямо на сервере по SSH
+- при неуспешной проверке печатает `docker compose ps` и последние логи `api`/`web`
 
 ## Обязательные GitHub Secrets
 
