@@ -29,6 +29,12 @@ export type ParseRequest = {
   imageDataUrl?: string;
 };
 
+export type ParsePromptSnapshot = {
+  systemPrompt: string;
+  userMessage: string;
+  categories: string[];
+};
+
 @Injectable()
 export class AiParsingService {
   private readonly client: OpenAI;
@@ -42,9 +48,10 @@ export class AiParsingService {
   }
 
   async parseTransaction(request: ParseRequest): Promise<ParsedTransaction> {
+    const messages = this.buildMessages(request);
     const completion = await this.client.chat.completions.create({
       model: request.model,
-      messages: this.buildMessages(request),
+      messages,
       response_format: {
         type: 'json_schema',
         json_schema: {
@@ -84,41 +91,23 @@ export class AiParsingService {
     );
   }
 
+  buildPromptSnapshot(request: ParseRequest): ParsePromptSnapshot {
+    return {
+      systemPrompt: this.buildRuntimeSystemPrompt(request),
+      userMessage: this.buildUserMessage(request),
+      categories: [...request.categories],
+    };
+  }
+
   private buildMessages(request: ParseRequest) {
-    const baseContext = [
-      `Текущая дата: ${request.currentDate}.`,
-      `Базовая валюта household: ${request.householdCurrency}.`,
-      `Доступные категории: ${request.categories.join(', ') || 'нет категорий'}.`,
-      'Правила: categoryCandidate должен быть только одним точным значением из списка доступных категорий или null.',
-      'Нельзя придумывать новые категории, merchant names, синонимы или значения вне списка.',
-      'Если дата не указана явно, верни текущую дату из поля currentDate.',
-    ].join('\n');
-
-    const history = request.conversationContext?.length
-      ? request.conversationContext
-          .map((item, index) => `${index + 1}. ${item.role}: ${item.text}`)
-          .join('\n')
-      : 'Нет истории уточнения.';
-
-    const userText = [
-      baseContext,
-      '',
-      request.clarificationPrompt
-        ? `Контекст clarification:\n${request.clarificationPrompt}`
-        : null,
-      '',
-      `История диалога:\n${history}`,
-      '',
-      `Текущее сообщение пользователя:\n${request.userInput}`,
-    ]
-      .filter(Boolean)
-      .join('\n');
+    const systemPrompt = this.buildRuntimeSystemPrompt(request);
+    const userText = this.buildUserMessage(request);
 
     if (request.imageDataUrl) {
       return [
         {
           role: 'system' as const,
-          content: request.systemPrompt,
+          content: systemPrompt,
         },
         {
           role: 'user' as const,
@@ -142,12 +131,46 @@ export class AiParsingService {
     return [
       {
         role: 'system' as const,
-        content: request.systemPrompt,
+        content: systemPrompt,
       },
       {
         role: 'user' as const,
         content: userText,
       },
     ];
+  }
+
+  private buildRuntimeSystemPrompt(request: ParseRequest) {
+    return [
+      request.systemPrompt.trim(),
+      '',
+      `Текущая дата: ${request.currentDate}.`,
+      `Базовая валюта household: ${request.householdCurrency}.`,
+      `Доступные категории: ${request.categories.join(', ') || 'нет категорий'}.`,
+      'Правила: categoryCandidate должен быть только одним точным значением из списка доступных категорий или null.',
+      'Нельзя придумывать новые категории, merchant names, синонимы или значения вне списка.',
+      'Если дата не указана явно, верни текущую дату из поля currentDate.',
+    ].join('\n');
+  }
+
+  private buildUserMessage(request: ParseRequest) {
+    const history = request.conversationContext?.length
+      ? request.conversationContext
+          .map((item, index) => `${index + 1}. ${item.role}: ${item.text}`)
+          .join('\n')
+      : 'Нет истории уточнения.';
+
+    const userText = [
+      request.clarificationPrompt
+        ? `Контекст clarification:\n${request.clarificationPrompt}`
+        : null,
+      '',
+      `История диалога:\n${history}`,
+      '',
+      `Текущее сообщение пользователя:\n${request.userInput}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+    return userText;
   }
 }

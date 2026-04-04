@@ -232,18 +232,21 @@ export class DraftLifecycleService {
     defaultCurrency: string;
   }) {
     const categories = await this.loadActiveCategories();
+    const parseRequest = {
+      model: input.model,
+      systemPrompt: input.parsingPrompt,
+      clarificationPrompt: input.clarificationPrompt,
+      categories: categories.map((item) => item.name),
+      householdCurrency: input.defaultCurrency,
+      currentDate: new Date().toISOString(),
+      userInput: input.inputText,
+      conversationContext: input.conversationContext,
+      imageDataUrl: input.imageDataUrl,
+    };
+    const promptSnapshot = this.aiParsingService.buildPromptSnapshot(parseRequest);
+
     try {
-      const aiParsed = await this.aiParsingService.parseTransaction({
-        model: input.model,
-        systemPrompt: input.parsingPrompt,
-        clarificationPrompt: input.clarificationPrompt,
-        categories: categories.map((item) => item.name),
-        householdCurrency: input.defaultCurrency,
-        currentDate: new Date().toISOString(),
-        userInput: input.inputText,
-        conversationContext: input.conversationContext,
-        imageDataUrl: input.imageDataUrl,
-      });
+      const aiParsed = await this.aiParsingService.parseTransaction(parseRequest);
 
       const parsed = this.telegramDraftService.applyHeuristics(
         aiParsed,
@@ -256,7 +259,7 @@ export class DraftLifecycleService {
         input.sourceMessageId,
         input.attemptType,
         input.model,
-        `${input.parsingPrompt}\n\n${input.clarificationPrompt}`,
+        promptSnapshot,
         parsed,
       );
 
@@ -283,7 +286,10 @@ export class DraftLifecycleService {
         input.sourceMessageId,
         input.attemptType,
         input.model,
-        `${input.parsingPrompt}\n\nfallback`,
+        {
+          ...promptSnapshot,
+          fallback: true,
+        },
         fallback,
       );
       return fallback;
@@ -352,7 +358,7 @@ export class DraftLifecycleService {
     sourceMessageId: string,
     attemptType: AiParseAttemptType,
     model: string,
-    prompt: string,
+    prompt: Prisma.InputJsonValue,
     parsed: ParsedTransaction,
   ) {
     await this.prisma.aiParseAttempt.create({
@@ -361,7 +367,7 @@ export class DraftLifecycleService {
         attemptType,
         provider: 'polza.ai',
         model,
-        prompt,
+        prompt: JSON.stringify(prompt),
         responsePayload: parsed as Prisma.InputJsonValue,
         success: true,
       },

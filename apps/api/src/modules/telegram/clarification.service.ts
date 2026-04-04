@@ -9,6 +9,9 @@ import { ReviewDraft, TelegramCallbackQuery } from './telegram.types';
 
 @Injectable()
 export class ClarificationService {
+  private static readonly categoryPageSize = 8;
+  private static readonly categoryPageCallbackPrefix = 'draft:category-page:';
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly householdContext: HouseholdContextService,
@@ -84,6 +87,19 @@ export class ClarificationService {
       );
     }
 
+    if (data.startsWith(ClarificationService.categoryPageCallbackPrefix)) {
+      const page = Number(
+        data.replace(ClarificationService.categoryPageCallbackPrefix, ''),
+      );
+      await this.telegramDeliveryService.answerCallbackQuery(callback.id);
+      return this.showCategoryPage(
+        draft.id,
+        chatId,
+        Number(messageId),
+        Number.isFinite(page) ? page : 0,
+      );
+    }
+
     await this.telegramDeliveryService.answerCallbackQuery(callback.id, 'Неизвестное действие');
     return { accepted: true, ignored: true };
   }
@@ -104,27 +120,11 @@ export class ClarificationService {
     }
 
     if (field === 'category') {
-      const draft = await this.draftLifecycleService.loadDraft(draftId);
-      const categoryType = draft.type === 'income' ? CategoryType.INCOME : CategoryType.EXPENSE;
-      const categories = await this.prisma.category.findMany({
-        where: {
-          householdId: this.householdContext.getHouseholdId(),
-          isActive: true,
-          ...(draft.type ? { type: categoryType } : {}),
-        },
-        orderBy: { name: 'asc' },
-      });
-      const keyboard = categories.slice(0, 8).map((item) => [
-        { text: item.name, callback_data: `draft:set-category:${item.id}` },
-      ]);
       await this.prisma.pendingOperationReview.update({
         where: { id: draftId },
         data: { pendingField: null },
       });
-      await this.telegramDeliveryService.sendTelegramMessage(chatId, 'Выберите категорию:', {
-        inline_keyboard: keyboard,
-      });
-      return { accepted: true, status: 'editing_category' };
+      return this.showCategoryPicker(draftId, chatId);
     }
 
     const prompts: Record<string, string> = {
@@ -187,5 +187,119 @@ export class ClarificationService {
     });
     await this.draftLifecycleService.renderDraftCard(draftId, chatId);
     return { accepted: true, status: 'pending_review' };
+  }
+
+  private async showCategoryPicker(draftId: string, chatId: string) {
+    const categoryPage = await this.buildCategoryPagePayload(draftId, 0);
+
+    if (!categoryPage) {
+      await this.telegramDeliveryService.sendTelegramMessage(
+        chatId,
+        'Нет активных категорий для выбранного типа операции.',
+      );
+      return { accepted: true, status: 'editing_category_empty' };
+    }
+
+    await this.telegramDeliveryService.sendTelegramMessage(
+      chatId,
+      categoryPage.text,
+      categoryPage.replyMarkup,
+    );
+    return { accepted: true, status: 'editing_category' };
+  }
+
+  private async showCategoryPage(
+    draftId: string,
+    chatId: string,
+    messageId: number,
+    requestedPage: number,
+  ) {
+    const categoryPage = await this.buildCategoryPagePayload(draftId, requestedPage);
+
+    if (!categoryPage) {
+      await this.telegramDeliveryService.editTelegramMessage(
+        chatId,
+        messageId,
+        'Нет активных категорий для выбранного типа операции.',
+      );
+      return { accepted: true, status: 'editing_category_empty' };
+    }
+
+    await this.telegramDeliveryService.editTelegramMessage(
+      chatId,
+      messageId,
+      categoryPage.text,
+      categoryPage.replyMarkup,
+    );
+    return { accepted: true, status: 'editing_category' };
+  }
+
+  private async buildCategoryPagePayload(draftId: string, requestedPage: number) {
+    const categories = await this.loadDraftCategories(draftId);
+    if (categories.length === 0) {
+      return null;
+    }
+
+    const totalPages = Math.ceil(
+      categories.length / ClarificationService.categoryPageSize,
+    );
+    const currentPage = Math.min(
+      Math.max(0, requestedPage),
+      totalPages - 1,
+    );
+    const startIndex = currentPage * ClarificationService.categoryPageSize;
+    const pageItems = categories.slice(
+      startIndex,
+      startIndex + ClarificationService.categoryPageSize,
+    );
+    const keyboard = pageItems.map((item) => [
+      { text: item.name, callback_data: `draft:set-category:${item.id}` },
+    ]);
+    const paginationRow = [
+      ...(currentPage > 0
+        ? [
+            {
+              text: 'Назад',
+              callback_data: `${ClarificationService.categoryPageCallbackPrefix}${currentPage - 1}`,
+            },
+          ]
+        : []),
+      ...(currentPage < totalPages - 1
+        ? [
+            {
+              text: 'Вперед',
+              callback_data: `${ClarificationService.categoryPageCallbackPrefix}${currentPage + 1}`,
+            },
+          ]
+        : []),
+    ];
+
+    if (paginationRow.length > 0) {
+      keyboard.push(paginationRow);
+    }
+
+    return {
+      text:
+        totalPages > 1
+          ? `Выберите категорию (страница ${currentPage + 1}/${totalPages}):`
+          : 'Выберите категорию:',
+      replyMarkup: {
+        inline_keyboard: keyboard,
+      },
+    };
+  }
+
+  private async loadDraftCategories(draftId: string) {
+    const draft = await this.draftLifecycleService.loadDraft(draftId);
+    const categoryType = draft.type === 'income' ? CategoryType.INCOME : CategoryType.EXPENSE;
+
+    return this.prisma.category.findMany({
+      where: {
+        householdId: this.householdContext.getHouseholdId(),
+        isActive: true,
+        ...(draft.type ? { type: categoryType } : {}),
+      },
+      orderBy: { name: 'asc' },
+    });
   }
 }

@@ -7,10 +7,11 @@
   - `UpdateRouterService`: маршрутизация входящих Telegram updates
   - `MessageIngestionService`: прием нового сообщения, upsert автора, создание `SourceMessage`
   - `AttachmentService`: работа с Telegram file API и подготовка вложений
-  - `DraftLifecycleService`: parse/create/render/confirm/cancel review drafts
-  - `ClarificationService`: callback actions, ручные правки и reparse clarification-flow
+- `DraftLifecycleService`: parse/create/render/confirm/cancel review drafts
+  - `ClarificationService`: callback actions, ручные правки, постраничный category picker и reparse clarification-flow
   - `TelegramDeliveryService`: `sendMessage`, `editMessageText`, `answerCallbackQuery`, retry network requests
   - `TelegramDraftService`: чистые draft helpers, эвристики, normalizers и rendering текста
+- `DraftLifecycleService` сохраняет в `AiParseAttempt.prompt` диагностический snapshot, где итоговый runtime `system prompt` содержит список переданных категорий.
 
 ## Transaction Core
 
