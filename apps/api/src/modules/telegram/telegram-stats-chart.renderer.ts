@@ -9,10 +9,9 @@ import type {
 
 type ChartSegmentLayout = {
   color: string;
-  endAngle: number;
-  legendRowY: number;
   midAngle: number;
-  startAngle: number;
+  share: number;
+  sweep: number;
 };
 
 @Injectable()
@@ -22,7 +21,6 @@ export class TelegramStatsChartRenderer {
   private readonly centerX = 290;
   private readonly centerY = 380;
   private readonly radius = 190;
-  private readonly legendAnchorX = 548;
   private readonly legendMarkerX = 560;
   private readonly fontFamily = TelegramStatsChartRenderer.ensureFontFamily();
   private readonly colors = [
@@ -82,13 +80,14 @@ export class TelegramStatsChartRenderer {
       context.fill();
       segments.push({
         color,
-        endAngle,
-        legendRowY: 210 + index * 70 - 8,
         midAngle: startAngle + sweep / 2,
-        startAngle,
+        share: item.share,
+        sweep,
       });
       startAngle = endAngle;
     });
+
+    this.drawSegmentPercentLabels(context, segments);
 
     context.beginPath();
     context.arc(this.centerX, this.centerY, this.radius * 0.54, 0, Math.PI * 2);
@@ -106,8 +105,6 @@ export class TelegramStatsChartRenderer {
       this.centerY + 28,
     );
     context.textAlign = 'start';
-
-    this.drawLeaderLines(context, segments);
 
     context.fillStyle = '#0f172a';
     this.setFont(context, 26, 'bold');
@@ -141,25 +138,30 @@ export class TelegramStatsChartRenderer {
     return canvas;
   }
 
-  private drawLeaderLines(context: SKRSContext2D, segments: ChartSegmentLayout[]) {
+  private drawSegmentPercentLabels(context: SKRSContext2D, segments: ChartSegmentLayout[]) {
+    const innerRadius = this.radius * 0.54;
+    const labelRadius = (this.radius + innerRadius) / 2;
+
     context.save();
-    context.lineCap = 'round';
-    context.lineJoin = 'round';
-    context.lineWidth = 2.5;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    this.setFont(context, 19, 'bold');
 
     for (const segment of segments) {
-      const outerX = this.centerX + Math.cos(segment.midAngle) * this.radius;
-      const outerY = this.centerY + Math.sin(segment.midAngle) * this.radius;
-      const elbowRadius = this.radius + 30;
-      const elbowX = this.centerX + Math.cos(segment.midAngle) * elbowRadius;
-      const elbowY = this.centerY + Math.sin(segment.midAngle) * elbowRadius;
+      const label = `${(segment.share * 100).toFixed(1)}%`;
+      if (!this.canRenderSegmentLabel(context, label, segment, labelRadius)) {
+        continue;
+      }
 
-      context.beginPath();
-      context.moveTo(outerX, outerY);
-      context.lineTo(elbowX, elbowY);
-      context.lineTo(this.legendAnchorX, segment.legendRowY);
-      context.strokeStyle = this.withAlpha(segment.color, 0.5);
-      context.stroke();
+      const x = this.centerX + Math.cos(segment.midAngle) * labelRadius;
+      const y = this.centerY + Math.sin(segment.midAngle) * labelRadius;
+
+      context.shadowColor = 'rgba(15, 23, 42, 0.32)';
+      context.shadowBlur = 6;
+      context.shadowOffsetX = 0;
+      context.shadowOffsetY = 1;
+      context.fillStyle = this.getSegmentLabelColor(segment.color);
+      context.fillText(label, x, y);
     }
 
     context.restore();
@@ -193,16 +195,32 @@ export class TelegramStatsChartRenderer {
     })} ${currency}`;
   }
 
-  private withAlpha(color: string, alpha: number) {
+  private canRenderSegmentLabel(
+    context: Pick<SKRSContext2D, 'measureText'>,
+    label: string,
+    segment: Pick<ChartSegmentLayout, 'share' | 'sweep'>,
+    radius: number,
+  ) {
+    if (segment.share < 0.08) {
+      return false;
+    }
+
+    const availableArcLength = radius * segment.sweep;
+    const labelWidth = context.measureText(label).width;
+    return labelWidth <= availableArcLength * 0.82;
+  }
+
+  private getSegmentLabelColor(color: string) {
     const normalized = color.replace('#', '');
     if (normalized.length !== 6) {
-      return color;
+      return '#ffffff';
     }
 
     const r = Number.parseInt(normalized.slice(0, 2), 16);
     const g = Number.parseInt(normalized.slice(2, 4), 16);
     const b = Number.parseInt(normalized.slice(4, 6), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    return luminance > 0.72 ? '#0f172a' : '#ffffff';
   }
 
   private static pickFontFamily() {

@@ -171,7 +171,7 @@ describe('TelegramStatsChartRenderer', () => {
     expect(legendTextPixels).toBeGreaterThan(1500);
   });
 
-  it('renders leader lines between the chart and the legend', () => {
+  it('renders percent labels on large donut segments', () => {
     const renderer = new TelegramStatsChartRenderer();
     const canvas = renderer.renderExpenseBreakdownCanvas({
       periodLabel: 'Апрель 2026',
@@ -188,9 +188,29 @@ describe('TelegramStatsChartRenderer', () => {
     });
 
     const ctx = canvas.getContext('2d');
-    const connectorPixels = countNonBackgroundPixels(ctx, 430, 180, 120, 430);
+    const percentPixels = countNonMatchingPixels(ctx, 320, 240, 120, 120, [37, 99, 235, 255]);
 
-    expect(connectorPixels).toBeGreaterThan(600);
+    expect(percentPixels).toBeGreaterThan(180);
+  });
+
+  it('does not force percent labels onto narrow segments', () => {
+    const renderer = new TelegramStatsChartRenderer();
+    const canvas = renderer.renderExpenseBreakdownCanvas({
+      periodLabel: 'Апрель 2026',
+      currency: 'EUR',
+      totalExpense: 1000,
+      items: [{ categoryId: 'major', categoryName: 'Крупная категория', amount: 1000, share: 1 }],
+    });
+
+    const ctx = canvas.getContext('2d');
+    const canRender = (renderer as any).canRenderSegmentLabel(
+      ctx,
+      '6.0%',
+      { share: 0.06, sweep: Math.PI * 2 * 0.06 },
+      146.3,
+    );
+
+    expect(canRender).toBe(false);
   });
 });
 
@@ -211,6 +231,31 @@ function countNonBackgroundPixels(
     const a = imageData[index + 3];
 
     if (!(r === 248 && g === 250 && b === 252 && a === 255)) {
+      count += 1;
+    }
+  }
+
+  return count;
+}
+
+function countNonMatchingPixels(
+  context: ReturnType<ReturnType<TelegramStatsChartRenderer['renderExpenseBreakdownCanvas']>['getContext']>,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  rgba: [number, number, number, number],
+) {
+  const imageData = context.getImageData(x, y, width, height).data;
+  let count = 0;
+
+  for (let index = 0; index < imageData.length; index += 4) {
+    const r = imageData[index];
+    const g = imageData[index + 1];
+    const b = imageData[index + 2];
+    const a = imageData[index + 3];
+
+    if (!(r === rgba[0] && g === rgba[1] && b === rgba[2] && a === rgba[3])) {
       count += 1;
     }
   }
