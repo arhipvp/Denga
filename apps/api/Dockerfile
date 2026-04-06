@@ -18,7 +18,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-RUN apk add --no-cache postgresql16-client
+RUN apk add --no-cache postgresql16-client fontconfig ttf-dejavu
 
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules

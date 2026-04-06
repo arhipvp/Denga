@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { createCanvas, GlobalFonts } from '@napi-rs/canvas';
 import type { SKRSContext2D } from '@napi-rs/canvas';
+import { existsSync } from 'node:fs';
 import type { CurrentMonthExpenseBreakdown } from '../transaction/transaction.service';
 
 @Injectable()
@@ -10,7 +11,7 @@ export class TelegramStatsChartRenderer {
   private readonly centerX = 290;
   private readonly centerY = 380;
   private readonly radius = 190;
-  private readonly fontFamily = TelegramStatsChartRenderer.pickFontFamily();
+  private readonly fontFamily = TelegramStatsChartRenderer.ensureFontFamily();
   private readonly colors = [
     '#2563eb',
     '#dc2626',
@@ -161,5 +162,42 @@ export class TelegramStatsChartRenderer {
     }
 
     return 'sans-serif';
+  }
+
+  private static ensureFontFamily() {
+    const fontCandidates = [
+      '/usr/share/fonts/TTF/DejaVuSans.ttf',
+      '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+      '/usr/share/fonts/dejavu/DejaVuSans.ttf',
+      '/usr/local/share/fonts/DejaVuSans.ttf',
+    ];
+    const fontDirectories = ['/usr/share/fonts', '/usr/local/share/fonts'];
+
+    for (const directory of fontDirectories) {
+      if (existsSync(directory)) {
+        GlobalFonts.loadFontsFromDir(directory);
+      }
+    }
+
+    for (const fontPath of fontCandidates) {
+      if (existsSync(fontPath)) {
+        GlobalFonts.registerFromPath(fontPath, 'Denga Stats Sans');
+      }
+    }
+
+    const families = typeof GlobalFonts.families === 'object' ? GlobalFonts.families : [];
+    const availableFamilies = new Set(
+      Array.isArray(families)
+        ? families
+            .map((entry) => entry?.family)
+            .filter((family): family is string => Boolean(family))
+        : [],
+    );
+
+    if (availableFamilies.has('Denga Stats Sans')) {
+      return '"Denga Stats Sans"';
+    }
+
+    return TelegramStatsChartRenderer.pickFontFamily();
   }
 }
