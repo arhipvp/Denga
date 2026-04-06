@@ -7,6 +7,14 @@ import type {
   CurrentMonthExpenseBreakdownItem,
 } from '../transaction/transaction.types';
 
+type ChartSegmentLayout = {
+  color: string;
+  endAngle: number;
+  legendRowY: number;
+  midAngle: number;
+  startAngle: number;
+};
+
 @Injectable()
 export class TelegramStatsChartRenderer {
   private readonly width = 1200;
@@ -14,6 +22,8 @@ export class TelegramStatsChartRenderer {
   private readonly centerX = 290;
   private readonly centerY = 380;
   private readonly radius = 190;
+  private readonly legendAnchorX = 548;
+  private readonly legendMarkerX = 560;
   private readonly fontFamily = TelegramStatsChartRenderer.ensureFontFamily();
   private readonly colors = [
     '#2563eb',
@@ -58,16 +68,26 @@ export class TelegramStatsChartRenderer {
       return canvas;
     }
 
+    const segments: ChartSegmentLayout[] = [];
     let startAngle = -Math.PI / 2;
     input.items.forEach((item: CurrentMonthExpenseBreakdownItem, index: number) => {
       const sweep = Math.PI * 2 * item.share;
+      const endAngle = startAngle + sweep;
+      const color = this.colors[index % this.colors.length];
       context.beginPath();
       context.moveTo(this.centerX, this.centerY);
-      context.arc(this.centerX, this.centerY, this.radius, startAngle, startAngle + sweep);
+      context.arc(this.centerX, this.centerY, this.radius, startAngle, endAngle);
       context.closePath();
-      context.fillStyle = this.colors[index % this.colors.length];
+      context.fillStyle = color;
       context.fill();
-      startAngle += sweep;
+      segments.push({
+        color,
+        endAngle,
+        legendRowY: 210 + index * 70 - 8,
+        midAngle: startAngle + sweep / 2,
+        startAngle,
+      });
+      startAngle = endAngle;
     });
 
     context.beginPath();
@@ -87,6 +107,8 @@ export class TelegramStatsChartRenderer {
     );
     context.textAlign = 'start';
 
+    this.drawLeaderLines(context, segments);
+
     context.fillStyle = '#0f172a';
     this.setFont(context, 26, 'bold');
     context.fillText('Категории', 560, 160);
@@ -97,7 +119,7 @@ export class TelegramStatsChartRenderer {
       const valueWidth = 250;
 
       context.fillStyle = this.colors[index % this.colors.length];
-      context.fillRect(560, top - 20, 24, 24);
+      context.fillRect(this.legendMarkerX, top - 20, 24, 24);
 
       context.fillStyle = '#0f172a';
       this.setFont(context, 21, 'bold');
@@ -117,6 +139,30 @@ export class TelegramStatsChartRenderer {
     });
 
     return canvas;
+  }
+
+  private drawLeaderLines(context: SKRSContext2D, segments: ChartSegmentLayout[]) {
+    context.save();
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.lineWidth = 2.5;
+
+    for (const segment of segments) {
+      const outerX = this.centerX + Math.cos(segment.midAngle) * this.radius;
+      const outerY = this.centerY + Math.sin(segment.midAngle) * this.radius;
+      const elbowRadius = this.radius + 30;
+      const elbowX = this.centerX + Math.cos(segment.midAngle) * elbowRadius;
+      const elbowY = this.centerY + Math.sin(segment.midAngle) * elbowRadius;
+
+      context.beginPath();
+      context.moveTo(outerX, outerY);
+      context.lineTo(elbowX, elbowY);
+      context.lineTo(this.legendAnchorX, segment.legendRowY);
+      context.strokeStyle = this.withAlpha(segment.color, 0.5);
+      context.stroke();
+    }
+
+    context.restore();
   }
 
   private setFont(context: SKRSContext2D, size: number, weight: 'normal' | 'bold') {
@@ -145,6 +191,18 @@ export class TelegramStatsChartRenderer {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })} ${currency}`;
+  }
+
+  private withAlpha(color: string, alpha: number) {
+    const normalized = color.replace('#', '');
+    if (normalized.length !== 6) {
+      return color;
+    }
+
+    const r = Number.parseInt(normalized.slice(0, 2), 16);
+    const g = Number.parseInt(normalized.slice(2, 4), 16);
+    const b = Number.parseInt(normalized.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   }
 
   private static pickFontFamily() {

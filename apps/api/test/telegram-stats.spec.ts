@@ -170,6 +170,28 @@ describe('TelegramStatsChartRenderer', () => {
     expect(markerPixels).toBeGreaterThan(300);
     expect(legendTextPixels).toBeGreaterThan(1500);
   });
+
+  it('renders leader lines between the chart and the legend', () => {
+    const renderer = new TelegramStatsChartRenderer();
+    const canvas = renderer.renderExpenseBreakdownCanvas({
+      periodLabel: 'Апрель 2026',
+      currency: 'EUR',
+      totalExpense: 346.2,
+      items: [
+        { categoryId: 'food', categoryName: 'Продукты', amount: 108, share: 0.312 },
+        { categoryId: 'beauty', categoryName: 'Красота', amount: 60, share: 0.173 },
+        { categoryId: 'gifts', categoryName: 'Подарки', amount: 55, share: 0.159 },
+        { categoryId: 'cafe', categoryName: 'Кафе и рестораны', amount: 49, share: 0.142 },
+        { categoryId: 'home', categoryName: 'Дом', amount: 39, share: 0.113 },
+        { categoryId: 'other', categoryName: 'Прочие категории', amount: 35.2, share: 0.102 },
+      ],
+    });
+
+    const ctx = canvas.getContext('2d');
+    const connectorPixels = countNonBackgroundPixels(ctx, 430, 180, 120, 430);
+
+    expect(connectorPixels).toBeGreaterThan(600);
+  });
 });
 
 function countNonBackgroundPixels(
