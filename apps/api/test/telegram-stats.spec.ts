@@ -132,4 +132,66 @@ describe('TelegramStatsChartRenderer', () => {
     );
     expect(buffer.length).toBeGreaterThan(1000);
   });
+
+  it('renders visible text in the title area', () => {
+    const renderer = new TelegramStatsChartRenderer();
+    const canvas = renderer.renderExpenseBreakdownCanvas({
+      periodLabel: 'Апрель 2026',
+      currency: 'EUR',
+      totalExpense: 200,
+      items: [
+        { categoryId: 'food', categoryName: 'Еда', amount: 120, share: 0.6 },
+        { categoryId: 'taxi', categoryName: 'Такси', amount: 80, share: 0.4 },
+      ],
+    });
+
+    const ctx = canvas.getContext('2d');
+    const titlePixels = countNonBackgroundPixels(ctx, 40, 20, 520, 110);
+
+    expect(titlePixels).toBeGreaterThan(1200);
+  });
+
+  it('renders visible text in the legend area, not only color markers', () => {
+    const renderer = new TelegramStatsChartRenderer();
+    const canvas = renderer.renderExpenseBreakdownCanvas({
+      periodLabel: 'Апрель 2026',
+      currency: 'EUR',
+      totalExpense: 200,
+      items: [
+        { categoryId: 'food', categoryName: 'Продукты', amount: 120, share: 0.6 },
+        { categoryId: 'taxi', categoryName: 'Такси', amount: 80, share: 0.4 },
+      ],
+    });
+
+    const ctx = canvas.getContext('2d');
+    const markerPixels = countNonBackgroundPixels(ctx, 555, 185, 40, 120);
+    const legendTextPixels = countNonBackgroundPixels(ctx, 600, 185, 500, 120);
+
+    expect(markerPixels).toBeGreaterThan(300);
+    expect(legendTextPixels).toBeGreaterThan(1500);
+  });
 });
+
+function countNonBackgroundPixels(
+  context: ReturnType<ReturnType<TelegramStatsChartRenderer['renderExpenseBreakdownCanvas']>['getContext']>,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  const imageData = context.getImageData(x, y, width, height).data;
+  let count = 0;
+
+  for (let index = 0; index < imageData.length; index += 4) {
+    const r = imageData[index];
+    const g = imageData[index + 1];
+    const b = imageData[index + 2];
+    const a = imageData[index + 3];
+
+    if (!(r === 248 && g === 250 && b === 252 && a === 255)) {
+      count += 1;
+    }
+  }
+
+  return count;
+}

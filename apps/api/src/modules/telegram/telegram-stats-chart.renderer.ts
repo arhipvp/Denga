@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { existsSync } from 'node:fs';
 import { createCanvas, GlobalFonts } from '@napi-rs/canvas';
+import type { SKRSContext2D } from '@napi-rs/canvas';
 import type { CurrentMonthExpenseBreakdown } from '../transaction/transaction.service';
 
 @Injectable()
@@ -10,7 +10,7 @@ export class TelegramStatsChartRenderer {
   private readonly centerX = 290;
   private readonly centerY = 380;
   private readonly radius = 190;
-  private readonly fontFamily = TelegramStatsChartRenderer.ensureFontFamily();
+  private readonly fontFamily = TelegramStatsChartRenderer.pickFontFamily();
   private readonly colors = [
     '#2563eb',
     '#dc2626',
@@ -23,9 +23,12 @@ export class TelegramStatsChartRenderer {
     '#ea580c',
     '#475569',
   ];
-  private static registeredFontFamily?: string;
 
   renderExpenseBreakdown(input: CurrentMonthExpenseBreakdown) {
+    return this.renderExpenseBreakdownCanvas(input).toBuffer('image/png');
+  }
+
+  renderExpenseBreakdownCanvas(input: CurrentMonthExpenseBreakdown) {
     const canvas = createCanvas(this.width, this.height);
     const context = canvas.getContext('2d');
 
@@ -33,11 +36,11 @@ export class TelegramStatsChartRenderer {
     context.fillRect(0, 0, this.width, this.height);
 
     context.fillStyle = '#0f172a';
-    context.font = `700 38px "${this.fontFamily}"`;
+    this.setFont(context, 38, 'bold');
     context.fillText(`Расходы за ${input.periodLabel.toLowerCase()}`, 60, 70);
 
     context.fillStyle = '#475569';
-    context.font = `500 24px "${this.fontFamily}"`;
+    this.setFont(context, 24, 'normal');
     context.fillText(
       `Общая сумма: ${this.formatMoney(input.totalExpense, input.currency)}`,
       60,
@@ -46,9 +49,9 @@ export class TelegramStatsChartRenderer {
 
     if (input.items.length === 0) {
       context.fillStyle = '#334155';
-      context.font = `500 28px "${this.fontFamily}"`;
+      this.setFont(context, 28, 'normal');
       context.fillText('Нет данных для построения диаграммы', 60, 180);
-      return canvas.toBuffer('image/png');
+      return canvas;
     }
 
     let startAngle = -Math.PI / 2;
@@ -70,9 +73,9 @@ export class TelegramStatsChartRenderer {
 
     context.fillStyle = '#0f172a';
     context.textAlign = 'center';
-    context.font = `700 28px "${this.fontFamily}"`;
+    this.setFont(context, 28, 'bold');
     context.fillText('Итого', this.centerX, this.centerY - 10);
-    context.font = `700 23px "${this.fontFamily}"`;
+    this.setFont(context, 23, 'bold');
     context.fillText(
       this.formatMoney(input.totalExpense, input.currency),
       this.centerX,
@@ -81,48 +84,56 @@ export class TelegramStatsChartRenderer {
     context.textAlign = 'start';
 
     context.fillStyle = '#0f172a';
-    context.font = `700 26px "${this.fontFamily}"`;
+    this.setFont(context, 26, 'bold');
     context.fillText('Категории', 560, 160);
 
     input.items.forEach((item, index) => {
       const top = 210 + index * 70;
-      const legendWidth = 620;
       const nameWidth = 270;
+      const valueWidth = 250;
 
       context.fillStyle = this.colors[index % this.colors.length];
       context.fillRect(560, top - 20, 24, 24);
 
       context.fillStyle = '#0f172a';
-      context.font = `600 21px "${this.fontFamily}"`;
+      this.setFont(context, 21, 'bold');
       context.fillText(this.ellipsizeText(context, item.categoryName, nameWidth), 600, top);
 
       context.fillStyle = '#334155';
-      context.font = `500 19px "${this.fontFamily}"`;
+      this.setFont(context, 19, 'normal');
       context.fillText(
         this.ellipsizeText(
           context,
           `${this.formatMoney(item.amount, input.currency)} · ${(item.share * 100).toFixed(1)}%`,
-          legendWidth - 40 - nameWidth,
+          valueWidth,
         ),
         880,
         top,
       );
     });
 
-    return canvas.toBuffer('image/png');
+    return canvas;
   }
 
-  private ellipsizeText(context: { measureText(text: string): { width: number } }, text: string, maxWidth: number) {
+  private setFont(context: SKRSContext2D, size: number, weight: 'normal' | 'bold') {
+    context.font = `${weight} ${size}px ${this.fontFamily}`;
+  }
+
+  private ellipsizeText(
+    context: Pick<SKRSContext2D, 'measureText'>,
+    text: string,
+    maxWidth: number,
+  ) {
     if (context.measureText(text).width <= maxWidth) {
       return text;
     }
 
     let value = text;
-    while (value.length > 1 && context.measureText(`${value}…`).width > maxWidth) {
+    while (value.length > 1 && context.measureText(`${value}...`).width > maxWidth) {
       value = value.slice(0, -1);
     }
 
-    return `${value}…`;
+    return `${value}...`;
   }
 
   private formatMoney(value: number, currency: string) {
@@ -132,45 +143,23 @@ export class TelegramStatsChartRenderer {
     })} ${currency}`;
   }
 
-  private static ensureFontFamily() {
-    if (TelegramStatsChartRenderer.registeredFontFamily) {
-      return TelegramStatsChartRenderer.registeredFontFamily;
-    }
+  private static pickFontFamily() {
+    const families = typeof GlobalFonts.families === 'object' ? GlobalFonts.families : [];
+    const available = new Set(
+      Array.isArray(families)
+        ? families
+            .map((entry) => entry?.family)
+            .filter((family): family is string => Boolean(family))
+        : [],
+    );
 
-    const candidates = [
-      {
-        family: 'TelegramStatsFont',
-        path: 'C:\\Windows\\Fonts\\arial.ttf',
-      },
-      {
-        family: 'TelegramStatsFont',
-        path: 'C:\\Windows\\Fonts\\segoeui.ttf',
-      },
-      {
-        family: 'TelegramStatsFont',
-        path: '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-      },
-      {
-        family: 'TelegramStatsFont',
-        path: '/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf',
-      },
-    ];
-
-    for (const candidate of candidates) {
-      if (!existsSync(candidate.path)) {
-        continue;
-      }
-
-      try {
-        GlobalFonts.registerFromPath(candidate.path, candidate.family);
-        TelegramStatsChartRenderer.registeredFontFamily = candidate.family;
-        return candidate.family;
-      } catch {
-        // Try the next available font candidate.
+    const preferred = ['Arial', 'Segoe UI', 'DejaVu Sans', 'Liberation Sans', 'sans-serif'];
+    for (const family of preferred) {
+      if (family === 'sans-serif' || available.has(family)) {
+        return family;
       }
     }
 
-    TelegramStatsChartRenderer.registeredFontFamily = 'sans-serif';
     return 'sans-serif';
   }
 }
