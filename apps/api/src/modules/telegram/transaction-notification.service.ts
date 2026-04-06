@@ -5,6 +5,12 @@ import { HouseholdContextService } from '../common/household-context.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramDeliveryService } from './telegram-delivery.service';
 
+type TransactionNotificationOptions = {
+  excludeTelegramIds?: string[];
+};
+
+type TransactionNotificationEvent = 'created' | 'deleted';
+
 @Injectable()
 export class TransactionNotificationService {
   private readonly logger = new Logger(TransactionNotificationService.name);
@@ -17,7 +23,22 @@ export class TransactionNotificationService {
 
   async notifyTransactionCreated(
     transactionId: string,
-    options?: { excludeTelegramIds?: string[] },
+    options?: TransactionNotificationOptions,
+  ) {
+    return this.notifyTransactionEvent('created', transactionId, options);
+  }
+
+  async notifyTransactionDeleted(
+    transactionId: string,
+    options?: TransactionNotificationOptions,
+  ) {
+    return this.notifyTransactionEvent('deleted', transactionId, options);
+  }
+
+  private async notifyTransactionEvent(
+    event: TransactionNotificationEvent,
+    transactionId: string,
+    options?: TransactionNotificationOptions,
   ) {
     const householdId = this.householdContext.getHouseholdId();
     const transaction = await this.prisma.transaction.findFirst({
@@ -69,11 +90,14 @@ export class TransactionNotificationService {
     );
 
     if (recipientIds.length === 0) {
-      this.logger.debug(`transaction_notification_skipped id=${transactionId} reason=no_recipients`);
+      this.logger.debug(
+        `transaction_notification_skipped id=${transactionId} event=${event} reason=no_recipients`,
+      );
       return { recipients: 0, delivered: 0, failed: 0 };
     }
 
     const message = this.buildMessage({
+      event,
       type: transaction.type,
       amount: String(transaction.amount),
       currency: transaction.currency,
@@ -100,7 +124,7 @@ export class TransactionNotificationService {
 
       failed += 1;
       this.logger.error(
-        `transaction_notification_failed id=${transactionId}`,
+        `transaction_notification_failed id=${transactionId} event=${event}`,
         result.reason instanceof Error ? result.reason.stack : String(result.reason),
       );
     }
@@ -113,6 +137,7 @@ export class TransactionNotificationService {
   }
 
   private buildMessage(input: {
+    event: TransactionNotificationEvent;
     type: TransactionType;
     amount: string;
     currency: string;
@@ -122,7 +147,7 @@ export class TransactionNotificationService {
     authorName: string | null;
   }) {
     return [
-      'Добавлена новая операция',
+      input.event === 'created' ? 'Добавлена новая операция' : 'Операция удалена',
       '',
       `Тип: ${input.type === TransactionType.INCOME ? 'Доход' : 'Расход'}`,
       `Сумма: ${this.escapeHtml(input.amount)} ${this.escapeHtml(input.currency)}`.trim(),

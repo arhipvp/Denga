@@ -111,6 +111,32 @@ describe('TransactionNotificationService', () => {
     );
   });
 
+  it('formats deletion notifications with a dedicated title', async () => {
+    transactionFindFirst.mockResolvedValue({
+      id: 'tx-1',
+      type: TransactionType.EXPENSE,
+      amount: new Decimal(25.5),
+      currency: 'EUR',
+      occurredAt: new Date('2026-04-06T00:00:00.000Z'),
+      comment: 'Такси',
+      category: { name: 'Транспорт' },
+      author: { displayName: 'Алексей' },
+    });
+    telegramAccountFindMany.mockResolvedValue([{ telegramId: '111' }]);
+    sendTelegramMessage.mockResolvedValue({ message_id: 1 });
+
+    await expect(service.notifyTransactionDeleted('tx-1')).resolves.toEqual({
+      recipients: 1,
+      delivered: 1,
+      failed: 0,
+    });
+
+    expect(sendTelegramMessage).toHaveBeenCalledWith(
+      '111',
+      expect.stringContaining('Операция удалена'),
+    );
+  });
+
   it('swallows delivery failures and reports counts', async () => {
     transactionFindFirst.mockResolvedValue({
       id: 'tx-1',

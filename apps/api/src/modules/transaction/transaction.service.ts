@@ -435,12 +435,19 @@ export class TransactionService {
   }
 
   async cancel(id: string) {
-    await this.prisma.transaction.update({
+    const transaction = await this.prisma.transaction.update({
       where: { id },
       data: {
         status: TransactionStatus.CANCELLED,
       },
+      include: {
+        category: true,
+        author: true,
+      },
     });
+
+    await this.transactionNotificationService.notifyTransactionDeleted(transaction.id);
+
     return { success: true };
   }
 

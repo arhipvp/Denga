@@ -53,6 +53,7 @@ describe('TransactionService', () => {
   const transactionFindMany = jest.fn();
   const categoryFindUniqueOrThrow = jest.fn();
   const notifyTransactionCreated = jest.fn();
+  const notifyTransactionDeleted = jest.fn();
   const settingsService = {
     getSettings: jest.fn().mockResolvedValue({ defaultCurrency: 'EUR' }),
   };
@@ -96,6 +97,7 @@ describe('TransactionService', () => {
     householdContext as HouseholdContextService,
     {
       notifyTransactionCreated,
+      notifyTransactionDeleted,
     } as never,
   );
 
@@ -218,13 +220,18 @@ describe('TransactionService', () => {
   });
 
   it('cancels transactions explicitly', async () => {
-    transactionUpdate.mockResolvedValue({});
+    transactionUpdate.mockResolvedValue({ id: 'tx-1' });
 
     await expect(service.cancel('tx-1')).resolves.toEqual({ success: true });
     expect(transactionUpdate).toHaveBeenCalledWith({
       where: { id: 'tx-1' },
       data: { status: 'CANCELLED' },
+      include: {
+        category: true,
+        author: true,
+      },
     });
+    expect(notifyTransactionDeleted).toHaveBeenCalledWith('tx-1');
   });
 
   it('returns empty summary when there are no transactions', async () => {

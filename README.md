@@ -122,6 +122,7 @@ docker compose up --build -d
 - для каждого AI parse attempt сохраняется diagnostic snapshot, где итоговый runtime `system prompt` включает строку `Доступные категории: ...`
 - новые операции по умолчанию сохраняются в `EUR`; исторические записи не пересчитываются автоматически
 - после создания новой операции уведомление в Telegram рассылается всем активным `telegramAccounts` текущего household; в Telegram flow автор видит только персональное подтверждение `Операция сохранена`, а общий fan-out уходит остальным участникам
+- при удалении операции через `DELETE /api/transactions/:id` Telegram-уведомление об удалении рассылается всем активным `telegramAccounts` текущего household
 
 ## API endpoints
 
