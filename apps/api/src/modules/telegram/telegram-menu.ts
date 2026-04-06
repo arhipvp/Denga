@@ -1,4 +1,6 @@
 export const TELEGRAM_STATS_MENU_LABEL = 'Посмотреть статистику';
+export const TELEGRAM_EXPENSE_CURRENT_MONTH_LABEL = 'Расходы за этот месяц';
+export const TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK = 'stats:expense-current-month';
 
 export function createTelegramMainMenuReplyMarkup() {
   return {
@@ -15,4 +17,13 @@ export function isTelegramStartCommand(text: string) {
 
 export function isTelegramSilentMenuAction(text: string) {
   return text.trim() === TELEGRAM_STATS_MENU_LABEL;
+}
+
+export function createTelegramStatsSubmenuReplyMarkup() {
+  return {
+    inline_keyboard: [[{
+      text: TELEGRAM_EXPENSE_CURRENT_MONTH_LABEL,
+      callback_data: TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK,
+    }]],
+  };
 }

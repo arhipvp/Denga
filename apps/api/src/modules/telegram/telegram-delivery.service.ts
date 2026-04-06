@@ -91,6 +91,46 @@ export class TelegramDeliveryService {
     return response.data.result as { message_id: number };
   }
 
+  async sendTelegramPhoto(input: {
+    chatId: string;
+    fileName: string;
+    photo: Buffer;
+    caption?: string;
+  }) {
+    const token = getApiRuntimeConfig().telegramBotToken;
+    if (!token) {
+      return { message_id: 0 };
+    }
+
+    const formData = new FormData();
+    const photoBlob = new Blob([new Uint8Array(input.photo)], {
+      type: 'image/png',
+    });
+
+    formData.append('chat_id', input.chatId);
+    formData.append('photo', photoBlob, input.fileName);
+    if (input.caption) {
+      formData.append('caption', input.caption);
+      formData.append('parse_mode', 'HTML');
+    }
+
+    const response = await this.requestTelegramApi<{ result: { message_id: number } }>(
+      {
+        method: 'POST',
+        url: `https://api.telegram.org/bot${token}/sendPhoto`,
+        data: formData,
+      },
+      'telegram_send_photo',
+      'Telegram sendPhoto failed',
+      {
+        chatId: input.chatId,
+        fileName: input.fileName,
+      },
+    );
+
+    return response.data.result as { message_id: number };
+  }
+
   async editTelegramMessage(
     chatId: string,
     messageId: number,

@@ -8,7 +8,11 @@ import { ClarificationService } from './clarification.service';
 import { DraftLifecycleService } from './draft-lifecycle.service';
 import { TelegramDeliveryService } from './telegram-delivery.service';
 import { TelegramDraftService } from './telegram-draft.service';
-import { isTelegramSilentMenuAction, isTelegramStartCommand } from './telegram-menu';
+import {
+  createTelegramStatsSubmenuReplyMarkup,
+  isTelegramSilentMenuAction,
+  isTelegramStartCommand,
+} from './telegram-menu';
 import { TelegramMessage } from './telegram.types';
 
 @Injectable()
@@ -39,7 +43,12 @@ export class MessageIngestionService {
     }
 
     if (isTelegramSilentMenuAction(text)) {
-      return { accepted: true, status: 'menu_action_ignored', authorId: author.id };
+      await this.telegramDeliveryService.sendTelegramMessage(
+        chatId,
+        'Выберите отчет:',
+        createTelegramStatsSubmenuReplyMarkup(),
+      );
+      return { accepted: true, status: 'stats_menu_shown', authorId: author.id };
     }
 
     const existingDraft = await this.prisma.pendingOperationReview.findFirst({

@@ -11,6 +11,8 @@ import { TelegramController } from './telegram.controller';
 import { TelegramService } from './telegram.service';
 import { TelegramDeliveryModule } from './telegram-delivery.module';
 import { TelegramDraftService } from './telegram-draft.service';
+import { TelegramStatsChartRenderer } from './telegram-stats-chart.renderer';
+import { TelegramStatsService } from './telegram-stats.service';
 import { UpdateRouterService } from './update-router.service';
 import { AiParsingService } from './services/ai-parsing.service';
 import { TelegramBotService } from './services/telegram-bot.service';
@@ -32,6 +34,8 @@ import { TelegramBotService } from './services/telegram-bot.service';
     TelegramDraftService,
     DraftLifecycleService,
     ClarificationService,
+    TelegramStatsChartRenderer,
+    TelegramStatsService,
     MessageIngestionService,
     UpdateRouterService,
   ],

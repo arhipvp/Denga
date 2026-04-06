@@ -17,6 +17,7 @@ describe('ClarificationService category picker', () => {
   const sendTelegramMessage = jest.fn();
   const editTelegramMessage = jest.fn();
   const answerCallbackQuery = jest.fn();
+  const sendCurrentMonthExpenseReport = jest.fn();
 
   const service = new ClarificationService(
     {
@@ -51,6 +52,9 @@ describe('ClarificationService category picker', () => {
     {
       normalizeDate: jest.fn(),
     } as never,
+    {
+      sendCurrentMonthExpenseReport,
+    } as never,
   );
 
   beforeEach(() => {
@@ -73,6 +77,27 @@ describe('ClarificationService category picker', () => {
     }));
     updateDraftField.mockResolvedValue({ accepted: true, status: 'pending_review' });
     jest.spyOn(service, 'updateDraftField').mockImplementation(updateDraftField);
+  });
+
+  it('routes stats callback without touching draft clarification flow', async () => {
+    sendCurrentMonthExpenseReport.mockResolvedValue({ accepted: true, status: 'stats_sent' });
+
+    await expect(
+      service.handleCallbackQuery({
+        id: 'callback-stats',
+        data: 'stats:expense-current-month',
+        from: { id: 'telegram-user-1' },
+        message: {
+          message_id: 99,
+          chat: { id: 'chat-1' },
+        },
+      }),
+    ).resolves.toEqual({ accepted: true, status: 'stats_sent' });
+
+    expect(answerCallbackQuery).toHaveBeenCalledWith('callback-stats');
+    expect(sendCurrentMonthExpenseReport).toHaveBeenCalledWith('chat-1');
+    expect(telegramAccountFindUnique).not.toHaveBeenCalled();
+    expect(pendingFindFirst).not.toHaveBeenCalled();
   });
 
   it('shows the first page of matching categories with forward navigation', async () => {

@@ -13,6 +13,20 @@ import { TransactionNotificationService } from '../telegram/transaction-notifica
 import { CreateTransactionDto, UpdateTransactionDto } from './dto/transaction.dto';
 import { TransactionCoreService } from './transaction-core.service';
 
+export type CurrentMonthExpenseBreakdownItem = {
+  categoryId: string | null;
+  categoryName: string;
+  amount: number;
+  share: number;
+  isOther?: boolean;
+};
+
+export type CurrentMonthExpenseBreakdown = {
+  periodLabel: string;
+  totalExpense: number;
+  items: CurrentMonthExpenseBreakdownItem[];
+};
+
 @Injectable()
 export class TransactionService {
   constructor(
@@ -253,6 +267,86 @@ export class TransactionService {
     };
   }
 
+  async getCurrentMonthExpenseBreakdown() {
+    const householdId = this.householdContext.getHouseholdId();
+    const now = new Date();
+    const currentPeriodStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+    );
+    const nextPeriodStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+    );
+
+    const transactions = await this.prisma.transaction.findMany({
+      where: {
+        householdId,
+        type: TransactionType.EXPENSE,
+        status: TransactionStatus.CONFIRMED,
+        occurredAt: {
+          gte: currentPeriodStart,
+          lt: nextPeriodStart,
+        },
+      },
+      include: {
+        category: true,
+      },
+      orderBy: {
+        occurredAt: 'asc',
+      },
+    });
+
+    const totalExpense = transactions.reduce(
+      (sum, transaction) => sum + Number(transaction.amount),
+      0,
+    );
+    const categoryMap = new Map<
+      string,
+      { categoryId: string | null; categoryName: string; amount: number }
+    >();
+
+    for (const item of transactions) {
+      const key = item.categoryId ?? 'uncategorized-expense';
+      const current = categoryMap.get(key) ?? {
+        categoryId: item.categoryId ?? null,
+        categoryName: item.category?.name ?? 'Без категории',
+        amount: 0,
+      };
+      current.amount += Number(item.amount);
+      categoryMap.set(key, current);
+    }
+
+    const sortedItems: CurrentMonthExpenseBreakdownItem[] = Array.from(categoryMap.values())
+      .sort((left, right) => right.amount - left.amount)
+      .map((item) => ({
+        ...item,
+        share: totalExpense > 0 ? item.amount / totalExpense : 0,
+      }));
+
+    const visibleItems: CurrentMonthExpenseBreakdownItem[] = sortedItems.filter(
+      (item) => item.share >= 0.05,
+    );
+    const hiddenItems = sortedItems.filter((item) => item.share < 0.05);
+
+    if (hiddenItems.length > 0) {
+      const otherAmount = hiddenItems.reduce((sum, item) => sum + item.amount, 0);
+      visibleItems.push({
+        categoryId: null,
+        categoryName: 'Прочие категории',
+        amount: otherAmount,
+        share: totalExpense > 0 ? otherAmount / totalExpense : 0,
+        isOther: true,
+      });
+    }
+
+    visibleItems.sort((left, right) => right.amount - left.amount);
+
+    return {
+      periodLabel: this.formatCurrentMonthLabel(currentPeriodStart),
+      totalExpense,
+      items: visibleItems,
+    } satisfies CurrentMonthExpenseBreakdown;
+  }
+
   async createManual(dto: CreateTransactionDto, authorId?: string) {
     const settings = await this.settingsService.getSettings();
     await this.transactionCoreService.ensureCategoryType(dto.categoryId, dto.type);
@@ -369,5 +463,14 @@ export class TransactionService {
       default:
         return undefined;
     }
+  }
+
+  private formatCurrentMonthLabel(date: Date) {
+    const month = new Intl.DateTimeFormat('ru-RU', {
+      month: 'long',
+      timeZone: 'UTC',
+    }).format(date);
+
+    return `${month.charAt(0).toUpperCase()}${month.slice(1)} ${date.getUTCFullYear()}`;
   }
 }

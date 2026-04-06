@@ -5,6 +5,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { DraftLifecycleService } from './draft-lifecycle.service';
 import { TelegramDeliveryService } from './telegram-delivery.service';
 import { TelegramDraftService } from './telegram-draft.service';
+import { TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK } from './telegram-menu';
+import { TelegramStatsService } from './telegram-stats.service';
 import { ReviewDraft, TelegramCallbackQuery } from './telegram.types';
 
 @Injectable()
@@ -18,6 +20,7 @@ export class ClarificationService {
     private readonly draftLifecycleService: DraftLifecycleService,
     private readonly telegramDeliveryService: TelegramDeliveryService,
     private readonly telegramDraftService: TelegramDraftService,
+    private readonly telegramStatsService: TelegramStatsService,
   ) {}
 
   async handleCallbackQuery(callback: TelegramCallbackQuery) {
@@ -25,6 +28,13 @@ export class ClarificationService {
     const chatId = String(callback.message?.chat.id ?? callback.from.id);
     const messageId = String(callback.message?.message_id ?? '');
     const authorId = String(callback.from.id);
+
+    if (data === TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK) {
+      await this.telegramDeliveryService.answerCallbackQuery(callback.id);
+      await this.telegramStatsService.sendCurrentMonthExpenseReport(chatId);
+      return { accepted: true, status: 'stats_sent' };
+    }
+
     const author = await this.prisma.telegramAccount.findUnique({
       where: { telegramId: authorId },
       include: { user: true },

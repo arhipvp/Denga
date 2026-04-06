@@ -463,4 +463,70 @@ describe('TransactionService', () => {
       comment: 'Отмена',
     });
   });
+
+  it('builds full current month expense breakdown and groups tiny categories into others', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-04-20T12:00:00.000Z'));
+    transactionFindMany.mockResolvedValue([
+      createTransaction({
+        id: 'tx-food',
+        amount: 120,
+        occurredAt: '2026-04-12T12:00:00.000Z',
+        type: TransactionType.EXPENSE,
+        categoryId: 'food',
+        categoryName: 'Еда',
+      }),
+      createTransaction({
+        id: 'tx-taxi',
+        amount: 60,
+        occurredAt: '2026-04-10T12:00:00.000Z',
+        type: TransactionType.EXPENSE,
+        categoryId: 'taxi',
+        categoryName: 'Такси',
+      }),
+      createTransaction({
+        id: 'tx-coffee',
+        amount: 8,
+        occurredAt: '2026-04-08T12:00:00.000Z',
+        type: TransactionType.EXPENSE,
+        categoryId: 'coffee',
+        categoryName: 'Кофе',
+      }),
+      createTransaction({
+        id: 'tx-fee',
+        amount: 4,
+        occurredAt: '2026-04-07T12:00:00.000Z',
+        type: TransactionType.EXPENSE,
+        categoryId: 'fee',
+        categoryName: 'Комиссии',
+      }),
+    ]);
+
+    const breakdown = await service.getCurrentMonthExpenseBreakdown();
+
+    expect(breakdown.periodLabel).toBe('Апрель 2026');
+    expect(breakdown.totalExpense).toBe(192);
+    expect(breakdown.items).toEqual([
+      expect.objectContaining({ categoryName: 'Еда', amount: 120 }),
+      expect.objectContaining({ categoryName: 'Такси', amount: 60 }),
+      expect.objectContaining({
+        categoryName: 'Прочие категории',
+        amount: 12,
+        isOther: true,
+      }),
+    ]);
+    expect(breakdown.items[2].share).toBeCloseTo(12 / 192, 5);
+  });
+
+  it('returns an empty current month expense breakdown when there are no expenses', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-04-20T12:00:00.000Z'));
+    transactionFindMany.mockResolvedValue([]);
+
+    const breakdown = await service.getCurrentMonthExpenseBreakdown();
+
+    expect(breakdown).toEqual({
+      periodLabel: 'Апрель 2026',
+      totalExpense: 0,
+      items: [],
+    });
+  });
 });

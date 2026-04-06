@@ -1,7 +1,11 @@
 import axios from 'axios';
 import { MessageIngestionService } from '../src/modules/telegram/message-ingestion.service';
 import { TelegramDeliveryService } from '../src/modules/telegram/telegram-delivery.service';
-import { TELEGRAM_STATS_MENU_LABEL } from '../src/modules/telegram/telegram-menu';
+import {
+  TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK,
+  TELEGRAM_EXPENSE_CURRENT_MONTH_LABEL,
+  TELEGRAM_STATS_MENU_LABEL,
+} from '../src/modules/telegram/telegram-menu';
 
 jest.mock('../src/modules/common/runtime-config', () => ({
   getApiRuntimeConfig: jest.fn(() => ({
@@ -66,6 +70,22 @@ describe('Telegram menu delivery', () => {
         data: expect.objectContaining({
           reply_markup: customReplyMarkup,
         }),
+      }),
+    );
+  });
+
+  it('sends photo payloads without affecting text menu behavior', async () => {
+    await service.sendTelegramPhoto({
+      chatId: 'chat-1',
+      fileName: 'chart.png',
+      photo: Buffer.from('png-data'),
+      caption: 'Отчет',
+    });
+
+    expect(axios.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: expect.stringContaining('/sendPhoto'),
+        data: expect.any(FormData),
       }),
     );
   });
@@ -161,6 +181,8 @@ describe('MessageIngestionService menu actions', () => {
   });
 
   it('ignores the statistics menu action without creating a source message', async () => {
+    sendTelegramMessage.mockResolvedValue({ message_id: 11 });
+
     await expect(
       service.handleMessage(
         {
@@ -173,11 +195,20 @@ describe('MessageIngestionService menu actions', () => {
       ),
     ).resolves.toEqual({
       accepted: true,
-      status: 'menu_action_ignored',
+      status: 'stats_menu_shown',
       authorId: 'user-1',
     });
 
-    expect(sendTelegramMessage).not.toHaveBeenCalled();
+    expect(sendTelegramMessage).toHaveBeenCalledWith(
+      'chat-1',
+      'Выберите отчет:',
+      {
+        inline_keyboard: [[{
+          text: TELEGRAM_EXPENSE_CURRENT_MONTH_LABEL,
+          callback_data: TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK,
+        }]],
+      },
+    );
     expect(sourceMessageUpsert).not.toHaveBeenCalled();
     expect(createDraftFromMessage).not.toHaveBeenCalled();
   });
