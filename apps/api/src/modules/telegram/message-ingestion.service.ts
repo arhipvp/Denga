@@ -44,14 +44,14 @@ export class MessageIngestionService {
 
     if (existingDraft) {
       if (hasAttachment && !existingDraft.pendingField) {
-        await this.draftLifecycleService.cancelDraft(existingDraft.id);
+        await this.draftLifecycleService.cancelDraft(existingDraft.id, chatId);
         await this.telegramDeliveryService.sendTelegramMessage(
           chatId,
           'Предыдущий черновик закрыт. Обрабатываю новый чек как отдельную операцию.',
         );
       } else {
         if (this.telegramDraftService.isCancelCommand(text)) {
-          await this.draftLifecycleService.cancelDraft(existingDraft.id);
+          await this.draftLifecycleService.cancelDraft(existingDraft.id, chatId);
           await this.telegramDeliveryService.sendTelegramMessage(
             chatId,
             'Черновик отменен. Можете отправить новую операцию.',

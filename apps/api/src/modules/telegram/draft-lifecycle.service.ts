@@ -113,11 +113,13 @@ export class DraftLifecycleService {
         where: { id: draftId },
         data: {
           lastBotMessageId: messageId,
+          activePickerMessageId: null,
           pendingField: null,
         },
       });
 
       this.logger.log(`draft_confirmed transaction=${transaction.id}`);
+      await this.clearActivePickerMessage(chatId, review.activePickerMessageId);
       const text = this.telegramDraftService.renderDraftText(draft, true);
       const updated = await this.telegramDeliveryService.editTelegramMessage(
         chatId,
@@ -147,6 +149,13 @@ export class DraftLifecycleService {
     });
     const draft = review.draft as unknown as ReviewDraft;
     const text = this.telegramDraftService.renderDraftText(draft, false);
+    if (review.activePickerMessageId) {
+      await this.prisma.pendingOperationReview.update({
+        where: { id: draftId },
+        data: { activePickerMessageId: null },
+      });
+    }
+    await this.clearActivePickerMessage(chatId, review.activePickerMessageId);
     const keyboard = {
       inline_keyboard: [
         [
@@ -181,7 +190,7 @@ export class DraftLifecycleService {
     }
   }
 
-  async cancelDraft(draftId: string) {
+  async cancelDraft(draftId: string, chatId?: string) {
     const review = await this.prisma.pendingOperationReview.findUniqueOrThrow({
       where: { id: draftId },
     });
@@ -189,9 +198,14 @@ export class DraftLifecycleService {
       where: { id: draftId },
       data: {
         status: SourceMessageStatus.CANCELLED,
+        activePickerMessageId: null,
         pendingField: null,
       },
     });
+    await this.clearActivePickerMessage(
+      chatId,
+      review.activePickerMessageId,
+    );
     await this.prisma.sourceMessage.update({
       where: { id: review.sourceMessageId },
       data: { status: SourceMessageStatus.CANCELLED },
@@ -203,6 +217,25 @@ export class DraftLifecycleService {
       where: { id: draftId },
     });
     return review.draft as unknown as ReviewDraft;
+  }
+
+  async setActivePickerMessage(draftId: string, messageId: string | null) {
+    await this.prisma.pendingOperationReview.update({
+      where: { id: draftId },
+      data: { activePickerMessageId: messageId },
+    });
+  }
+
+  async clearDraftActivePicker(draftId: string, chatId: string, fallbackMessageId?: number) {
+    const review = await this.prisma.pendingOperationReview.findUniqueOrThrow({
+      where: { id: draftId },
+    });
+    const targetMessageId = review.activePickerMessageId ?? String(fallbackMessageId ?? '');
+    await this.prisma.pendingOperationReview.update({
+      where: { id: draftId },
+      data: { activePickerMessageId: null },
+    });
+    await this.clearActivePickerMessage(chatId, targetMessageId);
   }
 
   async loadActiveCategories(type?: 'income' | 'expense' | null): Promise<ActiveCategory[]> {
@@ -345,6 +378,7 @@ export class DraftLifecycleService {
       where: { id: draftId },
       data: {
         draft: nextDraft as unknown as Prisma.InputJsonValue,
+        activePickerMessageId: null,
         pendingField: null,
       },
     });
@@ -372,5 +406,28 @@ export class DraftLifecycleService {
         success: true,
       },
     });
+  }
+
+  private async clearActivePickerMessage(chatId: string | null | undefined, messageId: string | null | undefined) {
+    if (!chatId || !messageId) {
+      return;
+    }
+
+    const numericMessageId = Number(messageId);
+    if (!Number.isFinite(numericMessageId)) {
+      return;
+    }
+
+    const deleted = await this.telegramDeliveryService.deleteTelegramMessage(
+      chatId,
+      numericMessageId,
+    );
+
+    if (!deleted) {
+      await this.telegramDeliveryService.clearTelegramInlineKeyboard(
+        chatId,
+        numericMessageId,
+      );
+    }
   }
 }

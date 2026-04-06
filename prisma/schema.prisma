@@ -200,6 +200,7 @@ model PendingOperationReview {
   draft             Json
   pendingField      String?
   lastBotMessageId  String?
+  activePickerMessageId String?
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   sourceMessage     SourceMessage       @relation(fields: [sourceMessageId], references: [id], onDelete: Cascade)

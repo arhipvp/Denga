@@ -12,6 +12,8 @@ describe('ClarificationService category picker', () => {
   const categoryFindMany = jest.fn();
   const loadDraft = jest.fn();
   const updateDraftField = jest.fn();
+  const clearDraftActivePicker = jest.fn();
+  const setActivePickerMessage = jest.fn();
   const sendTelegramMessage = jest.fn();
   const editTelegramMessage = jest.fn();
   const answerCallbackQuery = jest.fn();
@@ -37,7 +39,9 @@ describe('ClarificationService category picker', () => {
       loadDraft,
       confirmDraft: jest.fn(),
       cancelDraft: jest.fn(),
+      clearDraftActivePicker,
       renderDraftCard: jest.fn(),
+      setActivePickerMessage,
     } as never,
     {
       sendTelegramMessage,
@@ -60,6 +64,9 @@ describe('ClarificationService category picker', () => {
     loadDraft.mockResolvedValue({
       type: 'expense',
     });
+    clearDraftActivePicker.mockResolvedValue(undefined);
+    setActivePickerMessage.mockResolvedValue(undefined);
+    sendTelegramMessage.mockResolvedValue({ message_id: 77 });
     categoryFindUnique.mockImplementation(async ({ where: { id } }: { where: { id: string } }) => ({
       id,
       name: `Категория ${id}`,
@@ -92,6 +99,7 @@ describe('ClarificationService category picker', () => {
         }),
       }),
     );
+    expect(clearDraftActivePicker).toHaveBeenCalledWith('draft-1', 'chat-1');
     expect(sendTelegramMessage).toHaveBeenCalledWith(
       'chat-1',
       'Выберите категорию (страница 1/2):',
@@ -109,6 +117,7 @@ describe('ClarificationService category picker', () => {
         ],
       },
     );
+    expect(setActivePickerMessage).toHaveBeenCalledWith('draft-1', '77');
   });
 
   it('paginates categories by editing the existing message', async () => {
@@ -134,6 +143,7 @@ describe('ClarificationService category picker', () => {
     ).resolves.toEqual({ accepted: true, status: 'editing_category' });
 
     expect(answerCallbackQuery).toHaveBeenCalledWith('callback-1');
+    expect(setActivePickerMessage).toHaveBeenCalledWith('draft-1', '55');
     expect(editTelegramMessage).toHaveBeenCalledWith(
       'chat-1',
       55,
@@ -161,9 +171,31 @@ describe('ClarificationService category picker', () => {
       }),
     ).resolves.toEqual({ accepted: true, status: 'pending_review' });
 
+    expect(clearDraftActivePicker).toHaveBeenCalledWith('draft-1', 'chat-1', 55);
     expect(updateDraftField).toHaveBeenCalledWith(
       'draft-1',
       { categoryId: 'expense-9', categoryName: 'Категория expense-9' },
+      'chat-1',
+    );
+  });
+
+  it('cleans up the type picker before applying the selected type', async () => {
+    await expect(
+      service.handleCallbackQuery({
+        id: 'callback-type',
+        data: 'draft:set-type:income',
+        from: { id: 'telegram-user-1' },
+        message: {
+          message_id: 44,
+          chat: { id: 'chat-1' },
+        },
+      }),
+    ).resolves.toEqual({ accepted: true, status: 'pending_review' });
+
+    expect(clearDraftActivePicker).toHaveBeenCalledWith('draft-1', 'chat-1', 44);
+    expect(updateDraftField).toHaveBeenCalledWith(
+      'draft-1',
+      { type: 'income', categoryId: null, categoryName: null },
       'chat-1',
     );
   });
@@ -180,6 +212,7 @@ describe('ClarificationService category picker', () => {
       'chat-1',
       'Нет активных категорий для выбранного типа операции.',
     );
+    expect(setActivePickerMessage).not.toHaveBeenCalled();
   });
 });
 
@@ -190,6 +223,11 @@ describe('DraftLifecycleService clarification flow', () => {
   const sourceMessageUpdate = jest.fn();
   const parseAttemptCreate = jest.fn();
   const parseTransaction = jest.fn();
+  const deleteTelegramMessage = jest.fn();
+  const clearTelegramInlineKeyboard = jest.fn();
+  const sendTelegramMessage = jest.fn();
+  const editTelegramMessage = jest.fn();
+  const createConfirmedFromDraft = jest.fn();
 
   const draftService = new TelegramDraftService();
   const aiParsingServiceMock = {
@@ -234,18 +272,22 @@ describe('DraftLifecycleService clarification flow', () => {
       buildAttachmentDataUrl: jest.fn().mockResolvedValue(undefined),
     } as never,
     {
-      sendTelegramMessage: jest.fn(),
-      editTelegramMessage: jest.fn(),
+      sendTelegramMessage,
+      editTelegramMessage,
+      deleteTelegramMessage,
+      clearTelegramInlineKeyboard,
     } as never,
     draftService,
     {
-      createConfirmedFromDraft: jest.fn(),
+      createConfirmedFromDraft,
     } as never,
   );
 
   beforeEach(() => {
     jest.clearAllMocks();
     jest.spyOn(service, 'renderDraftCard').mockResolvedValue(undefined);
+    deleteTelegramMessage.mockResolvedValue(true);
+    clearTelegramInlineKeyboard.mockResolvedValue(true);
   });
 
   it('merges follow-up clarification into existing draft and stores categories in runtime system prompt', async () => {
@@ -334,5 +376,153 @@ describe('DraftLifecycleService clarification flow', () => {
     expect(promptSnapshot.categories).toEqual(['Транспорт', 'Продукты', 'Зарплата']);
     expect(promptSnapshot.userMessage).not.toContain('Доступные категории:');
     expect(promptSnapshot.userMessage).toContain('Текущее сообщение пользователя:\n18 евро на такси');
+  });
+
+  it('clears the active picker before refreshing the main draft card', async () => {
+    jest.restoreAllMocks();
+    findUniqueOrThrow.mockResolvedValue({
+      id: 'draft-1',
+      draft: {
+        type: 'expense',
+        amount: 18,
+        occurredAt: '2026-04-01T00:00:00.000Z',
+        categoryId: 'cat-1',
+        categoryName: 'Транспорт',
+        comment: 'такси',
+        currency: 'EUR',
+        confidence: 0.9,
+        ambiguities: [],
+        followUpQuestion: null,
+        sourceText: 'такси',
+      },
+      lastBotMessageId: '101',
+      activePickerMessageId: '202',
+    });
+
+    await DraftLifecycleService.prototype.renderDraftCard.call(service, 'draft-1', 'chat-1');
+
+    expect(deleteTelegramMessage).toHaveBeenCalledWith('chat-1', 202);
+    expect(editTelegramMessage).toHaveBeenCalledWith(
+      'chat-1',
+      101,
+      expect.any(String),
+      expect.any(Object),
+    );
+  });
+
+  it('falls back to clearing inline keyboard when picker deletion fails', async () => {
+    jest.restoreAllMocks();
+    deleteTelegramMessage.mockResolvedValue(false);
+    findUniqueOrThrow.mockResolvedValue({
+      id: 'draft-1',
+      draft: {
+        type: 'expense',
+        amount: 18,
+        occurredAt: '2026-04-01T00:00:00.000Z',
+        categoryId: 'cat-1',
+        categoryName: 'Транспорт',
+        comment: 'такси',
+        currency: 'EUR',
+        confidence: 0.9,
+        ambiguities: [],
+        followUpQuestion: null,
+        sourceText: 'такси',
+      },
+      lastBotMessageId: '101',
+      activePickerMessageId: '202',
+    });
+
+    await DraftLifecycleService.prototype.renderDraftCard.call(service, 'draft-1', 'chat-1');
+
+    expect(deleteTelegramMessage).toHaveBeenCalledWith('chat-1', 202);
+    expect(clearTelegramInlineKeyboard).toHaveBeenCalledWith('chat-1', 202);
+  });
+
+  it('clears the active picker state when a picker selection succeeds', async () => {
+    findUniqueOrThrow.mockResolvedValue({
+      id: 'draft-1',
+      activePickerMessageId: '202',
+    });
+    pendingUpdate.mockResolvedValue(undefined);
+
+    await service.clearDraftActivePicker('draft-1', 'chat-1', 55);
+
+    expect(pendingUpdate).toHaveBeenCalledWith({
+      where: { id: 'draft-1' },
+      data: { activePickerMessageId: null },
+    });
+    expect(deleteTelegramMessage).toHaveBeenCalledWith('chat-1', 202);
+  });
+
+  it('clears the active picker when cancelling a draft', async () => {
+    jest.restoreAllMocks();
+    findUniqueOrThrow.mockResolvedValue({
+      id: 'draft-1',
+      sourceMessageId: 'source-1',
+      activePickerMessageId: '202',
+    });
+
+    await service.cancelDraft('draft-1', 'chat-1');
+
+    expect(pendingUpdate).toHaveBeenCalledWith({
+      where: { id: 'draft-1' },
+      data: {
+        status: 'CANCELLED',
+        activePickerMessageId: null,
+        pendingField: null,
+      },
+    });
+    expect(deleteTelegramMessage).toHaveBeenCalledWith('chat-1', 202);
+    expect(sourceMessageUpdate).toHaveBeenCalledWith({
+      where: { id: 'source-1' },
+      data: { status: 'CANCELLED' },
+    });
+  });
+
+  it('clears the active picker when confirming a draft', async () => {
+    jest.restoreAllMocks();
+    createConfirmedFromDraft.mockResolvedValue({ id: 'transaction-1' });
+    editTelegramMessage.mockResolvedValue(true);
+    findUniqueOrThrow.mockResolvedValue({
+      id: 'draft-1',
+      sourceMessageId: 'source-1',
+      authorId: 'user-1',
+      draft: {
+        type: 'expense',
+        amount: 18,
+        occurredAt: '2026-04-01T00:00:00.000Z',
+        categoryId: 'cat-1',
+        categoryName: 'Транспорт',
+        comment: 'такси',
+        currency: 'EUR',
+        confidence: 0.9,
+        ambiguities: [],
+        followUpQuestion: null,
+        sourceText: 'такси',
+      },
+      activePickerMessageId: '202',
+      sourceMessage: {},
+    });
+
+    await expect(service.confirmDraft('draft-1', 'chat-1', '101')).resolves.toEqual({
+      accepted: true,
+      status: 'confirmed',
+      transactionId: 'transaction-1',
+    });
+
+    expect(pendingUpdate).toHaveBeenCalledWith({
+      where: { id: 'draft-1' },
+      data: {
+        lastBotMessageId: '101',
+        activePickerMessageId: null,
+        pendingField: null,
+      },
+    });
+    expect(deleteTelegramMessage).toHaveBeenCalledWith('chat-1', 202);
+    expect(editTelegramMessage).toHaveBeenCalledWith(
+      'chat-1',
+      101,
+      expect.any(String),
+    );
   });
 });

@@ -55,7 +55,7 @@ export class ClarificationService {
 
     if (data === 'draft:cancel') {
       await this.telegramDeliveryService.answerCallbackQuery(callback.id);
-      await this.draftLifecycleService.cancelDraft(draft.id);
+      await this.draftLifecycleService.cancelDraft(draft.id, chatId);
       await this.telegramDeliveryService.editTelegramMessage(chatId, Number(messageId), 'Операция отменена.');
       return { accepted: true, status: 'cancelled' };
     }
@@ -69,6 +69,11 @@ export class ClarificationService {
     if (data.startsWith('draft:set-type:')) {
       const value = data.replace('draft:set-type:', '') as 'income' | 'expense';
       await this.telegramDeliveryService.answerCallbackQuery(callback.id);
+      await this.draftLifecycleService.clearDraftActivePicker(
+        draft.id,
+        chatId,
+        Number(callback.message?.message_id ?? messageId),
+      );
       return this.updateDraftField(draft.id, { type: value, categoryId: null, categoryName: null }, chatId);
     }
 
@@ -80,6 +85,11 @@ export class ClarificationService {
         return { accepted: true, ignored: true };
       }
       await this.telegramDeliveryService.answerCallbackQuery(callback.id);
+      await this.draftLifecycleService.clearDraftActivePicker(
+        draft.id,
+        chatId,
+        Number(callback.message?.message_id ?? messageId),
+      );
       return this.updateDraftField(
         draft.id,
         { categoryId: category.id, categoryName: category.name },
@@ -106,20 +116,26 @@ export class ClarificationService {
 
   async beginFieldEdit(draftId: string, field: string, chatId: string) {
     if (field === 'type') {
+      await this.draftLifecycleService.clearDraftActivePicker(draftId, chatId);
       await this.prisma.pendingOperationReview.update({
         where: { id: draftId },
         data: { pendingField: null },
       });
-      await this.telegramDeliveryService.sendTelegramMessage(chatId, 'Выберите тип операции:', {
+      const result = await this.telegramDeliveryService.sendTelegramMessage(chatId, 'Выберите тип операции:', {
         inline_keyboard: [[
           { text: 'Доход', callback_data: 'draft:set-type:income' },
           { text: 'Расход', callback_data: 'draft:set-type:expense' },
         ]],
       });
+      await this.draftLifecycleService.setActivePickerMessage(
+        draftId,
+        String(result.message_id),
+      );
       return { accepted: true, status: 'editing_type' };
     }
 
     if (field === 'category') {
+      await this.draftLifecycleService.clearDraftActivePicker(draftId, chatId);
       await this.prisma.pendingOperationReview.update({
         where: { id: draftId },
         data: { pendingField: null },
@@ -200,10 +216,14 @@ export class ClarificationService {
       return { accepted: true, status: 'editing_category_empty' };
     }
 
-    await this.telegramDeliveryService.sendTelegramMessage(
+    const result = await this.telegramDeliveryService.sendTelegramMessage(
       chatId,
       categoryPage.text,
       categoryPage.replyMarkup,
+    );
+    await this.draftLifecycleService.setActivePickerMessage(
+      draftId,
+      String(result.message_id),
     );
     return { accepted: true, status: 'editing_category' };
   }
@@ -214,9 +234,11 @@ export class ClarificationService {
     messageId: number,
     requestedPage: number,
   ) {
+    await this.draftLifecycleService.setActivePickerMessage(draftId, String(messageId));
     const categoryPage = await this.buildCategoryPagePayload(draftId, requestedPage);
 
     if (!categoryPage) {
+      await this.draftLifecycleService.setActivePickerMessage(draftId, null);
       await this.telegramDeliveryService.editTelegramMessage(
         chatId,
         messageId,

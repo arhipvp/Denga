@@ -137,6 +137,80 @@ export class TelegramDeliveryService {
     }
   }
 
+  async clearTelegramInlineKeyboard(chatId: string, messageId: number) {
+    const token = getApiRuntimeConfig().telegramBotToken;
+    if (!token) return false;
+
+    try {
+      await this.requestTelegramApi(
+        {
+          method: 'POST',
+          url: `https://api.telegram.org/bot${token}/editMessageReplyMarkup`,
+          data: {
+            chat_id: chatId,
+            message_id: messageId,
+            reply_markup: {
+              inline_keyboard: [],
+            },
+          },
+        },
+        'telegram_clear_reply_markup',
+        'Telegram editMessageReplyMarkup failed',
+        { chatId, messageId },
+      );
+      return true;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const description = error.response?.data?.description;
+        if (
+          typeof description === 'string' &&
+          description.includes('message is not modified')
+        ) {
+          this.logger.debug(`telegram_reply_markup_not_modified chat=${chatId} message=${messageId}`);
+          return true;
+        }
+        this.logger.error(
+          `telegram_clear_reply_markup_failed chat=${chatId} message=${messageId} code=${error.code ?? 'unknown'} description=${description ?? 'n/a'}`,
+        );
+        return false;
+      }
+      this.logger.error('telegram_clear_reply_markup_failed', error);
+      return false;
+    }
+  }
+
+  async deleteTelegramMessage(chatId: string, messageId: number) {
+    const token = getApiRuntimeConfig().telegramBotToken;
+    if (!token) return false;
+
+    try {
+      await this.requestTelegramApi(
+        {
+          method: 'POST',
+          url: `https://api.telegram.org/bot${token}/deleteMessage`,
+          data: {
+            chat_id: chatId,
+            message_id: messageId,
+          },
+        },
+        'telegram_delete_message',
+        'Telegram deleteMessage failed',
+        { chatId, messageId },
+      );
+      return true;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const description = error.response?.data?.description;
+        this.logger.error(
+          `telegram_delete_message_failed chat=${chatId} message=${messageId} code=${error.code ?? 'unknown'} description=${description ?? 'n/a'}`,
+        );
+        return false;
+      }
+      this.logger.error('telegram_delete_message_failed', error);
+      return false;
+    }
+  }
+
   async answerCallbackQuery(callbackQueryId: string, text?: string) {
     const token = getApiRuntimeConfig().telegramBotToken;
     if (!token) return;
