@@ -2,6 +2,7 @@ import axios from 'axios';
 import { MessageIngestionService } from '../src/modules/telegram/message-ingestion.service';
 import { TelegramDeliveryService } from '../src/modules/telegram/telegram-delivery.service';
 import {
+  TELEGRAM_ADD_OPERATION_MENU_LABEL,
   TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK,
   TELEGRAM_EXPENSE_CURRENT_MONTH_LABEL,
   TELEGRAM_STATS_MENU_LABEL,
@@ -49,7 +50,10 @@ describe('Telegram menu delivery', () => {
           chat_id: 'chat-1',
           text: 'Привет',
           reply_markup: {
-            keyboard: [[{ text: TELEGRAM_STATS_MENU_LABEL }]],
+            keyboard: [[
+              { text: TELEGRAM_ADD_OPERATION_MENU_LABEL },
+              { text: TELEGRAM_STATS_MENU_LABEL },
+            ]],
             resize_keyboard: true,
             is_persistent: true,
           },
@@ -175,6 +179,31 @@ describe('MessageIngestionService menu actions', () => {
     expect(sendTelegramMessage).toHaveBeenCalledWith(
       'chat-1',
       'Привет! Отправьте сообщение с операцией или фото чека.',
+    );
+    expect(sourceMessageUpsert).not.toHaveBeenCalled();
+    expect(createDraftFromMessage).not.toHaveBeenCalled();
+  });
+
+  it('shows add operation prompt without creating a source message', async () => {
+    await expect(
+      service.handleMessage(
+        {
+          message_id: 1,
+          chat: { id: 'chat-1' },
+          text: TELEGRAM_ADD_OPERATION_MENU_LABEL,
+          from: { id: 'telegram-user-1' },
+        },
+        {},
+      ),
+    ).resolves.toEqual({
+      accepted: true,
+      status: 'add_operation_prompt_shown',
+      authorId: 'user-1',
+    });
+
+    expect(sendTelegramMessage).toHaveBeenCalledWith(
+      'chat-1',
+      'Отправьте сообщение с операцией или фото чека. Например: <b>Такси 12 EUR</b>.',
     );
     expect(sourceMessageUpsert).not.toHaveBeenCalled();
     expect(createDraftFromMessage).not.toHaveBeenCalled();

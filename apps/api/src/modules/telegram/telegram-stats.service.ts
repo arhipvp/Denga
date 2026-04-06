@@ -48,12 +48,14 @@ export class TelegramStatsService {
 
   private buildExpenseCaption(input: Awaited<ReturnType<TransactionService['getCurrentMonthExpenseBreakdown']>>) {
     const lines = [
-      `<b>Расходы за ${input.periodLabel.toLowerCase()}</b>`,
-      `Итого: <b>${this.formatMoney(input.totalExpense)}</b>`,
+      `<b>Отчет по расходам</b>`,
+      `Период: <b>${input.periodLabel.toLowerCase()}</b>`,
+      `Итого: <b>${this.formatMoney(input.totalExpense, input.currency)}</b>`,
       '',
+      `<b>Категории</b>`,
       ...input.items.map(
         (item) =>
-          `• ${item.categoryName}: ${this.formatMoney(item.amount)} (${(item.share * 100).toFixed(1)}%)`,
+          `• ${item.categoryName} — <b>${this.formatMoney(item.amount, input.currency)}</b> (${(item.share * 100).toFixed(1)}%)`,
       ),
     ];
 
@@ -64,16 +66,17 @@ export class TelegramStatsService {
     input: Awaited<ReturnType<TransactionService['getCurrentMonthExpenseBreakdown']>>,
   ) {
     return [
-      `<b>Расходы за ${input.periodLabel.toLowerCase()}</b>`,
-      `Итого: <b>${this.formatMoney(input.totalExpense)}</b>`,
-      'Подробный список категорий отправлен следующим сообщением.',
+      `<b>Отчет по расходам</b>`,
+      `Период: <b>${input.periodLabel.toLowerCase()}</b>`,
+      `Итого: <b>${this.formatMoney(input.totalExpense, input.currency)}</b>`,
+      'Полный список категорий отправлен следующим сообщением.',
     ].join('\n');
   }
 
-  private formatMoney(value: number) {
-    return value.toLocaleString('ru-RU', {
+  private formatMoney(value: number, currency: string) {
+    return `${value.toLocaleString('ru-RU', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
-    });
+    })} ${currency}`;
   }
 }

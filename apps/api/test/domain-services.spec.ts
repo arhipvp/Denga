@@ -504,6 +504,7 @@ describe('TransactionService', () => {
     const breakdown = await service.getCurrentMonthExpenseBreakdown();
 
     expect(breakdown.periodLabel).toBe('Апрель 2026');
+    expect(breakdown.currency).toBe('EUR');
     expect(breakdown.totalExpense).toBe(192);
     expect(breakdown.items).toEqual([
       expect.objectContaining({ categoryName: 'Еда', amount: 120 }),
@@ -525,6 +526,7 @@ describe('TransactionService', () => {
 
     expect(breakdown).toEqual({
       periodLabel: 'Апрель 2026',
+      currency: 'EUR',
       totalExpense: 0,
       items: [],
     });

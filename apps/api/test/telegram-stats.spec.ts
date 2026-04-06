@@ -28,6 +28,7 @@ describe('TelegramStatsService', () => {
   it('sends an empty-state text when there are no confirmed expenses', async () => {
     getCurrentMonthExpenseBreakdown.mockResolvedValue({
       periodLabel: 'Апрель 2026',
+      currency: 'EUR',
       totalExpense: 0,
       items: [],
     });
@@ -47,6 +48,7 @@ describe('TelegramStatsService', () => {
   it('sends a chart and caption for the current month expense report', async () => {
     getCurrentMonthExpenseBreakdown.mockResolvedValue({
       periodLabel: 'Апрель 2026',
+      currency: 'EUR',
       totalExpense: 200,
       items: [
         { categoryId: 'food', categoryName: 'Еда', amount: 120, share: 0.6 },
@@ -64,14 +66,25 @@ describe('TelegramStatsService', () => {
       chatId: 'chat-1',
       fileName: 'expense-current-month.png',
       photo: expect.any(Buffer),
-      caption: expect.stringContaining('Расходы за апрель 2026'),
+      caption: expect.stringContaining('Итого: <b>200,00 EUR</b>'),
     });
+    expect(sendTelegramPhoto).toHaveBeenCalledWith(
+      expect.objectContaining({
+        caption: expect.stringContaining('<b>Категории</b>'),
+      }),
+    );
+    expect(sendTelegramPhoto).toHaveBeenCalledWith(
+      expect.objectContaining({
+        caption: expect.stringContaining('• Еда — <b>120,00 EUR</b> (60.0%)'),
+      }),
+    );
     expect(sendTelegramMessage).not.toHaveBeenCalled();
   });
 
   it('falls back to a follow-up text when the caption becomes too long', async () => {
     getCurrentMonthExpenseBreakdown.mockResolvedValue({
       periodLabel: 'Апрель 2026',
+      currency: 'EUR',
       totalExpense: 1500,
       items: Array.from({ length: 18 }, (_, index) => ({
         categoryId: `cat-${index + 1}`,
@@ -85,7 +98,12 @@ describe('TelegramStatsService', () => {
 
     expect(sendTelegramPhoto).toHaveBeenCalledWith(
       expect.objectContaining({
-        caption: expect.stringContaining('Подробный список категорий отправлен следующим сообщением.'),
+        caption: expect.stringContaining('Итого: <b>1 500,00 EUR</b>'),
+      }),
+    );
+    expect(sendTelegramPhoto).toHaveBeenCalledWith(
+      expect.objectContaining({
+        caption: expect.stringContaining('Полный список категорий отправлен следующим сообщением.'),
       }),
     );
     expect(sendTelegramMessage).toHaveBeenCalledWith(
@@ -101,6 +119,7 @@ describe('TelegramStatsChartRenderer', () => {
 
     const buffer = renderer.renderExpenseBreakdown({
       periodLabel: 'Апрель 2026',
+      currency: 'EUR',
       totalExpense: 200,
       items: [
         { categoryId: 'food', categoryName: 'Еда', amount: 120, share: 0.6 },

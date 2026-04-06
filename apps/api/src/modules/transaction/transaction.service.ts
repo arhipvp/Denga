@@ -23,6 +23,7 @@ export type CurrentMonthExpenseBreakdownItem = {
 
 export type CurrentMonthExpenseBreakdown = {
   periodLabel: string;
+  currency: string;
   totalExpense: number;
   items: CurrentMonthExpenseBreakdownItem[];
 };
@@ -269,6 +270,7 @@ export class TransactionService {
 
   async getCurrentMonthExpenseBreakdown() {
     const householdId = this.householdContext.getHouseholdId();
+    const settings = await this.settingsService.getSettings();
     const now = new Date();
     const currentPeriodStart = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
@@ -342,6 +344,7 @@ export class TransactionService {
 
     return {
       periodLabel: this.formatCurrentMonthLabel(currentPeriodStart),
+      currency: settings.defaultCurrency,
       totalExpense,
       items: visibleItems,
     } satisfies CurrentMonthExpenseBreakdown;

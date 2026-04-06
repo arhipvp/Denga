@@ -10,6 +10,7 @@ import { TelegramDeliveryService } from './telegram-delivery.service';
 import { TelegramDraftService } from './telegram-draft.service';
 import {
   createTelegramStatsSubmenuReplyMarkup,
+  isTelegramAddOperationMenuAction,
   isTelegramSilentMenuAction,
   isTelegramStartCommand,
 } from './telegram-menu';
@@ -40,6 +41,14 @@ export class MessageIngestionService {
         'Привет! Отправьте сообщение с операцией или фото чека.',
       );
       return { accepted: true, status: 'menu_shown', authorId: author.id };
+    }
+
+    if (isTelegramAddOperationMenuAction(text)) {
+      await this.telegramDeliveryService.sendTelegramMessage(
+        chatId,
+        'Отправьте сообщение с операцией или фото чека. Например: <b>Такси 12 EUR</b>.',
+      );
+      return { accepted: true, status: 'add_operation_prompt_shown', authorId: author.id };
     }
 
     if (isTelegramSilentMenuAction(text)) {
