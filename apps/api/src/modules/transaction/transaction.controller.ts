@@ -41,7 +41,7 @@ export class TransactionController {
     @Req() request: { user: { sub: string; email: string; role: string } },
     @Body() dto: CreateTransactionDto,
   ) {
-    const transaction = await this.transactionService.createManual(dto);
+    const transaction = await this.transactionService.createManual(dto, request.user.sub);
     this.loggingService.info('admin', 'transaction_created', 'Manual transaction created', {
       actorId: request.user.sub,
       actorEmail: request.user.email,

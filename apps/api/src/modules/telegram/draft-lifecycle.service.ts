@@ -9,6 +9,7 @@ import { ParsedTransaction, AiParsingService } from './services/ai-parsing.servi
 import { AttachmentService } from './attachment.service';
 import { TelegramDeliveryService } from './telegram-delivery.service';
 import { TelegramDraftService } from './telegram-draft.service';
+import { TransactionNotificationService } from './transaction-notification.service';
 import { ActiveCategory, ReviewDraft } from './telegram.types';
 
 @Injectable()
@@ -25,6 +26,7 @@ export class DraftLifecycleService {
     private readonly telegramDeliveryService: TelegramDeliveryService,
     private readonly telegramDraftService: TelegramDraftService,
     private readonly transactionCoreService: TransactionCoreService,
+    private readonly transactionNotificationService: TransactionNotificationService,
   ) {}
 
   async createDraftFromMessage(
@@ -129,6 +131,7 @@ export class DraftLifecycleService {
       if (!updated) {
         await this.telegramDeliveryService.sendTelegramMessage(chatId, text);
       }
+      await this.transactionNotificationService.notifyTransactionCreated(transaction.id);
       return { accepted: true, status: 'confirmed', transactionId: transaction.id };
     } catch (error) {
       const message =

@@ -9,20 +9,25 @@ import { DraftLifecycleService } from './draft-lifecycle.service';
 import { MessageIngestionService } from './message-ingestion.service';
 import { TelegramController } from './telegram.controller';
 import { TelegramService } from './telegram.service';
-import { TelegramDeliveryService } from './telegram-delivery.service';
+import { TelegramDeliveryModule } from './telegram-delivery.module';
 import { TelegramDraftService } from './telegram-draft.service';
 import { UpdateRouterService } from './update-router.service';
 import { AiParsingService } from './services/ai-parsing.service';
 import { TelegramBotService } from './services/telegram-bot.service';
 
 @Module({
-  imports: [CategoryModule, LoggingModule, SettingsModule, TransactionModule],
+  imports: [
+    CategoryModule,
+    LoggingModule,
+    SettingsModule,
+    TransactionModule,
+    TelegramDeliveryModule,
+  ],
   controllers: [TelegramController],
   providers: [
     TelegramService,
     TelegramBotService,
     AiParsingService,
-    TelegramDeliveryService,
     AttachmentService,
     TelegramDraftService,
     DraftLifecycleService,
@@ -30,6 +35,6 @@ import { TelegramBotService } from './services/telegram-bot.service';
     MessageIngestionService,
     UpdateRouterService,
   ],
-  exports: [TelegramDeliveryService],
+  exports: [TelegramDeliveryModule],
 })
 export class TelegramModule {}

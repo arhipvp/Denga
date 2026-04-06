@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { HealthController } from './health.controller';
 import { HealthService } from './health.service';
-import { TelegramModule } from '../telegram/telegram.module';
+import { TelegramDeliveryModule } from '../telegram/telegram-delivery.module';
 
 @Module({
-  imports: [TelegramModule],
+  imports: [TelegramDeliveryModule],
   providers: [HealthService],
   controllers: [HealthController],
 })

@@ -228,6 +228,7 @@ describe('DraftLifecycleService clarification flow', () => {
   const sendTelegramMessage = jest.fn();
   const editTelegramMessage = jest.fn();
   const createConfirmedFromDraft = jest.fn();
+  const notifyTransactionCreated = jest.fn();
 
   const draftService = new TelegramDraftService();
   const aiParsingServiceMock = {
@@ -281,6 +282,9 @@ describe('DraftLifecycleService clarification flow', () => {
     {
       createConfirmedFromDraft,
     } as never,
+    {
+      notifyTransactionCreated,
+    } as never,
   );
 
   beforeEach(() => {
@@ -288,6 +292,45 @@ describe('DraftLifecycleService clarification flow', () => {
     jest.spyOn(service, 'renderDraftCard').mockResolvedValue(undefined);
     deleteTelegramMessage.mockResolvedValue(true);
     clearTelegramInlineKeyboard.mockResolvedValue(true);
+  });
+
+  it('fans out notifications after draft confirmation', async () => {
+    findUniqueOrThrow.mockResolvedValue({
+      id: 'draft-1',
+      sourceMessageId: 'source-1',
+      authorId: 'user-1',
+      draft: {
+        type: 'expense',
+        amount: 25,
+        occurredAt: '2026-04-06T00:00:00.000Z',
+        categoryId: 'cat-1',
+        categoryName: 'Транспорт',
+        comment: 'Такси',
+        currency: 'EUR',
+      },
+      sourceMessage: {},
+    });
+    pendingUpdate.mockResolvedValue({});
+    createConfirmedFromDraft.mockResolvedValue({ id: 'tx-1' });
+    editTelegramMessage.mockResolvedValue(true);
+    notifyTransactionCreated.mockResolvedValue({
+      recipients: 2,
+      delivered: 2,
+      failed: 0,
+    });
+
+    await expect(service.confirmDraft('draft-1', 'chat-1', '55')).resolves.toEqual({
+      accepted: true,
+      status: 'confirmed',
+      transactionId: 'tx-1',
+    });
+
+    expect(editTelegramMessage).toHaveBeenCalledWith(
+      'chat-1',
+      55,
+      expect.stringContaining('Операция сохранена'),
+    );
+    expect(notifyTransactionCreated).toHaveBeenCalledWith('tx-1');
   });
 
   it('merges follow-up clarification into existing draft and stores categories in runtime system prompt', async () => {

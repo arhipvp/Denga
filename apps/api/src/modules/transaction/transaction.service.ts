@@ -9,6 +9,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { HouseholdContextService } from '../common/household-context.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { TransactionNotificationService } from '../telegram/transaction-notification.service';
 import { CreateTransactionDto, UpdateTransactionDto } from './dto/transaction.dto';
 import { TransactionCoreService } from './transaction-core.service';
 
@@ -19,6 +20,7 @@ export class TransactionService {
     private readonly settingsService: SettingsService,
     private readonly transactionCoreService: TransactionCoreService,
     private readonly householdContext: HouseholdContextService,
+    private readonly transactionNotificationService: TransactionNotificationService,
   ) {}
 
   list(status?: string, type?: string) {
@@ -251,21 +253,23 @@ export class TransactionService {
     };
   }
 
-  async createManual(dto: CreateTransactionDto) {
+  async createManual(dto: CreateTransactionDto, authorId?: string) {
     const settings = await this.settingsService.getSettings();
     await this.transactionCoreService.ensureCategoryType(dto.categoryId, dto.type);
     const sourceMessage = await this.prisma.sourceMessage.create({
       data: {
         householdId: this.householdContext.getHouseholdId(),
+        authorId,
         type: SourceMessageType.ADMIN_MANUAL,
         status: SourceMessageStatus.PARSED,
         rawPayload: {},
       },
     });
 
-    return this.prisma.transaction.create({
+    const transaction = await this.prisma.transaction.create({
       data: {
         householdId: this.householdContext.getHouseholdId(),
+        authorId,
         sourceMessageId: sourceMessage.id,
         type: dto.type === 'income' ? TransactionType.INCOME : TransactionType.EXPENSE,
         amount: new Decimal(dto.amount),
@@ -277,9 +281,14 @@ export class TransactionService {
       },
       include: {
         category: true,
+        author: true,
         sourceMessage: true,
       },
     });
+
+    await this.transactionNotificationService.notifyTransactionCreated(transaction.id);
+
+    return transaction;
   }
 
   async update(id: string, dto: UpdateTransactionDto) {

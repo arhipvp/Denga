@@ -52,6 +52,7 @@ describe('TransactionService', () => {
   const transactionFindUniqueOrThrow = jest.fn();
   const transactionFindMany = jest.fn();
   const categoryFindUniqueOrThrow = jest.fn();
+  const notifyTransactionCreated = jest.fn();
   const settingsService = {
     getSettings: jest.fn().mockResolvedValue({ defaultCurrency: 'EUR' }),
   };
@@ -93,6 +94,9 @@ describe('TransactionService', () => {
     settingsService as never,
     transactionCoreService,
     householdContext as HouseholdContextService,
+    {
+      notifyTransactionCreated,
+    } as never,
   );
 
   beforeEach(() => {
@@ -153,17 +157,21 @@ describe('TransactionService', () => {
     categoryFindUniqueOrThrow.mockResolvedValue({ type: CategoryType.EXPENSE });
     transactionCreate.mockResolvedValue({ id: 'tx-1' });
 
-    await service.createManual({
-      type: 'expense',
-      amount: 25.5,
-      occurredAt: '2026-04-01T00:00:00.000Z',
-      categoryId: 'cat-1',
-      comment: 'Taxi',
-    });
+    await service.createManual(
+      {
+        type: 'expense',
+        amount: 25.5,
+        occurredAt: '2026-04-01T00:00:00.000Z',
+        categoryId: 'cat-1',
+        comment: 'Taxi',
+      },
+      'user-1',
+    );
 
     expect(transactionCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
+          authorId: 'user-1',
           sourceMessageId: 'source-1',
           type: TransactionType.EXPENSE,
           currency: 'EUR',
@@ -171,6 +179,14 @@ describe('TransactionService', () => {
         }),
       }),
     );
+    expect(sourceMessageCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          authorId: 'user-1',
+        }),
+      }),
+    );
+    expect(notifyTransactionCreated).toHaveBeenCalledWith('tx-1');
     expect(transactionCreate.mock.calls[0][0].data.amount).toBeInstanceOf(Decimal);
   });
 
