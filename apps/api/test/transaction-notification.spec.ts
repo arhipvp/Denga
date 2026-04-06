@@ -76,6 +76,41 @@ describe('TransactionNotificationService', () => {
     );
   });
 
+  it('supports excluding recipient telegram ids', async () => {
+    transactionFindFirst.mockResolvedValue({
+      id: 'tx-1',
+      type: TransactionType.EXPENSE,
+      amount: new Decimal(25.5),
+      currency: 'EUR',
+      occurredAt: new Date('2026-04-06T00:00:00.000Z'),
+      comment: 'Такси',
+      category: { name: 'Транспорт' },
+      author: { displayName: 'Алексей' },
+    });
+    telegramAccountFindMany.mockResolvedValue([
+      { telegramId: '111' },
+      { telegramId: '222' },
+      { telegramId: '333' },
+    ]);
+    sendTelegramMessage.mockResolvedValue({ message_id: 1 });
+
+    await expect(
+      service.notifyTransactionCreated('tx-1', {
+        excludeTelegramIds: ['111', ' 333 '],
+      }),
+    ).resolves.toEqual({
+      recipients: 1,
+      delivered: 1,
+      failed: 0,
+    });
+
+    expect(sendTelegramMessage).toHaveBeenCalledTimes(1);
+    expect(sendTelegramMessage).toHaveBeenCalledWith(
+      '222',
+      expect.stringContaining('Добавлена новая операция'),
+    );
+  });
+
   it('swallows delivery failures and reports counts', async () => {
     transactionFindFirst.mockResolvedValue({
       id: 'tx-1',

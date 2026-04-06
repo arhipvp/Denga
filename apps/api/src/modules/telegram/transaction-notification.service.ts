@@ -15,7 +15,10 @@ export class TransactionNotificationService {
     private readonly telegramDeliveryService: TelegramDeliveryService,
   ) {}
 
-  async notifyTransactionCreated(transactionId: string) {
+  async notifyTransactionCreated(
+    transactionId: string,
+    options?: { excludeTelegramIds?: string[] },
+  ) {
     const householdId = this.householdContext.getHouseholdId();
     const transaction = await this.prisma.transaction.findFirst({
       where: {
@@ -32,6 +35,12 @@ export class TransactionNotificationService {
       this.logger.warn(`transaction_not_found id=${transactionId}`);
       return { recipients: 0, delivered: 0, failed: 0 };
     }
+
+    const excludedTelegramIds = new Set(
+      (options?.excludeTelegramIds ?? [])
+        .map((item) => item.trim())
+        .filter((value) => value.length > 0),
+    );
 
     const recipientRecords = await this.prisma.telegramAccount.findMany({
       where: {
@@ -52,7 +61,10 @@ export class TransactionNotificationService {
       new Set(
         recipientRecords
           .map((item) => item.telegramId?.trim())
-          .filter((value): value is string => Boolean(value)),
+          .filter(
+            (value): value is string =>
+              Boolean(value) && !excludedTelegramIds.has(value),
+          ),
       ),
     );
 

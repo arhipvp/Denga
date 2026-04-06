@@ -299,6 +299,9 @@ describe('DraftLifecycleService clarification flow', () => {
       id: 'draft-1',
       sourceMessageId: 'source-1',
       authorId: 'user-1',
+      author: {
+        telegramAccounts: [{ telegramId: '111' }, { telegramId: '222' }],
+      },
       draft: {
         type: 'expense',
         amount: 25,
@@ -330,7 +333,9 @@ describe('DraftLifecycleService clarification flow', () => {
       55,
       expect.stringContaining('Операция сохранена'),
     );
-    expect(notifyTransactionCreated).toHaveBeenCalledWith('tx-1');
+    expect(notifyTransactionCreated).toHaveBeenCalledWith('tx-1', {
+      excludeTelegramIds: ['111', '222'],
+    });
   });
 
   it('merges follow-up clarification into existing draft and stores categories in runtime system prompt', async () => {

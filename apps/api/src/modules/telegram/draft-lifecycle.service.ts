@@ -89,6 +89,18 @@ export class DraftLifecycleService {
       where: { id: draftId },
       include: {
         sourceMessage: true,
+        author: {
+          include: {
+            telegramAccounts: {
+              where: {
+                isActive: true,
+              },
+              select: {
+                telegramId: true,
+              },
+            },
+          },
+        },
       },
     });
     const draft = review.draft as unknown as ReviewDraft;
@@ -131,7 +143,9 @@ export class DraftLifecycleService {
       if (!updated) {
         await this.telegramDeliveryService.sendTelegramMessage(chatId, text);
       }
-      await this.transactionNotificationService.notifyTransactionCreated(transaction.id);
+      await this.transactionNotificationService.notifyTransactionCreated(transaction.id, {
+        excludeTelegramIds: review.author?.telegramAccounts.map((item) => item.telegramId) ?? [],
+      });
       return { accepted: true, status: 'confirmed', transactionId: transaction.id };
     } catch (error) {
       const message =
