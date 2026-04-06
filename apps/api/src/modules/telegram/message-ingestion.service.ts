@@ -8,6 +8,7 @@ import { ClarificationService } from './clarification.service';
 import { DraftLifecycleService } from './draft-lifecycle.service';
 import { TelegramDeliveryService } from './telegram-delivery.service';
 import { TelegramDraftService } from './telegram-draft.service';
+import { isTelegramSilentMenuAction, isTelegramStartCommand } from './telegram-menu';
 import { TelegramMessage } from './telegram.types';
 
 @Injectable()
@@ -28,6 +29,18 @@ export class MessageIngestionService {
     const chatId = String(message.chat.id);
     const text = (message.text ?? message.caption ?? '').trim();
     const hasAttachment = Boolean(message.photo?.length || message.document);
+
+    if (isTelegramStartCommand(text)) {
+      await this.telegramDeliveryService.sendTelegramMessage(
+        chatId,
+        'Привет! Отправьте сообщение с операцией или фото чека.',
+      );
+      return { accepted: true, status: 'menu_shown', authorId: author.id };
+    }
+
+    if (isTelegramSilentMenuAction(text)) {
+      return { accepted: true, status: 'menu_action_ignored', authorId: author.id };
+    }
 
     const existingDraft = await this.prisma.pendingOperationReview.findFirst({
       where: {

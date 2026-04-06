@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import axios, { AxiosRequestConfig } from 'axios';
 import { getApiRuntimeConfig } from '../common/runtime-config';
 import { LoggingService } from '../logging/logging.service';
+import { createTelegramMainMenuReplyMarkup } from './telegram-menu';
 
 @Injectable()
 export class TelegramDeliveryService {
@@ -39,7 +40,7 @@ export class TelegramDeliveryService {
           chat_id: chatId,
           text,
           parse_mode: 'HTML',
-          reply_markup: replyMarkup,
+          reply_markup: replyMarkup ?? createTelegramMainMenuReplyMarkup(),
         },
       },
       'telegram_send_message',
