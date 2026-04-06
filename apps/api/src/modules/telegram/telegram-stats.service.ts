@@ -2,6 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { TelegramDeliveryService } from './telegram-delivery.service';
 import { TelegramStatsChartRenderer } from './telegram-stats-chart.renderer';
 import { TransactionService } from '../transaction/transaction.service';
+import type { CurrentMonthCategoryBreakdown } from '../transaction/transaction.types';
+
+type TelegramStatsReportDefinition = {
+  chartFileName: string;
+  chartTitle: string;
+  emptyStateText: string;
+  reportTitle: string;
+};
 
 @Injectable()
 export class TelegramStatsService {
@@ -15,18 +23,40 @@ export class TelegramStatsService {
 
   async sendCurrentMonthExpenseReport(chatId: string) {
     const breakdown = await this.transactionService.getCurrentMonthExpenseBreakdown();
+    return this.sendCurrentMonthReport(chatId, breakdown, {
+      chartFileName: 'expense-current-month.png',
+      chartTitle: 'Расходы',
+      emptyStateText: 'В этом месяце подтвержденных расходов пока нет.',
+      reportTitle: 'Отчет по расходам',
+    });
+  }
 
-    if (breakdown.totalExpense <= 0 || breakdown.items.length === 0) {
-      await this.telegramDeliveryService.sendTelegramMessage(
-        chatId,
-        'В этом месяце подтвержденных расходов пока нет.',
-      );
+  async sendCurrentMonthIncomeReport(chatId: string) {
+    const breakdown = await this.transactionService.getCurrentMonthIncomeBreakdown();
+    return this.sendCurrentMonthReport(chatId, breakdown, {
+      chartFileName: 'income-current-month.png',
+      chartTitle: 'Доходы',
+      emptyStateText: 'В этом месяце подтвержденных доходов пока нет.',
+      reportTitle: 'Отчет по доходам',
+    });
+  }
+
+  private async sendCurrentMonthReport(
+    chatId: string,
+    breakdown: CurrentMonthCategoryBreakdown,
+    definition: TelegramStatsReportDefinition,
+  ) {
+    if (breakdown.totalAmount <= 0 || breakdown.items.length === 0) {
+      await this.telegramDeliveryService.sendTelegramMessage(chatId, definition.emptyStateText);
       return { accepted: true, status: 'stats_empty' };
     }
 
-    const chart = this.telegramStatsChartRenderer.renderExpenseBreakdown(breakdown);
-    const fullCaption = this.buildExpenseCaption(breakdown);
-    const shortCaption = this.buildShortCaption(breakdown);
+    const chart = this.telegramStatsChartRenderer.renderCategoryBreakdown(
+      breakdown,
+      definition.chartTitle,
+    );
+    const fullCaption = this.buildCaption(breakdown, definition);
+    const shortCaption = this.buildShortCaption(breakdown, definition);
     const caption =
       fullCaption.length <= TelegramStatsService.telegramCaptionLimit
         ? fullCaption
@@ -34,7 +64,7 @@ export class TelegramStatsService {
 
     await this.telegramDeliveryService.sendTelegramPhoto({
       chatId,
-      fileName: 'expense-current-month.png',
+      fileName: definition.chartFileName,
       photo: chart,
       caption,
     });
@@ -46,11 +76,14 @@ export class TelegramStatsService {
     return { accepted: true, status: 'stats_sent' };
   }
 
-  private buildExpenseCaption(input: Awaited<ReturnType<TransactionService['getCurrentMonthExpenseBreakdown']>>) {
+  private buildCaption(
+    input: CurrentMonthCategoryBreakdown,
+    definition: TelegramStatsReportDefinition,
+  ) {
     const lines = [
-      `<b>Отчет по расходам</b>`,
+      `<b>${definition.reportTitle}</b>`,
       `Период: <b>${input.periodLabel.toLowerCase()}</b>`,
-      `Итого: <b>${this.formatMoney(input.totalExpense, input.currency)}</b>`,
+      `Итого: <b>${this.formatMoney(input.totalAmount, input.currency)}</b>`,
       '',
       `<b>Категории</b>`,
       ...input.items.map(
@@ -63,12 +96,13 @@ export class TelegramStatsService {
   }
 
   private buildShortCaption(
-    input: Awaited<ReturnType<TransactionService['getCurrentMonthExpenseBreakdown']>>,
+    input: CurrentMonthCategoryBreakdown,
+    definition: TelegramStatsReportDefinition,
   ) {
     return [
-      `<b>Отчет по расходам</b>`,
+      `<b>${definition.reportTitle}</b>`,
       `Период: <b>${input.periodLabel.toLowerCase()}</b>`,
-      `Итого: <b>${this.formatMoney(input.totalExpense, input.currency)}</b>`,
+      `Итого: <b>${this.formatMoney(input.totalAmount, input.currency)}</b>`,
       'Полный список категорий отправлен следующим сообщением.',
     ].join('\n');
   }

@@ -5,7 +5,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { DraftLifecycleService } from './draft-lifecycle.service';
 import { TelegramDeliveryService } from './telegram-delivery.service';
 import { TelegramDraftService } from './telegram-draft.service';
-import { TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK } from './telegram-menu';
+import {
+  TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK,
+  TELEGRAM_INCOME_CURRENT_MONTH_CALLBACK,
+} from './telegram-menu';
 import { TelegramStatsService } from './telegram-stats.service';
 import { ReviewDraft, TelegramCallbackQuery } from './telegram.types';
 
@@ -32,6 +35,12 @@ export class ClarificationService {
     if (data === TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK) {
       await this.telegramDeliveryService.answerCallbackQuery(callback.id);
       await this.telegramStatsService.sendCurrentMonthExpenseReport(chatId);
+      return { accepted: true, status: 'stats_sent' };
+    }
+
+    if (data === TELEGRAM_INCOME_CURRENT_MONTH_CALLBACK) {
+      await this.telegramDeliveryService.answerCallbackQuery(callback.id);
+      await this.telegramStatsService.sendCurrentMonthIncomeReport(chatId);
       return { accepted: true, status: 'stats_sent' };
     }
 

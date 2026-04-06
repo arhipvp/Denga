@@ -13,12 +13,12 @@ import { TransactionNotificationService } from '../telegram/transaction-notifica
 import { transactionDetailInclude } from './transaction.constants';
 import { CreateTransactionDto, UpdateTransactionDto } from './dto/transaction.dto';
 import {
-  calculateCurrentMonthExpenseBreakdown,
+  calculateCurrentMonthCategoryBreakdown,
   calculateTransactionSummary,
 } from './transaction-summary';
 import { TransactionCoreService } from './transaction-core.service';
 import type {
-  CurrentMonthExpenseBreakdown,
+  CurrentMonthCategoryBreakdown,
   SummaryCalculationTransaction,
   TransactionSummary,
 } from './transaction.types';
@@ -99,6 +99,16 @@ export class TransactionService {
   }
 
   async getCurrentMonthExpenseBreakdown() {
+    return this.getCurrentMonthCategoryBreakdown(TransactionType.EXPENSE);
+  }
+
+  async getCurrentMonthIncomeBreakdown() {
+    return this.getCurrentMonthCategoryBreakdown(TransactionType.INCOME);
+  }
+
+  private async getCurrentMonthCategoryBreakdown(
+    type: TransactionType,
+  ): Promise<CurrentMonthCategoryBreakdown> {
     const householdId = this.householdContext.getHouseholdId();
     const settings = await this.settingsService.getSettings();
     const now = new Date();
@@ -112,7 +122,7 @@ export class TransactionService {
     const transactions = await this.prisma.transaction.findMany({
       where: {
         householdId,
-        type: TransactionType.EXPENSE,
+        type,
         status: TransactionStatus.CONFIRMED,
         occurredAt: {
           gte: currentPeriodStart,
@@ -127,7 +137,7 @@ export class TransactionService {
       },
     });
 
-    return calculateCurrentMonthExpenseBreakdown({
+    return calculateCurrentMonthCategoryBreakdown({
       transactions: transactions.map((item) => this.toSummaryTransaction(item)),
       periodStart: currentPeriodStart,
       currency: settings.defaultCurrency,

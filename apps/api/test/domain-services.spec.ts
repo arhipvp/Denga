@@ -512,7 +512,7 @@ describe('TransactionService', () => {
 
     expect(breakdown.periodLabel).toBe('Апрель 2026');
     expect(breakdown.currency).toBe('EUR');
-    expect(breakdown.totalExpense).toBe(192);
+    expect(breakdown.totalAmount).toBe(192);
     expect(breakdown.items).toEqual([
       expect.objectContaining({ categoryName: 'Еда', amount: 120 }),
       expect.objectContaining({ categoryName: 'Такси', amount: 60 }),
@@ -534,8 +534,62 @@ describe('TransactionService', () => {
     expect(breakdown).toEqual({
       periodLabel: 'Апрель 2026',
       currency: 'EUR',
-      totalExpense: 0,
+      totalAmount: 0,
       items: [],
     });
+  });
+
+  it('builds full current month income breakdown and groups tiny categories into others', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-04-20T12:00:00.000Z'));
+    transactionFindMany.mockResolvedValue([
+      createTransaction({
+        id: 'tx-salary',
+        amount: 1500,
+        occurredAt: '2026-04-12T12:00:00.000Z',
+        type: TransactionType.INCOME,
+        categoryId: 'salary',
+        categoryName: 'Зарплата',
+      }),
+      createTransaction({
+        id: 'tx-bonus',
+        amount: 300,
+        occurredAt: '2026-04-10T12:00:00.000Z',
+        type: TransactionType.INCOME,
+        categoryId: 'bonus',
+        categoryName: 'Бонус',
+      }),
+      createTransaction({
+        id: 'tx-cashback',
+        amount: 40,
+        occurredAt: '2026-04-08T12:00:00.000Z',
+        type: TransactionType.INCOME,
+        categoryId: 'cashback',
+        categoryName: 'Кэшбэк',
+      }),
+      createTransaction({
+        id: 'tx-refund',
+        amount: 20,
+        occurredAt: '2026-04-07T12:00:00.000Z',
+        type: TransactionType.INCOME,
+        categoryId: 'refund',
+        categoryName: 'Возврат',
+      }),
+    ]);
+
+    const breakdown = await service.getCurrentMonthIncomeBreakdown();
+
+    expect(breakdown.periodLabel).toBe('Апрель 2026');
+    expect(breakdown.currency).toBe('EUR');
+    expect(breakdown.totalAmount).toBe(1860);
+    expect(breakdown.items).toEqual([
+      expect.objectContaining({ categoryName: 'Зарплата', amount: 1500 }),
+      expect.objectContaining({ categoryName: 'Бонус', amount: 300 }),
+      expect.objectContaining({
+        categoryName: 'Прочие категории',
+        amount: 60,
+        isOther: true,
+      }),
+    ]);
+    expect(breakdown.items[2].share).toBeCloseTo(60 / 1860, 5);
   });
 });

@@ -1,7 +1,9 @@
 export const TELEGRAM_ADD_OPERATION_MENU_LABEL = 'Добавить операцию';
 export const TELEGRAM_STATS_MENU_LABEL = 'Посмотреть статистику';
 export const TELEGRAM_EXPENSE_CURRENT_MONTH_LABEL = 'Расходы за этот месяц';
+export const TELEGRAM_INCOME_CURRENT_MONTH_LABEL = 'Доходы за этот месяц';
 export const TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK = 'stats:expense-current-month';
+export const TELEGRAM_INCOME_CURRENT_MONTH_CALLBACK = 'stats:income-current-month';
 
 export function createTelegramMainMenuReplyMarkup() {
   return {
@@ -29,9 +31,15 @@ export function isTelegramAddOperationMenuAction(text: string) {
 
 export function createTelegramStatsSubmenuReplyMarkup() {
   return {
-    inline_keyboard: [[{
-      text: TELEGRAM_EXPENSE_CURRENT_MONTH_LABEL,
-      callback_data: TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK,
-    }]],
+    inline_keyboard: [
+      [{
+        text: TELEGRAM_EXPENSE_CURRENT_MONTH_LABEL,
+        callback_data: TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK,
+      }],
+      [{
+        text: TELEGRAM_INCOME_CURRENT_MONTH_LABEL,
+        callback_data: TELEGRAM_INCOME_CURRENT_MONTH_CALLBACK,
+      }],
+    ],
   };
 }

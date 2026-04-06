@@ -1,7 +1,7 @@
 import { TransactionStatus, TransactionType } from '@prisma/client';
 import {
-  CurrentMonthExpenseBreakdown,
-  CurrentMonthExpenseBreakdownItem,
+  CurrentMonthCategoryBreakdown,
+  CurrentMonthCategoryBreakdownItem,
   SummaryCalculationTransaction,
   SummaryCategoryItem,
   TransactionSummary,
@@ -192,13 +192,13 @@ export function calculateTransactionSummary(
   };
 }
 
-export function calculateCurrentMonthExpenseBreakdown(input: {
+export function calculateCurrentMonthCategoryBreakdown(input: {
   transactions: SummaryCalculationTransaction[];
   periodStart: Date;
   currency: string;
   minimumVisibleShare?: number;
-}): CurrentMonthExpenseBreakdown {
-  const totalExpense = input.transactions.reduce(
+}): CurrentMonthCategoryBreakdown {
+  const totalAmount = input.transactions.reduce(
     (sum, transaction) => sum + transaction.amount,
     0,
   );
@@ -214,11 +214,11 @@ export function calculateCurrentMonthExpenseBreakdown(input: {
     categoryMap.set(key, current);
   }
 
-  const sortedItems: CurrentMonthExpenseBreakdownItem[] = Array.from(categoryMap.values())
+  const sortedItems: CurrentMonthCategoryBreakdownItem[] = Array.from(categoryMap.values())
     .sort((left, right) => right.amount - left.amount)
     .map((item) => ({
       ...item,
-      share: totalExpense > 0 ? item.amount / totalExpense : 0,
+      share: totalAmount > 0 ? item.amount / totalAmount : 0,
     }));
   const minimumVisibleShare = input.minimumVisibleShare ?? 0.05;
   const visibleItems = sortedItems.filter((item) => item.share >= minimumVisibleShare);
@@ -230,7 +230,7 @@ export function calculateCurrentMonthExpenseBreakdown(input: {
       categoryId: null,
       categoryName: 'Прочие категории',
       amount: otherAmount,
-      share: totalExpense > 0 ? otherAmount / totalExpense : 0,
+      share: totalAmount > 0 ? otherAmount / totalAmount : 0,
       isOther: true,
     });
   }
@@ -240,7 +240,7 @@ export function calculateCurrentMonthExpenseBreakdown(input: {
   return {
     periodLabel: formatCurrentMonthLabel(input.periodStart),
     currency: input.currency,
-    totalExpense,
+    totalAmount,
     items: visibleItems,
   };
 }

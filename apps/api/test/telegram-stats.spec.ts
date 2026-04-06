@@ -3,14 +3,16 @@ import { TelegramStatsService } from '../src/modules/telegram/telegram-stats.ser
 
 describe('TelegramStatsService', () => {
   const getCurrentMonthExpenseBreakdown = jest.fn();
+  const getCurrentMonthIncomeBreakdown = jest.fn();
   const sendTelegramMessage = jest.fn();
   const sendTelegramPhoto = jest.fn();
   const renderer = new TelegramStatsChartRenderer();
-  const renderExpenseBreakdown = jest.spyOn(renderer, 'renderExpenseBreakdown');
+  const renderCategoryBreakdown = jest.spyOn(renderer, 'renderCategoryBreakdown');
 
   const service = new TelegramStatsService(
     {
       getCurrentMonthExpenseBreakdown,
+      getCurrentMonthIncomeBreakdown,
     } as never,
     {
       sendTelegramMessage,
@@ -29,7 +31,7 @@ describe('TelegramStatsService', () => {
     getCurrentMonthExpenseBreakdown.mockResolvedValue({
       periodLabel: 'Апрель 2026',
       currency: 'EUR',
-      totalExpense: 0,
+      totalAmount: 0,
       items: [],
     });
 
@@ -49,7 +51,7 @@ describe('TelegramStatsService', () => {
     getCurrentMonthExpenseBreakdown.mockResolvedValue({
       periodLabel: 'Апрель 2026',
       currency: 'EUR',
-      totalExpense: 200,
+      totalAmount: 200,
       items: [
         { categoryId: 'food', categoryName: 'Еда', amount: 120, share: 0.6 },
         { categoryId: 'taxi', categoryName: 'Такси', amount: 80, share: 0.4 },
@@ -61,7 +63,10 @@ describe('TelegramStatsService', () => {
       status: 'stats_sent',
     });
 
-    expect(renderExpenseBreakdown).toHaveBeenCalled();
+    expect(renderCategoryBreakdown).toHaveBeenCalledWith(
+      expect.objectContaining({ totalAmount: 200 }),
+      'Расходы',
+    );
     expect(sendTelegramPhoto).toHaveBeenCalledWith({
       chatId: 'chat-1',
       fileName: 'expense-current-month.png',
@@ -85,7 +90,7 @@ describe('TelegramStatsService', () => {
     getCurrentMonthExpenseBreakdown.mockResolvedValue({
       periodLabel: 'Апрель 2026',
       currency: 'EUR',
-      totalExpense: 1500,
+      totalAmount: 1500,
       items: Array.from({ length: 18 }, (_, index) => ({
         categoryId: `cat-${index + 1}`,
         categoryName: `Очень длинная категория ${index + 1} с подробным названием`,
@@ -111,6 +116,59 @@ describe('TelegramStatsService', () => {
       expect.stringContaining('Очень длинная категория 18'),
     );
   });
+
+  it('sends an empty-state text when there are no confirmed incomes', async () => {
+    getCurrentMonthIncomeBreakdown.mockResolvedValue({
+      periodLabel: 'Апрель 2026',
+      currency: 'EUR',
+      totalAmount: 0,
+      items: [],
+    });
+
+    await expect(service.sendCurrentMonthIncomeReport('chat-1')).resolves.toEqual({
+      accepted: true,
+      status: 'stats_empty',
+    });
+
+    expect(sendTelegramMessage).toHaveBeenCalledWith(
+      'chat-1',
+      'В этом месяце подтвержденных доходов пока нет.',
+    );
+    expect(sendTelegramPhoto).not.toHaveBeenCalled();
+  });
+
+  it('sends a chart and caption for the current month income report', async () => {
+    getCurrentMonthIncomeBreakdown.mockResolvedValue({
+      periodLabel: 'Апрель 2026',
+      currency: 'EUR',
+      totalAmount: 1800,
+      items: [
+        { categoryId: 'salary', categoryName: 'Зарплата', amount: 1500, share: 1500 / 1800 },
+        { categoryId: 'bonus', categoryName: 'Бонус', amount: 300, share: 300 / 1800 },
+      ],
+    });
+
+    await expect(service.sendCurrentMonthIncomeReport('chat-1')).resolves.toEqual({
+      accepted: true,
+      status: 'stats_sent',
+    });
+
+    expect(renderCategoryBreakdown).toHaveBeenCalledWith(
+      expect.objectContaining({ totalAmount: 1800 }),
+      'Доходы',
+    );
+    expect(sendTelegramPhoto).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileName: 'income-current-month.png',
+        caption: expect.stringContaining('<b>Отчет по доходам</b>'),
+      }),
+    );
+    expect(sendTelegramPhoto).toHaveBeenCalledWith(
+      expect.objectContaining({
+        caption: expect.stringContaining('• Зарплата — <b>1 500,00 EUR</b> (83.3%)'),
+      }),
+    );
+  });
 });
 
 describe('TelegramStatsChartRenderer', () => {
@@ -120,7 +178,7 @@ describe('TelegramStatsChartRenderer', () => {
     const buffer = renderer.renderExpenseBreakdown({
       periodLabel: 'Апрель 2026',
       currency: 'EUR',
-      totalExpense: 200,
+      totalAmount: 200,
       items: [
         { categoryId: 'food', categoryName: 'Еда', amount: 120, share: 0.6 },
         { categoryId: 'taxi', categoryName: 'Такси', amount: 80, share: 0.4 },
@@ -138,7 +196,7 @@ describe('TelegramStatsChartRenderer', () => {
     const canvas = renderer.renderExpenseBreakdownCanvas({
       periodLabel: 'Апрель 2026',
       currency: 'EUR',
-      totalExpense: 200,
+      totalAmount: 200,
       items: [
         { categoryId: 'food', categoryName: 'Еда', amount: 120, share: 0.6 },
         { categoryId: 'taxi', categoryName: 'Такси', amount: 80, share: 0.4 },
@@ -156,7 +214,7 @@ describe('TelegramStatsChartRenderer', () => {
     const canvas = renderer.renderExpenseBreakdownCanvas({
       periodLabel: 'Апрель 2026',
       currency: 'EUR',
-      totalExpense: 200,
+      totalAmount: 200,
       items: [
         { categoryId: 'food', categoryName: 'Продукты', amount: 120, share: 0.6 },
         { categoryId: 'taxi', categoryName: 'Такси', amount: 80, share: 0.4 },
@@ -176,7 +234,7 @@ describe('TelegramStatsChartRenderer', () => {
     const canvas = renderer.renderExpenseBreakdownCanvas({
       periodLabel: 'Апрель 2026',
       currency: 'EUR',
-      totalExpense: 346.2,
+      totalAmount: 346.2,
       items: [
         { categoryId: 'food', categoryName: 'Продукты', amount: 108, share: 0.312 },
         { categoryId: 'beauty', categoryName: 'Красота', amount: 60, share: 0.173 },
@@ -198,7 +256,7 @@ describe('TelegramStatsChartRenderer', () => {
     const canvas = renderer.renderExpenseBreakdownCanvas({
       periodLabel: 'Апрель 2026',
       currency: 'EUR',
-      totalExpense: 1000,
+      totalAmount: 1000,
       items: [{ categoryId: 'major', categoryName: 'Крупная категория', amount: 1000, share: 1 }],
     });
 

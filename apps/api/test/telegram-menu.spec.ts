@@ -5,6 +5,8 @@ import {
   TELEGRAM_ADD_OPERATION_MENU_LABEL,
   TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK,
   TELEGRAM_EXPENSE_CURRENT_MONTH_LABEL,
+  TELEGRAM_INCOME_CURRENT_MONTH_CALLBACK,
+  TELEGRAM_INCOME_CURRENT_MONTH_LABEL,
   TELEGRAM_STATS_MENU_LABEL,
 } from '../src/modules/telegram/telegram-menu';
 
@@ -232,10 +234,16 @@ describe('MessageIngestionService menu actions', () => {
       'chat-1',
       'Выберите отчет:',
       {
-        inline_keyboard: [[{
-          text: TELEGRAM_EXPENSE_CURRENT_MONTH_LABEL,
-          callback_data: TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK,
-        }]],
+        inline_keyboard: [
+          [{
+            text: TELEGRAM_EXPENSE_CURRENT_MONTH_LABEL,
+            callback_data: TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK,
+          }],
+          [{
+            text: TELEGRAM_INCOME_CURRENT_MONTH_LABEL,
+            callback_data: TELEGRAM_INCOME_CURRENT_MONTH_CALLBACK,
+          }],
+        ],
       },
     );
     expect(sourceMessageUpsert).not.toHaveBeenCalled();

@@ -1,6 +1,6 @@
 import { TransactionStatus, TransactionType } from '@prisma/client';
 import {
-  calculateCurrentMonthExpenseBreakdown,
+  calculateCurrentMonthCategoryBreakdown,
   calculateTransactionSummary,
 } from '../src/modules/transaction/transaction-summary';
 import type { SummaryCalculationTransaction } from '../src/modules/transaction/transaction.types';
@@ -152,9 +152,9 @@ describe('transaction summary calculator', () => {
   });
 });
 
-describe('current month expense breakdown calculator', () => {
+describe('current month category breakdown calculator', () => {
   it('groups tiny categories into others', () => {
-    const breakdown = calculateCurrentMonthExpenseBreakdown({
+    const breakdown = calculateCurrentMonthCategoryBreakdown({
       periodStart: new Date('2026-04-01T00:00:00.000Z'),
       currency: 'EUR',
       transactions: [
@@ -196,7 +196,7 @@ describe('current month expense breakdown calculator', () => {
     expect(breakdown).toEqual({
       periodLabel: 'Апрель 2026',
       currency: 'EUR',
-      totalExpense: 192,
+      totalAmount: 192,
       items: [
         expect.objectContaining({ categoryName: 'Еда', amount: 120 }),
         expect.objectContaining({ categoryName: 'Такси', amount: 60 }),
@@ -212,7 +212,7 @@ describe('current month expense breakdown calculator', () => {
 
   it('returns an empty current month expense breakdown when there are no expenses', () => {
     expect(
-      calculateCurrentMonthExpenseBreakdown({
+      calculateCurrentMonthCategoryBreakdown({
         periodStart: new Date('2026-04-01T00:00:00.000Z'),
         currency: 'EUR',
         transactions: [],
@@ -220,7 +220,7 @@ describe('current month expense breakdown calculator', () => {
     ).toEqual({
       periodLabel: 'Апрель 2026',
       currency: 'EUR',
-      totalExpense: 0,
+      totalAmount: 0,
       items: [],
     });
   });

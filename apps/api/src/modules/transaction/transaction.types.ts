@@ -1,6 +1,6 @@
 import { TransactionStatus, TransactionType } from '@prisma/client';
 
-export type CurrentMonthExpenseBreakdownItem = {
+export type CurrentMonthCategoryBreakdownItem = {
   categoryId: string | null;
   categoryName: string;
   amount: number;
@@ -8,11 +8,11 @@ export type CurrentMonthExpenseBreakdownItem = {
   isOther?: boolean;
 };
 
-export type CurrentMonthExpenseBreakdown = {
+export type CurrentMonthCategoryBreakdown = {
   periodLabel: string;
   currency: string;
-  totalExpense: number;
-  items: CurrentMonthExpenseBreakdownItem[];
+  totalAmount: number;
+  items: CurrentMonthCategoryBreakdownItem[];
 };
 
 export type SummaryCategoryItem = {

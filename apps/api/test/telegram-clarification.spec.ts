@@ -18,6 +18,7 @@ describe('ClarificationService category picker', () => {
   const editTelegramMessage = jest.fn();
   const answerCallbackQuery = jest.fn();
   const sendCurrentMonthExpenseReport = jest.fn();
+  const sendCurrentMonthIncomeReport = jest.fn();
 
   const service = new ClarificationService(
     {
@@ -54,6 +55,7 @@ describe('ClarificationService category picker', () => {
     } as never,
     {
       sendCurrentMonthExpenseReport,
+      sendCurrentMonthIncomeReport,
     } as never,
   );
 
@@ -96,6 +98,27 @@ describe('ClarificationService category picker', () => {
 
     expect(answerCallbackQuery).toHaveBeenCalledWith('callback-stats');
     expect(sendCurrentMonthExpenseReport).toHaveBeenCalledWith('chat-1');
+    expect(telegramAccountFindUnique).not.toHaveBeenCalled();
+    expect(pendingFindFirst).not.toHaveBeenCalled();
+  });
+
+  it('routes income stats callback without touching draft clarification flow', async () => {
+    sendCurrentMonthIncomeReport.mockResolvedValue({ accepted: true, status: 'stats_sent' });
+
+    await expect(
+      service.handleCallbackQuery({
+        id: 'callback-income-stats',
+        data: 'stats:income-current-month',
+        from: { id: 'telegram-user-1' },
+        message: {
+          message_id: 100,
+          chat: { id: 'chat-1' },
+        },
+      }),
+    ).resolves.toEqual({ accepted: true, status: 'stats_sent' });
+
+    expect(answerCallbackQuery).toHaveBeenCalledWith('callback-income-stats');
+    expect(sendCurrentMonthIncomeReport).toHaveBeenCalledWith('chat-1');
     expect(telegramAccountFindUnique).not.toHaveBeenCalled();
     expect(pendingFindFirst).not.toHaveBeenCalled();
   });

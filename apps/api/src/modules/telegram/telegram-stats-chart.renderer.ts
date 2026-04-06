@@ -3,8 +3,8 @@ import { createCanvas, GlobalFonts } from '@napi-rs/canvas';
 import type { SKRSContext2D } from '@napi-rs/canvas';
 import { existsSync } from 'node:fs';
 import type {
-  CurrentMonthExpenseBreakdown,
-  CurrentMonthExpenseBreakdownItem,
+  CurrentMonthCategoryBreakdown,
+  CurrentMonthCategoryBreakdownItem,
 } from '../transaction/transaction.types';
 
 type ChartSegmentLayout = {
@@ -36,11 +36,11 @@ export class TelegramStatsChartRenderer {
     '#475569',
   ];
 
-  renderExpenseBreakdown(input: CurrentMonthExpenseBreakdown) {
-    return this.renderExpenseBreakdownCanvas(input).toBuffer('image/png');
+  renderCategoryBreakdown(input: CurrentMonthCategoryBreakdown, reportTitle: string) {
+    return this.renderCategoryBreakdownCanvas(input, reportTitle).toBuffer('image/png');
   }
 
-  renderExpenseBreakdownCanvas(input: CurrentMonthExpenseBreakdown) {
+  renderCategoryBreakdownCanvas(input: CurrentMonthCategoryBreakdown, reportTitle: string) {
     const canvas = createCanvas(this.width, this.height);
     const context = canvas.getContext('2d');
 
@@ -49,12 +49,12 @@ export class TelegramStatsChartRenderer {
 
     context.fillStyle = '#0f172a';
     this.setFont(context, 38, 'bold');
-    context.fillText(`Расходы за ${input.periodLabel.toLowerCase()}`, 60, 70);
+    context.fillText(`${reportTitle} за ${input.periodLabel.toLowerCase()}`, 60, 70);
 
     context.fillStyle = '#475569';
     this.setFont(context, 24, 'normal');
     context.fillText(
-      `Общая сумма: ${this.formatMoney(input.totalExpense, input.currency)}`,
+      `Общая сумма: ${this.formatMoney(input.totalAmount, input.currency)}`,
       60,
       110,
     );
@@ -68,7 +68,7 @@ export class TelegramStatsChartRenderer {
 
     const segments: ChartSegmentLayout[] = [];
     let startAngle = -Math.PI / 2;
-    input.items.forEach((item: CurrentMonthExpenseBreakdownItem, index: number) => {
+    input.items.forEach((item: CurrentMonthCategoryBreakdownItem, index: number) => {
       const sweep = Math.PI * 2 * item.share;
       const endAngle = startAngle + sweep;
       const color = this.colors[index % this.colors.length];
@@ -100,7 +100,7 @@ export class TelegramStatsChartRenderer {
     context.fillText('Итого', this.centerX, this.centerY - 10);
     this.setFont(context, 23, 'bold');
     context.fillText(
-      this.formatMoney(input.totalExpense, input.currency),
+      this.formatMoney(input.totalAmount, input.currency),
       this.centerX,
       this.centerY + 28,
     );
@@ -110,7 +110,7 @@ export class TelegramStatsChartRenderer {
     this.setFont(context, 26, 'bold');
     context.fillText('Категории', 560, 160);
 
-    input.items.forEach((item: CurrentMonthExpenseBreakdownItem, index: number) => {
+    input.items.forEach((item: CurrentMonthCategoryBreakdownItem, index: number) => {
       const top = 210 + index * 70;
       const nameWidth = 270;
       const valueWidth = 250;
@@ -136,6 +136,14 @@ export class TelegramStatsChartRenderer {
     });
 
     return canvas;
+  }
+
+  renderExpenseBreakdown(input: CurrentMonthCategoryBreakdown) {
+    return this.renderCategoryBreakdown(input, 'Расходы');
+  }
+
+  renderExpenseBreakdownCanvas(input: CurrentMonthCategoryBreakdown) {
+    return this.renderCategoryBreakdownCanvas(input, 'Расходы');
   }
 
   private drawSegmentPercentLabels(context: SKRSContext2D, segments: ChartSegmentLayout[]) {
