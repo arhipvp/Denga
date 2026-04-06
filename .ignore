@@ -1,0 +1,12 @@
+node_modules
+.git
+.next
+apps/web/.next
+dist
+apps/api/dist
+packages/shared/dist
+coverage
+uploads
+backups
+logs
+tmp

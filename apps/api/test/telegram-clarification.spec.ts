@@ -248,6 +248,7 @@ describe('DraftLifecycleService clarification flow', () => {
   const sourceMessageUpdate = jest.fn();
   const parseAttemptCreate = jest.fn();
   const parseTransaction = jest.fn();
+  const lifecycleCategoryFindMany = jest.fn();
   const deleteTelegramMessage = jest.fn();
   const clearTelegramInlineKeyboard = jest.fn();
   const sendTelegramMessage = jest.fn();
@@ -275,6 +276,9 @@ describe('DraftLifecycleService clarification flow', () => {
       aiParseAttempt: {
         create: parseAttemptCreate,
       },
+      category: {
+        findMany: lifecycleCategoryFindMany,
+      },
     } as never,
     {
       getSettings: jest.fn().mockResolvedValue({
@@ -285,12 +289,6 @@ describe('DraftLifecycleService clarification flow', () => {
       }),
     } as never,
     aiParsingServiceMock as never,
-    {
-      info: jest.fn(),
-      warn: jest.fn(),
-      error: jest.fn(),
-      debug: jest.fn(),
-    } as never,
     {
       getHouseholdId: jest.fn().mockReturnValue('household-1'),
     } as never,
@@ -317,6 +315,8 @@ describe('DraftLifecycleService clarification flow', () => {
     jest.spyOn(service, 'renderDraftCard').mockResolvedValue(undefined);
     deleteTelegramMessage.mockResolvedValue(true);
     clearTelegramInlineKeyboard.mockResolvedValue(true);
+    sendTelegramMessage.mockResolvedValue({ message_id: 77 });
+    lifecycleCategoryFindMany.mockResolvedValue([]);
   });
 
   it('fans out notifications after draft confirmation', async () => {
@@ -364,7 +364,7 @@ describe('DraftLifecycleService clarification flow', () => {
   });
 
   it('merges follow-up clarification into existing draft and stores categories in runtime system prompt', async () => {
-    jest.spyOn(service, 'loadActiveCategories').mockResolvedValue([
+    lifecycleCategoryFindMany.mockResolvedValue([
       { id: 'cat-1', name: 'Транспорт', type: CategoryType.EXPENSE },
       { id: 'cat-2', name: 'Продукты', type: CategoryType.EXPENSE },
       { id: 'cat-3', name: 'Зарплата', type: CategoryType.INCOME },

@@ -39,3 +39,12 @@
   - `useSettingsSection`
   - `useLogsSection`
 - Typed API access сгруппирован в `createDashboardFeatureApi`, чтобы операции, категории, настройки и dataset loading имели явные границы.
+
+## Growth Rules
+
+- Бизнес-правила и вычисления должны жить в чистых utility/domain-модулях без прямой зависимости от NestJS, Prisma или React, если логику можно проверить без I/O.
+- `PrismaService` допустим только в orchestration- и repository-слое. UI helpers, summary calculators и draft transition helpers не должны читать базу напрямую.
+- Новый Telegram flow добавляется через отдельный coordinator, transition helper или renderer, а не через разрастание одного lifecycle-файла.
+- Новая dashboard section должна иметь собственный hook/controller или action-module. `Dashboard` остаётся composition root.
+- Если сценарий можно вынести в отдельный use case/service без изменения публичного API, расширение должно идти через extraction, а не через рост existing god-file.
+- Engineering gate: если файл приближается к `300-400` строкам и одновременно держит несколько ответственностей, следующая доработка начинается с выделения отдельного модуля.

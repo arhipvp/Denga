@@ -1,16 +1,15 @@
 'use client';
 
 import { useCallback, useState } from 'react';
+import { createAsyncTaskState } from '../lib/async-state';
 import { emptyPasswordForm } from '../lib/types';
 
 export function useSettingsSection() {
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
-  const [backupState, setBackupState] = useState({
-    message: null as string | null,
-    error: null as string | null,
-    creating: false,
-    downloading: false,
-  });
+  const [backupTaskState, setBackupTaskState] = useState(() => ({
+    ...createAsyncTaskState(),
+    currentAction: null as 'create' | 'download' | null,
+  }));
   const [passwordState, setPasswordState] = useState({
     form: emptyPasswordForm,
     error: null as string | null,
@@ -19,11 +18,9 @@ export function useSettingsSection() {
 
   const reset = useCallback(() => {
     setSettingsMessage(null);
-    setBackupState({
-      message: null,
-      error: null,
-      creating: false,
-      downloading: false,
+    setBackupTaskState({
+      ...createAsyncTaskState(),
+      currentAction: null,
     });
     setPasswordState({
       form: emptyPasswordForm,
@@ -35,8 +32,8 @@ export function useSettingsSection() {
   return {
     settingsMessage,
     setSettingsMessage,
-    backupState,
-    setBackupState,
+    backupTaskState,
+    setBackupTaskState,
     passwordState,
     setPasswordState,
     reset,

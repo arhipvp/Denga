@@ -2,7 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { createCanvas, GlobalFonts } from '@napi-rs/canvas';
 import type { SKRSContext2D } from '@napi-rs/canvas';
 import { existsSync } from 'node:fs';
-import type { CurrentMonthExpenseBreakdown } from '../transaction/transaction.service';
+import type {
+  CurrentMonthExpenseBreakdown,
+  CurrentMonthExpenseBreakdownItem,
+} from '../transaction/transaction.types';
 
 @Injectable()
 export class TelegramStatsChartRenderer {
@@ -56,7 +59,7 @@ export class TelegramStatsChartRenderer {
     }
 
     let startAngle = -Math.PI / 2;
-    input.items.forEach((item, index) => {
+    input.items.forEach((item: CurrentMonthExpenseBreakdownItem, index: number) => {
       const sweep = Math.PI * 2 * item.share;
       context.beginPath();
       context.moveTo(this.centerX, this.centerY);
@@ -88,7 +91,7 @@ export class TelegramStatsChartRenderer {
     this.setFont(context, 26, 'bold');
     context.fillText('Категории', 560, 160);
 
-    input.items.forEach((item, index) => {
+    input.items.forEach((item: CurrentMonthExpenseBreakdownItem, index: number) => {
       const top = 210 + index * 70;
       const nameWidth = 270;
       const valueWidth = 250;

@@ -10,6 +10,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspace @denga/shared && npm run build --workspace @denga/api && npm run build --workspace @denga/web",
+    "clean": "node scripts/clean.mjs",
     "dev": "npm run dev --workspace @denga/api",
     "dev:api": "npm run dev --workspace @denga/api",
     "dev:web": "npm run dev --workspace @denga/web",

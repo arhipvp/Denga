@@ -1,6 +1,9 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useMemo, useState } from 'react';
+import { createApiClient } from '../lib/api';
+import { createAsyncState } from '../lib/async-state';
+import { createDashboardFeatureApi, DashboardDataLoadError } from '../lib/dashboard-api';
 import type {
   BackupInfo,
   Category,
@@ -10,8 +13,6 @@ import type {
   Transaction,
   User,
 } from '../lib/types';
-import { createApiClient } from '../lib/api';
-import { createDashboardFeatureApi, DashboardDataLoadError } from '../lib/dashboard-api';
 
 export function useDashboardData(apiUrl: string | null) {
   const apiClient = useMemo(() => createApiClient({ apiUrl }), [apiUrl]);
@@ -23,29 +24,37 @@ export function useDashboardData(apiUrl: string | null) {
   const [latestBackup, setLatestBackup] = useState<BackupInfo | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [mainState, setMainState] = useState({
-    loading: false,
-    error: null as string | null,
-  });
-  const [logsState, setLogsState] = useState({
-    loading: false,
-    error: null as string | null,
-  });
+  const [mainState, setMainState] = useState(createAsyncState);
+  const [logsState, setLogsState] = useState(createAsyncState);
 
   const setLoading = useCallback((loading: boolean) => {
-    setMainState((current) => ({ ...current, loading }));
+    setMainState((current) => ({
+      ...current,
+      status: loading ? 'loading' : current.error ? 'error' : 'idle',
+    }));
   }, []);
 
   const setError = useCallback((error: string | null) => {
-    setMainState((current) => ({ ...current, error }));
+    setMainState((current) => ({
+      ...current,
+      error,
+      status: error ? 'error' : current.status === 'loading' ? 'loading' : 'idle',
+    }));
   }, []);
 
   const setLogsLoading = useCallback((loading: boolean) => {
-    setLogsState((current) => ({ ...current, loading }));
+    setLogsState((current) => ({
+      ...current,
+      status: loading ? 'loading' : current.error ? 'error' : 'idle',
+    }));
   }, []);
 
   const setLogsError = useCallback((error: string | null) => {
-    setLogsState((current) => ({ ...current, error }));
+    setLogsState((current) => ({
+      ...current,
+      error,
+      status: error ? 'error' : current.status === 'loading' ? 'loading' : 'idle',
+    }));
   }, []);
 
   const resetData = useCallback(() => {
@@ -56,8 +65,8 @@ export function useDashboardData(apiUrl: string | null) {
     setLatestBackup(null);
     setSummary(null);
     setLogs([]);
-    setMainState({ loading: false, error: null });
-    setLogsState({ loading: false, error: null });
+    setMainState(createAsyncState());
+    setLogsState(createAsyncState());
   }, []);
 
   const reloadData = useCallback(
@@ -78,6 +87,7 @@ export function useDashboardData(apiUrl: string | null) {
         setSettings(dataset.settings);
         setLatestBackup(dataset.latestBackup);
         setSummary(dataset.summary);
+        setMainState({ status: 'success', error: null });
       } catch (error) {
         if (error instanceof DashboardDataLoadError) {
           throw new Error(`${error.message}: ${error.path}`);
@@ -103,6 +113,7 @@ export function useDashboardData(apiUrl: string | null) {
       try {
         const nextLogs = await featureApi.dataset.loadLogs(token, { level, source });
         setLogs(nextLogs);
+        setLogsState({ status: 'success', error: null });
       } catch (error) {
         if (error instanceof DashboardDataLoadError) {
           throw new Error(`${error.message}: ${error.path}`);
@@ -128,12 +139,12 @@ export function useDashboardData(apiUrl: string | null) {
     setLatestBackup,
     summary,
     logs,
-    loading: mainState.loading,
+    loading: mainState.status === 'loading',
     error: mainState.error,
     setError,
     logsError: logsState.error,
     setLogsError,
-    logsLoading: logsState.loading,
+    logsLoading: logsState.status === 'loading',
     resetData,
     reloadData,
     reloadLogs,

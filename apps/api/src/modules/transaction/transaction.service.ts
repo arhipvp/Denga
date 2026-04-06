@@ -10,23 +10,18 @@ import { HouseholdContextService } from '../common/household-context.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { TransactionNotificationService } from '../telegram/transaction-notification.service';
+import { transactionDetailInclude } from './transaction.constants';
 import { CreateTransactionDto, UpdateTransactionDto } from './dto/transaction.dto';
+import {
+  calculateCurrentMonthExpenseBreakdown,
+  calculateTransactionSummary,
+} from './transaction-summary';
 import { TransactionCoreService } from './transaction-core.service';
-
-export type CurrentMonthExpenseBreakdownItem = {
-  categoryId: string | null;
-  categoryName: string;
-  amount: number;
-  share: number;
-  isOther?: boolean;
-};
-
-export type CurrentMonthExpenseBreakdown = {
-  periodLabel: string;
-  currency: string;
-  totalExpense: number;
-  items: CurrentMonthExpenseBreakdownItem[];
-};
+import type {
+  CurrentMonthExpenseBreakdown,
+  SummaryCalculationTransaction,
+  TransactionSummary,
+} from './transaction.types';
 
 @Injectable()
 export class TransactionService {
@@ -70,22 +65,6 @@ export class TransactionService {
   async summary() {
     const householdId = this.householdContext.getHouseholdId();
     const now = new Date();
-    const currentPeriodStart = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
-    );
-    const nextPeriodStart = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
-    );
-    const previousPeriodStart = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1),
-    );
-    const monthKeys = Array.from({ length: 6 }, (_, index) => {
-      const value = new Date(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (5 - index), 1),
-      );
-
-      return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, '0')}`;
-    });
 
     const recent = await this.prisma.transaction.findMany({
       where: {
@@ -95,22 +74,7 @@ export class TransactionService {
         occurredAt: 'desc',
       },
       take: 8,
-      include: {
-        category: true,
-        author: true,
-        sourceMessage: {
-          include: {
-            attachments: true,
-            clarificationSession: true,
-            reviewDraft: true,
-            parseAttempts: {
-              orderBy: {
-                createdAt: 'desc',
-              },
-            },
-          },
-        },
-      },
+      include: transactionDetailInclude,
     });
 
     const allTransactions = await this.prisma.transaction.findMany({
@@ -125,145 +89,11 @@ export class TransactionService {
       },
     });
 
-    const monthlyMap = new Map<string, { month: string; income: number; expense: number; net: number }>(
-      monthKeys.map((month) => [month, { month, income: 0, expense: 0, net: 0 }]),
-    );
-    const currentCategoryExpenseMap = new Map<string, { categoryId: string | null; categoryName: string; amount: number }>();
-    const currentCategoryIncomeMap = new Map<string, { categoryId: string | null; categoryName: string; amount: number }>();
-    const currentPeriodTotals = { income: 0, expense: 0, balance: 0 };
-    const previousPeriodTotals = { income: 0, expense: 0, balance: 0 };
-    const counts = { operations: 0, income: 0, expense: 0, cancelled: 0 };
-    const averageAccumulator = { incomeTotal: 0, incomeCount: 0, expenseTotal: 0, expenseCount: 0, total: 0, totalCount: 0 };
-
-    for (const item of allTransactions) {
-      const amount = Number(item.amount);
-      const month = `${item.occurredAt.getUTCFullYear()}-${String(
-        item.occurredAt.getUTCMonth() + 1,
-      ).padStart(2, '0')}`;
-
-      if (item.status === TransactionStatus.CONFIRMED) {
-        const monthlyEntry = monthlyMap.get(month);
-        if (monthlyEntry) {
-          if (item.type === TransactionType.INCOME) {
-            monthlyEntry.income += amount;
-            monthlyEntry.net += amount;
-          } else {
-            monthlyEntry.expense += amount;
-            monthlyEntry.net -= amount;
-          }
-        }
-      }
-
-      const isCurrentPeriod =
-        item.occurredAt >= currentPeriodStart && item.occurredAt < nextPeriodStart;
-      const isPreviousPeriod =
-        item.occurredAt >= previousPeriodStart && item.occurredAt < currentPeriodStart;
-
-      if (item.status === TransactionStatus.CANCELLED && isCurrentPeriod) {
-        counts.cancelled += 1;
-      }
-
-      if (item.status !== TransactionStatus.CONFIRMED) {
-        continue;
-      }
-
-      if (isCurrentPeriod) {
-        counts.operations += 1;
-        averageAccumulator.total += amount;
-        averageAccumulator.totalCount += 1;
-
-        if (item.type === TransactionType.INCOME) {
-          counts.income += 1;
-          currentPeriodTotals.income += amount;
-          currentPeriodTotals.balance += amount;
-          averageAccumulator.incomeTotal += amount;
-          averageAccumulator.incomeCount += 1;
-
-          const key = item.categoryId ?? 'uncategorized-income';
-          const current =
-            currentCategoryIncomeMap.get(key) ?? {
-              categoryId: item.categoryId ?? null,
-              categoryName: item.category?.name ?? 'Без категории',
-              amount: 0,
-            };
-          current.amount += amount;
-          currentCategoryIncomeMap.set(key, current);
-        } else {
-          counts.expense += 1;
-          currentPeriodTotals.expense += amount;
-          currentPeriodTotals.balance -= amount;
-          averageAccumulator.expenseTotal += amount;
-          averageAccumulator.expenseCount += 1;
-
-          const key = item.categoryId ?? 'uncategorized-expense';
-          const current =
-            currentCategoryExpenseMap.get(key) ?? {
-              categoryId: item.categoryId ?? null,
-              categoryName: item.category?.name ?? 'Без категории',
-              amount: 0,
-            };
-          current.amount += amount;
-          currentCategoryExpenseMap.set(key, current);
-        }
-      }
-
-      if (isPreviousPeriod) {
-        if (item.type === TransactionType.INCOME) {
-          previousPeriodTotals.income += amount;
-          previousPeriodTotals.balance += amount;
-        } else {
-          previousPeriodTotals.expense += amount;
-          previousPeriodTotals.balance -= amount;
-        }
-      }
-    }
-
-    const topExpenseCategories = Array.from(currentCategoryExpenseMap.values())
-      .sort((left, right) => right.amount - left.amount)
-      .slice(0, 5)
-      .map((item) => ({
-        ...item,
-        share:
-          currentPeriodTotals.expense > 0 ? item.amount / currentPeriodTotals.expense : 0,
-      }));
-
-    const topIncomeCategories = Array.from(currentCategoryIncomeMap.values())
-      .sort((left, right) => right.amount - left.amount)
-      .slice(0, 5)
-      .map((item) => ({
-        ...item,
-        share:
-          currentPeriodTotals.income > 0 ? item.amount / currentPeriodTotals.income : 0,
-      }));
-
     return {
-      totals: {
-        currentPeriod: currentPeriodTotals,
-        previousPeriod: previousPeriodTotals,
-      },
-      diffs: {
-        income: currentPeriodTotals.income - previousPeriodTotals.income,
-        expense: currentPeriodTotals.expense - previousPeriodTotals.expense,
-        balance: currentPeriodTotals.balance - previousPeriodTotals.balance,
-      },
-      counts,
-      average: {
-        income:
-          averageAccumulator.incomeCount > 0
-            ? averageAccumulator.incomeTotal / averageAccumulator.incomeCount
-            : 0,
-        expense:
-          averageAccumulator.expenseCount > 0
-            ? averageAccumulator.expenseTotal / averageAccumulator.expenseCount
-            : 0,
-        transaction:
-          averageAccumulator.totalCount > 0
-            ? averageAccumulator.total / averageAccumulator.totalCount
-            : 0,
-      },
-      topExpenseCategories,
-      topIncomeCategories,
-      monthly: Array.from(monthlyMap.values()),
+      ...calculateTransactionSummary(
+        allTransactions.map((item) => this.toSummaryTransaction(item)),
+        now,
+      ),
       recent,
     };
   }
@@ -297,57 +127,11 @@ export class TransactionService {
       },
     });
 
-    const totalExpense = transactions.reduce(
-      (sum, transaction) => sum + Number(transaction.amount),
-      0,
-    );
-    const categoryMap = new Map<
-      string,
-      { categoryId: string | null; categoryName: string; amount: number }
-    >();
-
-    for (const item of transactions) {
-      const key = item.categoryId ?? 'uncategorized-expense';
-      const current = categoryMap.get(key) ?? {
-        categoryId: item.categoryId ?? null,
-        categoryName: item.category?.name ?? 'Без категории',
-        amount: 0,
-      };
-      current.amount += Number(item.amount);
-      categoryMap.set(key, current);
-    }
-
-    const sortedItems: CurrentMonthExpenseBreakdownItem[] = Array.from(categoryMap.values())
-      .sort((left, right) => right.amount - left.amount)
-      .map((item) => ({
-        ...item,
-        share: totalExpense > 0 ? item.amount / totalExpense : 0,
-      }));
-
-    const visibleItems: CurrentMonthExpenseBreakdownItem[] = sortedItems.filter(
-      (item) => item.share >= 0.05,
-    );
-    const hiddenItems = sortedItems.filter((item) => item.share < 0.05);
-
-    if (hiddenItems.length > 0) {
-      const otherAmount = hiddenItems.reduce((sum, item) => sum + item.amount, 0);
-      visibleItems.push({
-        categoryId: null,
-        categoryName: 'Прочие категории',
-        amount: otherAmount,
-        share: totalExpense > 0 ? otherAmount / totalExpense : 0,
-        isOther: true,
-      });
-    }
-
-    visibleItems.sort((left, right) => right.amount - left.amount);
-
-    return {
-      periodLabel: this.formatCurrentMonthLabel(currentPeriodStart),
+    return calculateCurrentMonthExpenseBreakdown({
+      transactions: transactions.map((item) => this.toSummaryTransaction(item)),
+      periodStart: currentPeriodStart,
       currency: settings.defaultCurrency,
-      totalExpense,
-      items: visibleItems,
-    } satisfies CurrentMonthExpenseBreakdown;
+    });
   }
 
   async createManual(dto: CreateTransactionDto, authorId?: string) {
@@ -416,21 +200,7 @@ export class TransactionService {
         ...(dto.comment !== undefined ? { comment: dto.comment } : {}),
         ...(dto.status ? { status: this.mapStatus(dto.status) } : {}),
       },
-      include: {
-        category: true,
-        sourceMessage: {
-          include: {
-            attachments: true,
-            clarificationSession: true,
-            reviewDraft: true,
-            parseAttempts: {
-              orderBy: {
-                createdAt: 'desc',
-              },
-            },
-          },
-        },
-      },
+      include: transactionDetailInclude,
     });
   }
 
@@ -475,12 +245,23 @@ export class TransactionService {
     }
   }
 
-  private formatCurrentMonthLabel(date: Date) {
-    const month = new Intl.DateTimeFormat('ru-RU', {
-      month: 'long',
-      timeZone: 'UTC',
-    }).format(date);
-
-    return `${month.charAt(0).toUpperCase()}${month.slice(1)} ${date.getUTCFullYear()}`;
+  private toSummaryTransaction(item: {
+    id: string;
+    type: TransactionType;
+    status: TransactionStatus;
+    amount: Decimal;
+    occurredAt: Date;
+    categoryId: string | null;
+    category?: { name: string } | null;
+  }): SummaryCalculationTransaction {
+    return {
+      id: item.id,
+      type: item.type,
+      status: item.status,
+      amount: Number(item.amount),
+      occurredAt: item.occurredAt,
+      categoryId: item.categoryId,
+      categoryName: item.category?.name ?? null,
+    };
   }
 }

@@ -47,6 +47,12 @@ npx prisma db push
 npm run prisma:seed
 ```
 
+Если локальная сборка или dev-сервер оставили служебные артефакты, очистите рабочее дерево:
+
+```bash
+npm run clean
+```
+
 4. Запустите backend и frontend:
 
 ```bash
@@ -275,3 +281,9 @@ docker compose down
 - Telegram pipeline больше не сосредоточен в одном сервисе: прием сообщений, clarification-flow, доставка ответов, вложения и draft lifecycle вынесены в отдельные сервисы.
 - Dashboard web-админки разрезан на feature hooks и typed feature API вместо одного orchestration-heavy компонента.
 - Дополнительные заметки по разбиению модулей находятся в [docs/architecture.md](/C:/Dev/Denga/docs/architecture.md).
+
+## Generated artifacts
+
+- Каталоги `apps/api/dist`, `packages/shared/dist`, `apps/web/.next`, `coverage` и `tmp` считаются локальными generated artifacts.
+- Они не должны попадать в коммиты и при необходимости очищаются командой `npm run clean`.
+- Для локального поиска по репозиторию используется файл `.ignore`, чтобы служебные каталоги не засоряли результаты навигации.
