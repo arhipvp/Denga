@@ -52,12 +52,30 @@ export function useDashboardController(apiUrl: string | null) {
   const categorySection = useCategoriesSection(categories);
   const settingsSection = useSettingsSection();
   const logsSection = useLogsSection(logs);
+  const {
+    statusFilter,
+    typeFilter,
+    operationForm,
+    reset: resetOperations,
+  } = operations;
+  const {
+    categoryForm,
+    reset: resetCategories,
+  } = categorySection;
+  const {
+    setSettingsMessage,
+    setBackupTaskState,
+    passwordState,
+    setPasswordState,
+    reset: resetSettings,
+  } = settingsSection;
+  const { logLevelFilter, logSourceFilter } = logsSection;
 
   const resetDashboardUi = useCallback(() => {
-    operations.reset();
-    categorySection.reset();
-    settingsSection.reset();
-  }, [categorySection, operations, settingsSection]);
+    resetOperations();
+    resetCategories();
+    resetSettings();
+  }, [resetCategories, resetOperations, resetSettings]);
 
   const clearSession = useCallback(
     (message = 'Сессия истекла, войдите снова') => {
@@ -88,11 +106,11 @@ export function useDashboardController(apiUrl: string | null) {
     }
 
     try {
-      await reloadData(auth.accessToken, operations.statusFilter, operations.typeFilter);
+      await reloadData(auth.accessToken, statusFilter, typeFilter);
     } catch (error) {
       handleApiError(error, 'Не удалось загрузить данные');
     }
-  }, [auth, handleApiError, operations.statusFilter, operations.typeFilter, reloadData]);
+  }, [auth, handleApiError, reloadData, statusFilter, typeFilter]);
 
   const loadLogs = useCallback(async () => {
     if (!auth || section !== 'logs') {
@@ -100,13 +118,13 @@ export function useDashboardController(apiUrl: string | null) {
     }
 
     try {
-      await reloadLogs(auth.accessToken, logsSection.logLevelFilter, logsSection.logSourceFilter);
+      await reloadLogs(auth.accessToken, logLevelFilter, logSourceFilter);
     } catch (error) {
       if (!handleApiError(error, 'Не удалось загрузить логи')) {
         setLogsError(error instanceof Error ? error.message : 'Не удалось загрузить логи');
       }
     }
-  }, [auth, handleApiError, logsSection.logLevelFilter, logsSection.logSourceFilter, reloadLogs, section, setLogsError]);
+  }, [auth, handleApiError, logLevelFilter, logSourceFilter, reloadLogs, section, setLogsError]);
 
   useEffect(() => {
     void loadDashboard();
@@ -147,10 +165,10 @@ export function useDashboardController(apiUrl: string | null) {
         featureApi,
         onUnauthorized: handleApiError,
         setSettings,
-        setSettingsMessage: settingsSection.setSettingsMessage,
+        setSettingsMessage,
       });
     },
-    [auth, featureApi, handleApiError, setSettings, settings, settingsSection.setSettingsMessage],
+    [auth, featureApi, handleApiError, setSettings, setSettingsMessage, settings],
   );
 
   const handleCreateBackup = useCallback(async () => {
@@ -159,9 +177,9 @@ export function useDashboardController(apiUrl: string | null) {
       featureApi,
       onUnauthorized: handleApiError,
       setLatestBackup,
-      setBackupTaskState: settingsSection.setBackupTaskState,
+      setBackupTaskState,
     });
-  }, [auth, featureApi, handleApiError, setLatestBackup, settingsSection.setBackupTaskState]);
+  }, [auth, featureApi, handleApiError, setBackupTaskState, setLatestBackup]);
 
   const handleDownloadLatestBackup = useCallback(async () => {
     await downloadLatestBackupAction({
@@ -170,9 +188,9 @@ export function useDashboardController(apiUrl: string | null) {
       latestBackup,
       onUnauthorized: handleApiError,
       onDownload: triggerBrowserDownload,
-      setBackupTaskState: settingsSection.setBackupTaskState,
+      setBackupTaskState,
     });
-  }, [auth, featureApi, handleApiError, latestBackup, settingsSection.setBackupTaskState]);
+  }, [auth, featureApi, handleApiError, latestBackup, setBackupTaskState]);
 
   const handleChangePassword = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -180,12 +198,12 @@ export function useDashboardController(apiUrl: string | null) {
       await changePasswordAction({
         auth,
         featureApi,
-        passwordForm: settingsSection.passwordState.form,
+        passwordForm: passwordState.form,
         clearSession,
-        setPasswordState: settingsSection.setPasswordState,
+        setPasswordState,
       });
     },
-    [auth, clearSession, featureApi, settingsSection.passwordState.form, settingsSection.setPasswordState],
+    [auth, clearSession, featureApi, passwordState.form, setPasswordState],
   );
 
   const handleSaveOperation = useCallback(
@@ -194,13 +212,13 @@ export function useDashboardController(apiUrl: string | null) {
       await saveOperationAction({
         auth,
         featureApi,
-        operationForm: operations.operationForm,
+        operationForm,
         onUnauthorized: handleApiError,
         onSaved: loadDashboard,
-        onReset: operations.reset,
+        onReset: resetOperations,
       });
     },
-    [auth, featureApi, handleApiError, loadDashboard, operations.operationForm, operations.reset],
+    [auth, featureApi, handleApiError, loadDashboard, operationForm, resetOperations],
   );
 
   const handleCancelOperation = useCallback(
@@ -223,20 +241,20 @@ export function useDashboardController(apiUrl: string | null) {
         auth,
         execute: (token) =>
           featureApi.categories.save(token, {
-            id: categorySection.categoryForm.id,
-            name: categorySection.categoryForm.name.trim(),
-            type: categorySection.categoryForm.type,
-            isActive: categorySection.categoryForm.isActive,
+            id: categoryForm.id,
+            name: categoryForm.name.trim(),
+            type: categoryForm.type,
+            isActive: categoryForm.isActive,
           }),
         onUnauthorized: handleApiError,
         fallbackMessage: 'Не удалось сохранить категорию',
         onSuccess: async () => {
-          categorySection.reset();
+          resetCategories();
           await loadDashboard();
         },
       });
     },
-    [auth, categorySection, featureApi.categories, handleApiError, loadDashboard],
+    [auth, categoryForm, featureApi.categories, handleApiError, loadDashboard, resetCategories],
   );
 
   const handleDeactivateCategory = useCallback(
