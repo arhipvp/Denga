@@ -72,6 +72,7 @@ export function Dashboard() {
             onStatusFilterChange={categorySection.setCategoryStatusFilter}
             onTypeFilterChange={categorySection.setCategoryTypeFilter}
             onCreate={categorySection.openCreateCategoryModal}
+            onCreateSubcategory={categorySection.openCreateSubcategoryModal}
             onEdit={categorySection.openEditCategoryModal}
             onDeactivate={(id) => void handlers.handleDeactivateCategory(id)}
             onRestore={(id) => void handlers.handleRestoreCategory(id)}

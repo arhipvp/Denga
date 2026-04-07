@@ -3,10 +3,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { emptyCategoryForm, type Category, type CategoryFormState } from '../lib/types';
 
-function flattenCategories(categories: Category[]): Category[] {
-  return categories.flatMap((item) => [item, ...flattenCategories(item.children ?? [])]);
-}
-
 export function useCategoriesSection(categories: Category[]) {
   const [categoryStatusFilter, setCategoryStatusFilter] = useState<'active' | 'inactive' | 'all'>(
     'active',
@@ -16,14 +12,13 @@ export function useCategoriesSection(categories: Category[]) {
   );
   const [isCategoryModalOpen, setCategoryModalOpen] = useState(false);
   const [categoryForm, setCategoryForm] = useState<CategoryFormState>(emptyCategoryForm);
-  const flattenedCategories = useMemo(() => flattenCategories(categories), [categories]);
   const parentCategories = useMemo(
-    () => flattenedCategories.filter((item) => item.parentId === null),
-    [flattenedCategories],
+    () => categories.filter((item) => item.parentId === null),
+    [categories],
   );
 
   const visibleCategories = useMemo(() => {
-    return flattenedCategories.filter((item) => {
+    return parentCategories.filter((item) => {
       const matchesStatus =
         categoryStatusFilter === 'all' ||
         (categoryStatusFilter === 'active' ? item.isActive : !item.isActive);
@@ -33,10 +28,20 @@ export function useCategoriesSection(categories: Category[]) {
 
       return matchesStatus && matchesType;
     });
-  }, [flattenedCategories, categoryStatusFilter, categoryTypeFilter]);
+  }, [parentCategories, categoryStatusFilter, categoryTypeFilter]);
 
   const openCreateCategoryModal = useCallback(() => {
     setCategoryForm(emptyCategoryForm);
+    setCategoryModalOpen(true);
+  }, []);
+
+  const openCreateSubcategoryModal = useCallback((parent: Category) => {
+    setCategoryForm({
+      ...emptyCategoryForm,
+      type: parent.type === 'INCOME' ? 'income' : 'expense',
+      kind: 'leaf',
+      parentId: parent.id,
+    });
     setCategoryModalOpen(true);
   }, []);
 
@@ -69,6 +74,7 @@ export function useCategoriesSection(categories: Category[]) {
     visibleCategories,
     parentCategories,
     openCreateCategoryModal,
+    openCreateSubcategoryModal,
     openEditCategoryModal,
     reset,
   };

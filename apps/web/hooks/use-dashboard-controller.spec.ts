@@ -183,7 +183,9 @@ jest.mock('./use-categories-section', () => {
         setCategoryForm,
         visibleCategories: [],
         openCreateCategoryModal: jest.fn(),
+        openCreateSubcategoryModal: jest.fn(),
         openEditCategoryModal: jest.fn(),
+        parentCategories: [],
         reset,
       };
     },

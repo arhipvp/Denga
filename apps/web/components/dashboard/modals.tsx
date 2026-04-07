@@ -176,6 +176,9 @@ export function CategoryModal({
     return null;
   }
 
+  const isPresetSubcategoryCreate =
+    !form.id && form.kind === 'leaf' && Boolean(form.parentId);
+
   return (
     <div
       style={{
@@ -214,6 +217,7 @@ export function CategoryModal({
             <label>Тип</label>
             <select
               value={form.type}
+              disabled={isPresetSubcategoryCreate}
               onChange={(event) =>
                 onChange((current) => ({
                   ...current,
@@ -233,6 +237,7 @@ export function CategoryModal({
             <label>Уровень</label>
             <select
               value={form.kind}
+              disabled={isPresetSubcategoryCreate}
               onChange={(event) =>
                 onChange((current) => ({
                   ...current,
@@ -250,6 +255,7 @@ export function CategoryModal({
               <label>Родитель</label>
               <select
                 value={form.parentId}
+                disabled={isPresetSubcategoryCreate}
                 onChange={(event) =>
                   onChange((current) => ({
                     ...current,
@@ -271,6 +277,11 @@ export function CategoryModal({
                     </option>
                   ))}
               </select>
+              {isPresetSubcategoryCreate ? (
+                <small style={{ color: 'rgba(15, 23, 42, 0.7)' }}>
+                  Подкатегория будет создана внутри выбранной главной категории.
+                </small>
+              ) : null}
             </div>
           ) : null}
           {form.id ? (
