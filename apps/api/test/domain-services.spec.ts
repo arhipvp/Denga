@@ -513,6 +513,12 @@ describe('TransactionService', () => {
     expect(breakdown.periodLabel).toBe('Апрель 2026');
     expect(breakdown.currency).toBe('EUR');
     expect(breakdown.totalAmount).toBe(192);
+    expect(breakdown.fullItems).toEqual([
+      expect.objectContaining({ categoryName: 'Еда', amount: 120, share: 120 / 192 }),
+      expect.objectContaining({ categoryName: 'Такси', amount: 60, share: 60 / 192 }),
+      expect.objectContaining({ categoryName: 'Кофе', amount: 8, share: 8 / 192 }),
+      expect.objectContaining({ categoryName: 'Комиссии', amount: 4, share: 4 / 192 }),
+    ]);
     expect(breakdown.items).toEqual([
       expect.objectContaining({ categoryName: 'Еда', amount: 120 }),
       expect.objectContaining({ categoryName: 'Такси', amount: 60 }),
@@ -536,6 +542,7 @@ describe('TransactionService', () => {
       currency: 'EUR',
       totalAmount: 0,
       items: [],
+      fullItems: [],
     });
   });
 
@@ -581,6 +588,12 @@ describe('TransactionService', () => {
     expect(breakdown.periodLabel).toBe('Апрель 2026');
     expect(breakdown.currency).toBe('EUR');
     expect(breakdown.totalAmount).toBe(1860);
+    expect(breakdown.fullItems).toEqual([
+      expect.objectContaining({ categoryName: 'Зарплата', amount: 1500, share: 1500 / 1860 }),
+      expect.objectContaining({ categoryName: 'Бонус', amount: 300, share: 300 / 1860 }),
+      expect.objectContaining({ categoryName: 'Кэшбэк', amount: 40, share: 40 / 1860 }),
+      expect.objectContaining({ categoryName: 'Возврат', amount: 20, share: 20 / 1860 }),
+    ]);
     expect(breakdown.items).toEqual([
       expect.objectContaining({ categoryName: 'Зарплата', amount: 1500 }),
       expect.objectContaining({ categoryName: 'Бонус', amount: 300 }),
