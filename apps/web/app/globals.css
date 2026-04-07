@@ -531,6 +531,11 @@ textarea:focus-visible {
   transition: 120ms ease;
 }
 
+.button--compact {
+  min-height: 36px;
+  padding: 7px 12px;
+}
+
 .button:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: var(--shadow-md);
@@ -549,6 +554,96 @@ textarea:focus-visible {
 
 .button.danger {
   background: linear-gradient(180deg, #cd5f4c, #ac3d2a);
+}
+
+.categories-table-shell {
+  border-color: rgba(32, 25, 18, 0.08);
+  background: rgba(255, 255, 255, 0.36);
+}
+
+.categories-table {
+  min-width: 900px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.categories-table__toggle-head,
+.categories-table__toggle-cell {
+  width: 52px;
+  padding-inline: 12px;
+}
+
+.categories-row--parent td {
+  vertical-align: middle;
+}
+
+.categories-row--child td {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.categories-row--child:hover {
+  background: rgba(32, 25, 18, 0.02);
+}
+
+.categories-row--empty td {
+  padding-top: 10px;
+  padding-bottom: 12px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.categories-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(32, 25, 18, 0.12);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text);
+  cursor: pointer;
+  transition: 120ms ease;
+}
+
+.categories-toggle:hover {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(32, 25, 18, 0.2);
+}
+
+.categories-name-cell__label {
+  display: inline-block;
+}
+
+.categories-name-cell--child {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.categories-child-indent {
+  width: 20px;
+  height: 1px;
+  background: rgba(32, 25, 18, 0.18);
+  flex: 0 0 auto;
+}
+
+.categories-actions {
+  gap: 8px;
+}
+
+.categories-actions--secondary .button.secondary,
+.categories-actions--secondary .button.danger,
+.categories-actions--secondary .button:not(.secondary):not(.danger) {
+  min-height: 34px;
+  padding: 6px 12px;
+}
+
+.categories-empty-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
 }
 
 .badge,
@@ -722,5 +817,14 @@ textarea:focus-visible {
 
   .actions--inline {
     flex-wrap: wrap;
+  }
+
+  .categories-actions {
+    align-items: flex-start;
+  }
+
+  .categories-empty-inline {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }

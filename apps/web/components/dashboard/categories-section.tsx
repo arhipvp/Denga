@@ -107,15 +107,15 @@ export function CategoriesSection({
 
   const renderActions = (item: Category) => (
     <>
-      <button className="button secondary" type="button" onClick={() => onEdit(item)}>
+      <button className="button secondary button--compact" type="button" onClick={() => onEdit(item)}>
         Редактировать
       </button>
       {item.isActive ? (
-        <button className="button danger" type="button" onClick={() => onDeactivate(item.id)}>
+        <button className="button danger button--compact" type="button" onClick={() => onDeactivate(item.id)}>
           Отключить
         </button>
       ) : (
-        <button className="button" type="button" onClick={() => onRestore(item.id)}>
+        <button className="button button--compact" type="button" onClick={() => onRestore(item.id)}>
           Включить
         </button>
       )}
@@ -173,13 +173,17 @@ export function CategoriesSection({
           </button>
         }
       />
-      <div className="table-shell">
-        <table className="table">
+      <div className="table-shell categories-table-shell">
+        <table className="table categories-table">
           <thead>
             <tr>
-              <th style={{ width: 64 }} />
+              <th className="categories-table__toggle-head" />
               <th>
-                <button className={`sort-button${sortBy === 'name' ? ' active' : ''}`} type="button" onClick={() => handleSortChange('name')}>
+                <button
+                  className={`sort-button${sortBy === 'name' ? ' active' : ''}`}
+                  type="button"
+                  onClick={() => handleSortChange('name')}
+                >
                   <span>Название</span>
                   <span className="sort-indicator" aria-hidden="true">
                     {sortBy === 'name' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
@@ -187,7 +191,11 @@ export function CategoriesSection({
                 </button>
               </th>
               <th>
-                <button className={`sort-button${sortBy === 'type' ? ' active' : ''}`} type="button" onClick={() => handleSortChange('type')}>
+                <button
+                  className={`sort-button${sortBy === 'type' ? ' active' : ''}`}
+                  type="button"
+                  onClick={() => handleSortChange('type')}
+                >
                   <span>Тип</span>
                   <span className="sort-indicator" aria-hidden="true">
                     {sortBy === 'type' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
@@ -195,7 +203,11 @@ export function CategoriesSection({
                 </button>
               </th>
               <th>
-                <button className={`sort-button${sortBy === 'status' ? ' active' : ''}`} type="button" onClick={() => handleSortChange('status')}>
+                <button
+                  className={`sort-button${sortBy === 'status' ? ' active' : ''}`}
+                  type="button"
+                  onClick={() => handleSortChange('status')}
+                >
                   <span>Статус</span>
                   <span className="sort-indicator" aria-hidden="true">
                     {sortBy === 'status' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
@@ -210,21 +222,23 @@ export function CategoriesSection({
               const isExpanded = resolvedExpandedIds.has(item.id);
               return (
                 <tbody key={item.id}>
-                  <tr>
-                    <td>
+                  <tr className="categories-row categories-row--parent">
+                    <td className="categories-table__toggle-cell">
                       {item.children.length > 0 ? (
                         <button
                           aria-expanded={isExpanded}
-                          className="button secondary"
+                          aria-label={isExpanded ? `Скрыть подкатегории ${item.name}` : `Показать подкатегории ${item.name}`}
+                          className="categories-toggle"
                           type="button"
-                          style={{ minWidth: 36, paddingInline: 0 }}
                           onClick={() => toggleExpanded(item.id)}
                         >
-                          {isExpanded ? '−' : '+'}
+                          <span aria-hidden="true">{isExpanded ? '−' : '+'}</span>
                         </button>
                       ) : null}
                     </td>
-                    <td>{item.displayPath}</td>
+                    <td className="categories-name-cell">
+                      <span className="categories-name-cell__label">{item.displayPath}</span>
+                    </td>
                     <td>
                       <TransactionTypePill type={item.type} />
                     </td>
@@ -232,59 +246,53 @@ export function CategoriesSection({
                       <CategoryStatusBadge isActive={item.isActive} />
                     </td>
                     <td>
-                      <div className="actions actions--inline">
+                      <div className="actions categories-actions">
                         <button
-                          className="button secondary"
+                          className="button secondary button--compact"
                           type="button"
                           onClick={() => onCreateSubcategory(item)}
                         >
                           Добавить подкатегорию
                         </button>
-                        <div className="actions actions--inline">{renderActions(item)}</div>
+                        <div className="actions categories-actions categories-actions--secondary">
+                          {renderActions(item)}
+                        </div>
                       </div>
                     </td>
                   </tr>
                   {isExpanded ? (
-                    <tr>
-                      <td colSpan={5} style={{ paddingBlockStart: 0 }}>
-                        <div
-                          className="panel"
-                          style={{ margin: '0.5rem 0 0 1.5rem', padding: '0.75rem 1rem' }}
-                        >
-                          {item.children.length > 0 ? (
-                            <table className="table">
-                              <thead>
-                                <tr>
-                                  <th>Подкатегория</th>
-                                  <th>Статус</th>
-                                  <th>Действия</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {item.children.map((child) => (
-                                  <tr key={child.id}>
-                                    <td>{child.name}</td>
-                                    <td>
-                                      <CategoryStatusBadge isActive={child.isActive} />
-                                    </td>
-                                    <td>
-                                      <div className="actions actions--inline">
-                                        {renderActions(child)}
-                                      </div>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          ) : (
-                            <div className="empty-state">
-                              <strong>Подкатегорий пока нет</strong>
-                              <span>Добавьте первую подкатегорию для этой главной категории.</span>
+                    item.children.length > 0 ? (
+                      item.children.map((child) => (
+                        <tr key={child.id} className="categories-row categories-row--child">
+                          <td className="categories-table__toggle-cell" />
+                          <td className="categories-name-cell categories-name-cell--child">
+                            <span className="categories-child-indent" aria-hidden="true" />
+                            <span className="categories-name-cell__label">{child.name}</span>
+                          </td>
+                          <td>
+                            <TransactionTypePill type={child.type} />
+                          </td>
+                          <td>
+                            <CategoryStatusBadge isActive={child.isActive} />
+                          </td>
+                          <td>
+                            <div className="actions categories-actions categories-actions--secondary">
+                              {renderActions(child)}
                             </div>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr className="categories-row categories-row--empty">
+                        <td className="categories-table__toggle-cell" />
+                        <td colSpan={4}>
+                          <div className="categories-empty-inline">
+                            <strong>Подкатегорий пока нет</strong>
+                            <span>Добавьте первую подкатегорию для этой главной категории.</span>
+                          </div>
+                        </td>
+                      </tr>
+                    )
                   ) : null}
                 </tbody>
               );
