@@ -130,6 +130,8 @@ describe('TransactionService', () => {
     status?: TransactionStatus;
     categoryId?: string | null;
     categoryName?: string | null;
+    parentCategoryId?: string | null;
+    parentCategoryName?: string | null;
     comment?: string | null;
   }) {
     return {
@@ -153,6 +155,7 @@ describe('TransactionService', () => {
           : {
               id: input.categoryId ?? `${input.id}-category`,
               householdId: 'household-1',
+              parentId: input.parentCategoryName ? input.parentCategoryId ?? `${input.id}-parent` : null,
               name: input.categoryName ?? 'Без категории',
               type:
                 input.type === TransactionType.INCOME
@@ -161,6 +164,21 @@ describe('TransactionService', () => {
               isActive: true,
               createdAt: new Date(input.occurredAt),
               updatedAt: new Date(input.occurredAt),
+              parent: input.parentCategoryName
+                ? {
+                    id: input.parentCategoryId ?? `${input.id}-parent`,
+                    householdId: 'household-1',
+                    parentId: null,
+                    name: input.parentCategoryName,
+                    type:
+                      input.type === TransactionType.INCOME
+                        ? CategoryType.INCOME
+                        : CategoryType.EXPENSE,
+                    isActive: true,
+                    createdAt: new Date(input.occurredAt),
+                    updatedAt: new Date(input.occurredAt),
+                  }
+                : null,
             },
       sourceMessage: null,
     };
@@ -253,7 +271,18 @@ describe('TransactionService', () => {
   });
 
   it('lists transactions with search, sorting and pagination metadata', async () => {
-    transactionFindMany.mockResolvedValue([{ id: 'tx-2' }]);
+    transactionFindMany.mockResolvedValue([
+      createTransaction({
+        id: 'tx-2',
+        amount: 18,
+        occurredAt: '2026-04-02T12:00:00.000Z',
+        type: TransactionType.EXPENSE,
+        categoryId: 'cat-2',
+        categoryName: 'Кафе',
+        parentCategoryId: 'parent-1',
+        parentCategoryName: 'Еда',
+      }),
+    ]);
     transactionCount.mockResolvedValue(7);
 
     const payload = await service.list({
@@ -287,7 +316,19 @@ describe('TransactionService', () => {
       }),
     });
     expect(payload).toEqual({
-      items: [{ id: 'tx-2' }],
+      items: [
+        expect.objectContaining({
+          id: 'tx-2',
+          category: expect.objectContaining({
+            name: 'Кафе',
+            displayPath: 'Еда / Кафе',
+            isLeaf: true,
+            parent: expect.objectContaining({
+              name: 'Еда',
+            }),
+          }),
+        }),
+      ],
       total: 7,
       page: 2,
       pageSize: 3,
@@ -319,6 +360,49 @@ describe('TransactionService', () => {
       { month: '2026-02', income: 0, expense: 0, net: 0 },
       { month: '2026-03', income: 0, expense: 0, net: 0 },
       { month: '2026-04', income: 0, expense: 0, net: 0 },
+    ]);
+  });
+
+  it('returns normalized categories in recent summary transactions', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-04-20T12:00:00.000Z'));
+    transactionFindMany
+      .mockResolvedValueOnce([
+        createTransaction({
+          id: 'tx-1',
+          amount: 25,
+          occurredAt: '2026-04-18T12:00:00.000Z',
+          type: TransactionType.EXPENSE,
+          categoryId: 'cat-1',
+          categoryName: 'Кафе',
+          parentCategoryId: 'parent-1',
+          parentCategoryName: 'Еда',
+        }),
+      ])
+      .mockResolvedValueOnce([
+        createTransaction({
+          id: 'tx-1',
+          amount: 25,
+          occurredAt: '2026-04-18T12:00:00.000Z',
+          type: TransactionType.EXPENSE,
+          categoryId: 'cat-1',
+          categoryName: 'Кафе',
+          parentCategoryId: 'parent-1',
+          parentCategoryName: 'Еда',
+        }),
+      ]);
+
+    const summary = await service.summary();
+
+    expect(summary.recent).toEqual([
+      expect.objectContaining({
+        id: 'tx-1',
+        category: expect.objectContaining({
+          displayPath: 'Еда / Кафе',
+          parent: expect.objectContaining({
+            name: 'Еда',
+          }),
+        }),
+      }),
     ]);
   });
 

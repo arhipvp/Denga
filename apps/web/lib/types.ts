@@ -17,6 +17,15 @@ export type Category = {
   children: Category[];
 };
 
+export type TransactionCategory = Omit<Category, 'children'> & {
+  children: Category[];
+  parent?: Pick<Category, 'id' | 'name' | 'type' | 'isActive' | 'parentId'> & {
+    displayPath?: string;
+    isLeaf?: boolean;
+    children?: Category[];
+  } | null;
+};
+
 export type Transaction = {
   id: string;
   type: 'INCOME' | 'EXPENSE';
@@ -25,7 +34,7 @@ export type Transaction = {
   occurredAt: string;
   comment: string | null;
   status: 'CONFIRMED' | 'NEEDS_CLARIFICATION' | 'CANCELLED';
-  category: Category | null;
+  category: TransactionCategory | null;
   author: { displayName: string } | null;
   sourceMessage: {
     type: string;

@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { DataTable, TablePagination, TableSearch } from './data-table';
 import { MoneyText, TransactionStatusBadge, TransactionTypePill } from './section-shared';
 import { formatDate, formatMoney, formatMonthLabel, formatShare, formatSignedMoney } from '../../lib/formatters';
+import { getTransactionCategoryPath } from '../../lib/transaction-category';
 import { useClientTable } from '../../lib/client-table';
 import type { SortDirection, Summary, Transaction } from '../../lib/types';
 
@@ -26,7 +27,7 @@ export function OverviewSection({
     rows: summary.recent,
     search,
     getSearchValue: (item) =>
-      `${item.comment ?? ''} ${item.category?.displayPath ?? ''} ${item.sourceMessage?.type ?? ''} ${item.amount}`,
+      `${item.comment ?? ''} ${getTransactionCategoryPath(item.category) ?? ''} ${item.sourceMessage?.type ?? ''} ${item.amount}`,
     sortBy,
     sortDir,
     page,
@@ -68,7 +69,7 @@ export function OverviewSection({
       {
         key: 'category',
         label: 'Категория',
-        render: (item: Transaction) => item.category?.displayPath ?? 'Не определена',
+        render: (item: Transaction) => getTransactionCategoryPath(item.category) ?? 'Не определена',
       },
       {
         key: 'status',

@@ -50,31 +50,16 @@ export class TransactionService {
     const [items, total] = await Promise.all([
       this.prisma.transaction.findMany({
         where,
-        include: {
-          category: true,
-          author: true,
-          sourceMessage: {
-            include: {
-              attachments: true,
-              clarificationSession: true,
-              reviewDraft: true,
-              parseAttempts: {
-                orderBy: {
-                  createdAt: 'desc',
-                },
-              },
-            },
-          },
-        },
+        include: transactionDetailInclude,
         orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
-      }),
+      }) as Promise<TransactionRecord[]>,
       this.prisma.transaction.count({ where }),
     ]);
 
     return {
-      items,
+      items: items.map((item) => this.serializeTransaction(item)),
       total,
       page,
       pageSize,
@@ -94,7 +79,7 @@ export class TransactionService {
       },
       take: 8,
       include: transactionDetailInclude,
-    });
+    }) as TransactionRecord[];
 
     const allTransactions = await this.prisma.transaction.findMany({
       where: {
@@ -117,7 +102,7 @@ export class TransactionService {
         allTransactions.map((item) => this.toSummaryTransaction(item)),
         now,
       ),
-      recent,
+      recent: recent.map((item) => this.serializeTransaction(item)),
     };
   }
 
@@ -193,20 +178,12 @@ export class TransactionService {
         categoryId: dto.categoryId,
         status: TransactionStatus.CONFIRMED,
       },
-      include: {
-        category: {
-          include: {
-            parent: true,
-          },
-        },
-        author: true,
-        sourceMessage: true,
-      },
+      include: transactionDetailInclude,
     } as any);
 
     await this.transactionNotificationService.notifyTransactionCreated(transaction.id);
 
-    return transaction;
+    return this.serializeTransaction(transaction as TransactionRecord);
   }
 
   async update(id: string, dto: UpdateTransactionDto) {
@@ -220,7 +197,7 @@ export class TransactionService {
       await this.transactionCoreService.ensureCategoryType(finalCategoryId, finalType);
     }
 
-    return this.prisma.transaction.update({
+    const transaction = await this.prisma.transaction.update({
       where: { id },
       data: {
         ...(dto.type
@@ -239,6 +216,8 @@ export class TransactionService {
       },
       include: transactionDetailInclude,
     });
+
+    return this.serializeTransaction(transaction as TransactionRecord);
   }
 
   async cancel(id: string) {
@@ -393,6 +372,36 @@ export class TransactionService {
     return Math.min(Math.floor(value), TransactionService.maxPageSize);
   }
 
+  private serializeTransaction(item: TransactionRecord) {
+    return {
+      ...item,
+      category: this.serializeCategory(item.category),
+    };
+  }
+
+  private serializeCategory(category: TransactionRecord['category']) {
+    if (!category) {
+      return null;
+    }
+
+    const parent = category.parent
+      ? {
+          ...category.parent,
+          isLeaf: false,
+          displayPath: category.parent.name,
+          children: [],
+        }
+      : null;
+
+    return {
+      ...category,
+      isLeaf: category.parentId !== null,
+      displayPath: parent ? `${parent.name} / ${category.name}` : category.name,
+      children: [],
+      parent,
+    };
+  }
+
   private toSummaryTransaction(item: {
     id: string;
     type: TransactionType;
@@ -415,3 +424,74 @@ export class TransactionService {
     };
   }
 }
+
+type TransactionCategoryParentRecord = {
+  id: string;
+  householdId: string;
+  parentId: string | null;
+  name: string;
+  type: TransactionType;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type TransactionCategoryRecord = TransactionCategoryParentRecord & {
+  parent: TransactionCategoryParentRecord | null;
+};
+
+type TransactionRecord = {
+  id: string;
+  householdId: string;
+  authorId: string | null;
+  categoryId: string | null;
+  sourceMessageId: string | null;
+  type: TransactionType;
+  amount: Decimal;
+  currency: string;
+  occurredAt: Date;
+  comment: string | null;
+  status: TransactionStatus;
+  createdAt: Date;
+  updatedAt: Date;
+  category: TransactionCategoryRecord | null;
+  author: {
+    displayName: string;
+  } | null;
+  sourceMessage: {
+    type: string;
+    text: string | null;
+    attachments: Array<{ id: string; localPath: string | null }>;
+    parseAttempts: Array<{
+      id: string;
+      attemptType: 'INITIAL_PARSE' | 'CLARIFICATION_REPARSE';
+      model: string;
+      responsePayload: {
+        categoryCandidate?: string | null;
+        confidence?: number;
+        ambiguities?: string[];
+        followUpQuestion?: string | null;
+      };
+    }>;
+    clarificationSession?: {
+      question: string;
+      status: string;
+      conversation?: Array<{
+        role: 'assistant' | 'user';
+        text: string;
+        at: string;
+      }>;
+    } | null;
+    reviewDraft?: {
+      status: string;
+      pendingField: string | null;
+      draft: {
+        type: 'income' | 'expense' | null;
+        amount: number | null;
+        occurredAt: string | null;
+        categoryName: string | null;
+        comment: string | null;
+      };
+    } | null;
+  } | null;
+};

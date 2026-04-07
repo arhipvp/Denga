@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { DataTable, TablePagination, TableSearch, TableToolbar } from './data-table';
 import { MoneyText, TransactionStatusBadge, TransactionTypePill } from './section-shared';
 import { formatDate } from '../../lib/formatters';
+import { getTransactionCategoryPath } from '../../lib/transaction-category';
 import type { Transaction, TransactionListFilters } from '../../lib/types';
 
 type OperationsSectionProps = {
@@ -53,7 +54,7 @@ export function OperationsSection({
         key: 'category',
         label: 'Категория',
         sortable: true,
-        render: (item: Transaction) => item.category?.displayPath ?? 'Не определена',
+        render: (item: Transaction) => getTransactionCategoryPath(item.category) ?? 'Не определена',
       },
       {
         key: 'comment',
