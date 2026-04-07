@@ -16,6 +16,7 @@ type ChartSegmentLayout = {
 
 @Injectable()
 export class TelegramStatsChartRenderer {
+  private static readonly fullCircleEpsilon = 0.000001;
   private readonly width = 1200;
   private readonly height = 760;
   private readonly centerX = 290;
@@ -72,10 +73,18 @@ export class TelegramStatsChartRenderer {
       const sweep = Math.PI * 2 * item.share;
       const endAngle = startAngle + sweep;
       const color = this.colors[index % this.colors.length];
+      const isFullCircle =
+        item.share >= 1 - TelegramStatsChartRenderer.fullCircleEpsilon ||
+        sweep >= Math.PI * 2 - TelegramStatsChartRenderer.fullCircleEpsilon;
+
       context.beginPath();
-      context.moveTo(this.centerX, this.centerY);
-      context.arc(this.centerX, this.centerY, this.radius, startAngle, endAngle);
-      context.closePath();
+      if (isFullCircle) {
+        context.arc(this.centerX, this.centerY, this.radius, 0, Math.PI * 2);
+      } else {
+        context.moveTo(this.centerX, this.centerY);
+        context.arc(this.centerX, this.centerY, this.radius, startAngle, endAngle);
+        context.closePath();
+      }
       context.fillStyle = color;
       context.fill();
       segments.push({

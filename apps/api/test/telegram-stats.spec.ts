@@ -270,6 +270,56 @@ describe('TelegramStatsChartRenderer', () => {
 
     expect(canRender).toBe(false);
   });
+
+  it('renders a visible full-circle donut for a single income category', () => {
+    const renderer = new TelegramStatsChartRenderer();
+    const canvas = renderer.renderCategoryBreakdownCanvas(
+      {
+        periodLabel: 'Апрель 2026',
+        currency: 'EUR',
+        totalAmount: 700,
+        items: [
+          {
+            categoryId: 'salary',
+            categoryName: 'Вова заработал',
+            amount: 700,
+            share: 1,
+          },
+        ],
+      },
+      'Доходы',
+    );
+
+    const ctx = canvas.getContext('2d');
+    const donutPixels = countNonBackgroundPixels(ctx, 120, 210, 340, 340);
+
+    expect(donutPixels).toBeGreaterThan(20000);
+  });
+
+  it('renders a visible full-circle donut for a single expense category', () => {
+    const renderer = new TelegramStatsChartRenderer();
+    const canvas = renderer.renderCategoryBreakdownCanvas(
+      {
+        periodLabel: 'Апрель 2026',
+        currency: 'EUR',
+        totalAmount: 700,
+        items: [
+          {
+            categoryId: 'food',
+            categoryName: 'Продукты',
+            amount: 700,
+            share: 1,
+          },
+        ],
+      },
+      'Расходы',
+    );
+
+    const ctx = canvas.getContext('2d');
+    const donutPixels = countNonBackgroundPixels(ctx, 120, 210, 340, 340);
+
+    expect(donutPixels).toBeGreaterThan(20000);
+  });
 });
 
 function countNonBackgroundPixels(
