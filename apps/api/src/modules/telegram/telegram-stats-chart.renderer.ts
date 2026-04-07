@@ -31,7 +31,8 @@ export class TelegramStatsChartRenderer {
   private readonly centerY = 380;
   private readonly radius = 190;
   private readonly legendMarkerX = 560;
-  private readonly legendValueX = 1080;
+  private readonly legendAmountX = 1010;
+  private readonly legendPercentX = 1090;
   private readonly fontFamily = TelegramStatsChartRenderer.ensureFontFamily();
   private readonly colors = [
     '#2563eb',
@@ -130,17 +131,24 @@ export class TelegramStatsChartRenderer {
     context.fillStyle = '#0f172a';
     this.setFont(context, 26, 'bold');
     context.fillText('Категории', 560, 160);
+    context.fillStyle = '#64748b';
+    this.setFont(context, 15, 'normal');
+    context.textAlign = 'right';
+    context.fillText('Сумма', this.legendAmountX, 160);
+    context.fillText('%', this.legendPercentX, 160);
+    context.textAlign = 'start';
 
     const legendTop = 210;
     const legendBottom = this.height - 60;
-    const lineHeight = Math.min(66, Math.max(46, Math.floor((legendBottom - legendTop) / legendItems.length)));
-    const itemSpacing = Math.max(10, Math.floor(lineHeight * 0.34));
-    const itemHeight = lineHeight - itemSpacing;
+    const lineHeight = Math.min(
+      58,
+      Math.max(42, Math.floor((legendBottom - legendTop) / legendItems.length)),
+    );
 
     legendItems.forEach((item, index) => {
       const top = legendTop + index * lineHeight;
       const markerSize = item.isOther ? 20 : 24;
-      const nameWidth = 340;
+      const nameWidth = 300;
 
       context.fillStyle = item.color;
       context.fillRect(this.legendMarkerX, top - 19, markerSize, markerSize);
@@ -158,10 +166,9 @@ export class TelegramStatsChartRenderer {
       context.fillStyle = '#334155';
       this.setFont(context, 18, 'normal');
       context.textAlign = 'right';
-      context.fillText(item.amountText, this.legendValueX, top);
+      context.fillText(item.amountText, this.legendAmountX, top);
       context.fillStyle = item.isOther ? '#64748b' : '#475569';
-      this.setFont(context, 17, 'normal');
-      context.fillText(item.percentText, this.legendValueX, top + itemHeight - 8);
+      context.fillText(item.percentText, this.legendPercentX, top);
       context.textAlign = 'start';
     });
 
@@ -215,11 +222,9 @@ export class TelegramStatsChartRenderer {
 
       return {
         color: item.isOther ? this.otherColor : this.colors[(rank - 1) % this.colors.length],
-        label: item.isOther
-          ? 'Прочее (мелкие категории)'
-          : `#${rank} ${item.categoryName}`,
+        label: item.isOther ? 'Прочее' : `#${rank} ${item.categoryName}`,
         amountText: this.formatMoney(item.amount, input.currency),
-        percentText: `${(item.share * 100).toFixed(1)}% от суммы`,
+        percentText: `${(item.share * 100).toFixed(1)}%`,
         isOther: Boolean(item.isOther),
       };
     });

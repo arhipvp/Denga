@@ -304,6 +304,40 @@ describe('TelegramStatsChartRenderer', () => {
     expect(legendTextPixels).toBeGreaterThan(1500);
   });
 
+  it('labels aggregated legend item as plain "Прочее"', () => {
+    const renderer = new TelegramStatsChartRenderer();
+    const legendItems = (renderer as any).buildLegendItems({
+      periodLabel: 'Апрель 2026',
+      currency: 'EUR',
+      totalAmount: 100,
+      items: [
+        { categoryId: 'rent', categoryName: 'Аренда', amount: 90, share: 0.9 },
+        {
+          categoryId: null,
+          categoryName: 'Прочие категории',
+          amount: 10,
+          share: 0.1,
+          isOther: true,
+        },
+      ],
+      fullItems: [],
+    });
+
+    expect(legendItems).toEqual([
+      expect.objectContaining({
+        label: '#1 Аренда',
+        amountText: '90,00 EUR',
+        percentText: '90.0%',
+      }),
+      expect.objectContaining({
+        label: 'Прочее',
+        amountText: '10,00 EUR',
+        percentText: '10.0%',
+        isOther: true,
+      }),
+    ]);
+  });
+
   it('renders percent labels on large donut segments', () => {
     const renderer = new TelegramStatsChartRenderer();
     const canvas = renderer.renderExpenseBreakdownCanvas({
