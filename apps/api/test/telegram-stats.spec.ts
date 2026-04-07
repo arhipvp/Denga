@@ -33,6 +33,7 @@ describe('TelegramStatsService', () => {
       currency: 'EUR',
       totalAmount: 0,
       items: [],
+      fullItems: [],
     });
 
     await expect(service.sendCurrentMonthExpenseReport('chat-1')).resolves.toEqual({
@@ -53,6 +54,10 @@ describe('TelegramStatsService', () => {
       currency: 'EUR',
       totalAmount: 200,
       items: [
+        { categoryId: 'food', categoryName: 'Еда', amount: 120, share: 0.6 },
+        { categoryId: 'taxi', categoryName: 'Такси', amount: 80, share: 0.4 },
+      ],
+      fullItems: [
         { categoryId: 'food', categoryName: 'Еда', amount: 120, share: 0.6 },
         { categoryId: 'taxi', categoryName: 'Такси', amount: 80, share: 0.4 },
       ],
@@ -86,17 +91,66 @@ describe('TelegramStatsService', () => {
     expect(sendTelegramMessage).not.toHaveBeenCalled();
   });
 
+  it('uses the full category list in caption while keeping aggregated items for the chart', async () => {
+    getCurrentMonthExpenseBreakdown.mockResolvedValue({
+      periodLabel: 'Апрель 2026',
+      currency: 'EUR',
+      totalAmount: 192,
+      items: [
+        { categoryId: 'food', categoryName: 'Еда', amount: 120, share: 120 / 192 },
+        { categoryId: 'taxi', categoryName: 'Такси', amount: 60, share: 60 / 192 },
+        {
+          categoryId: null,
+          categoryName: 'Прочие категории',
+          amount: 12,
+          share: 12 / 192,
+          isOther: true,
+        },
+      ],
+      fullItems: [
+        { categoryId: 'food', categoryName: 'Еда', amount: 120, share: 120 / 192 },
+        { categoryId: 'taxi', categoryName: 'Такси', amount: 60, share: 60 / 192 },
+        { categoryId: 'coffee', categoryName: 'Кофе', amount: 8, share: 8 / 192 },
+        { categoryId: 'fee', categoryName: 'Комиссии', amount: 4, share: 4 / 192 },
+      ],
+    });
+
+    await service.sendCurrentMonthExpenseReport('chat-1');
+
+    expect(renderCategoryBreakdown).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: expect.arrayContaining([
+          expect.objectContaining({ categoryName: 'Прочие категории', isOther: true }),
+        ]),
+      }),
+      'Расходы',
+    );
+    expect(sendTelegramPhoto).toHaveBeenCalledWith(
+      expect.objectContaining({
+        caption: expect.stringContaining('• Кофе — <b>8,00 EUR</b> (4.2%)'),
+      }),
+    );
+    expect(sendTelegramPhoto).toHaveBeenCalledWith(
+      expect.objectContaining({
+        caption: expect.not.stringContaining('Прочие категории'),
+      }),
+    );
+  });
+
   it('falls back to a follow-up text when the caption becomes too long', async () => {
+    const fullItems = Array.from({ length: 18 }, (_, index) => ({
+      categoryId: `cat-${index + 1}`,
+      categoryName: `Очень длинная категория ${index + 1} с подробным названием`,
+      amount: 80 + index,
+      share: 1 / 18,
+    }));
+
     getCurrentMonthExpenseBreakdown.mockResolvedValue({
       periodLabel: 'Апрель 2026',
       currency: 'EUR',
       totalAmount: 1500,
-      items: Array.from({ length: 18 }, (_, index) => ({
-        categoryId: `cat-${index + 1}`,
-        categoryName: `Очень длинная категория ${index + 1} с подробным названием`,
-        amount: 80 + index,
-        share: 1 / 18,
-      })),
+      items: fullItems,
+      fullItems,
     });
 
     await service.sendCurrentMonthExpenseReport('chat-1');
@@ -115,6 +169,10 @@ describe('TelegramStatsService', () => {
       'chat-1',
       expect.stringContaining('Очень длинная категория 18'),
     );
+    expect(sendTelegramMessage).not.toHaveBeenCalledWith(
+      'chat-1',
+      expect.stringContaining('Прочие категории'),
+    );
   });
 
   it('sends an empty-state text when there are no confirmed incomes', async () => {
@@ -123,6 +181,7 @@ describe('TelegramStatsService', () => {
       currency: 'EUR',
       totalAmount: 0,
       items: [],
+      fullItems: [],
     });
 
     await expect(service.sendCurrentMonthIncomeReport('chat-1')).resolves.toEqual({
@@ -143,6 +202,10 @@ describe('TelegramStatsService', () => {
       currency: 'EUR',
       totalAmount: 1800,
       items: [
+        { categoryId: 'salary', categoryName: 'Зарплата', amount: 1500, share: 1500 / 1800 },
+        { categoryId: 'bonus', categoryName: 'Бонус', amount: 300, share: 300 / 1800 },
+      ],
+      fullItems: [
         { categoryId: 'salary', categoryName: 'Зарплата', amount: 1500, share: 1500 / 1800 },
         { categoryId: 'bonus', categoryName: 'Бонус', amount: 300, share: 300 / 1800 },
       ],
@@ -183,6 +246,10 @@ describe('TelegramStatsChartRenderer', () => {
         { categoryId: 'food', categoryName: 'Еда', amount: 120, share: 0.6 },
         { categoryId: 'taxi', categoryName: 'Такси', amount: 80, share: 0.4 },
       ],
+      fullItems: [
+        { categoryId: 'food', categoryName: 'Еда', amount: 120, share: 0.6 },
+        { categoryId: 'taxi', categoryName: 'Такси', amount: 80, share: 0.4 },
+      ],
     });
 
     expect(buffer.subarray(0, 8)).toEqual(
@@ -201,6 +268,10 @@ describe('TelegramStatsChartRenderer', () => {
         { categoryId: 'food', categoryName: 'Еда', amount: 120, share: 0.6 },
         { categoryId: 'taxi', categoryName: 'Такси', amount: 80, share: 0.4 },
       ],
+      fullItems: [
+        { categoryId: 'food', categoryName: 'Еда', amount: 120, share: 0.6 },
+        { categoryId: 'taxi', categoryName: 'Такси', amount: 80, share: 0.4 },
+      ],
     });
 
     const ctx = canvas.getContext('2d');
@@ -216,6 +287,10 @@ describe('TelegramStatsChartRenderer', () => {
       currency: 'EUR',
       totalAmount: 200,
       items: [
+        { categoryId: 'food', categoryName: 'Продукты', amount: 120, share: 0.6 },
+        { categoryId: 'taxi', categoryName: 'Такси', amount: 80, share: 0.4 },
+      ],
+      fullItems: [
         { categoryId: 'food', categoryName: 'Продукты', amount: 120, share: 0.6 },
         { categoryId: 'taxi', categoryName: 'Такси', amount: 80, share: 0.4 },
       ],
@@ -243,6 +318,14 @@ describe('TelegramStatsChartRenderer', () => {
         { categoryId: 'home', categoryName: 'Дом', amount: 39, share: 0.113 },
         { categoryId: 'other', categoryName: 'Прочие категории', amount: 35.2, share: 0.102 },
       ],
+      fullItems: [
+        { categoryId: 'food', categoryName: 'Продукты', amount: 108, share: 0.312 },
+        { categoryId: 'beauty', categoryName: 'Красота', amount: 60, share: 0.173 },
+        { categoryId: 'gifts', categoryName: 'Подарки', amount: 55, share: 0.159 },
+        { categoryId: 'cafe', categoryName: 'Кафе и рестораны', amount: 49, share: 0.142 },
+        { categoryId: 'home', categoryName: 'Дом', amount: 39, share: 0.113 },
+        { categoryId: 'other', categoryName: 'Прочие категории', amount: 35.2, share: 0.102 },
+      ],
     });
 
     const ctx = canvas.getContext('2d');
@@ -258,6 +341,9 @@ describe('TelegramStatsChartRenderer', () => {
       currency: 'EUR',
       totalAmount: 1000,
       items: [{ categoryId: 'major', categoryName: 'Крупная категория', amount: 1000, share: 1 }],
+      fullItems: [
+        { categoryId: 'major', categoryName: 'Крупная категория', amount: 1000, share: 1 },
+      ],
     });
 
     const ctx = canvas.getContext('2d');
@@ -286,6 +372,14 @@ describe('TelegramStatsChartRenderer', () => {
             share: 1,
           },
         ],
+        fullItems: [
+          {
+            categoryId: 'salary',
+            categoryName: 'Вова заработал',
+            amount: 700,
+            share: 1,
+          },
+        ],
       },
       'Доходы',
     );
@@ -304,6 +398,14 @@ describe('TelegramStatsChartRenderer', () => {
         currency: 'EUR',
         totalAmount: 700,
         items: [
+          {
+            categoryId: 'food',
+            categoryName: 'Продукты',
+            amount: 700,
+            share: 1,
+          },
+        ],
+        fullItems: [
           {
             categoryId: 'food',
             categoryName: 'Продукты',

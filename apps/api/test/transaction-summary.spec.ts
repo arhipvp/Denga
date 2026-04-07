@@ -197,6 +197,12 @@ describe('current month category breakdown calculator', () => {
       periodLabel: 'Апрель 2026',
       currency: 'EUR',
       totalAmount: 192,
+      fullItems: [
+        expect.objectContaining({ categoryName: 'Еда', amount: 120, share: 120 / 192 }),
+        expect.objectContaining({ categoryName: 'Такси', amount: 60, share: 60 / 192 }),
+        expect.objectContaining({ categoryName: 'Кофе', amount: 8, share: 8 / 192 }),
+        expect.objectContaining({ categoryName: 'Комиссии', amount: 4, share: 4 / 192 }),
+      ],
       items: [
         expect.objectContaining({ categoryName: 'Еда', amount: 120 }),
         expect.objectContaining({ categoryName: 'Такси', amount: 60 }),
@@ -222,6 +228,7 @@ describe('current month category breakdown calculator', () => {
       currency: 'EUR',
       totalAmount: 0,
       items: [],
+      fullItems: [],
     });
   });
 });

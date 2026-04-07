@@ -86,7 +86,7 @@ export class TelegramStatsService {
       `Итого: <b>${this.formatMoney(input.totalAmount, input.currency)}</b>`,
       '',
       `<b>Категории</b>`,
-      ...input.items.map(
+      ...input.fullItems.map(
         (item) =>
           `• ${item.categoryName} — <b>${this.formatMoney(item.amount, input.currency)}</b> (${(item.share * 100).toFixed(1)}%)`,
       ),

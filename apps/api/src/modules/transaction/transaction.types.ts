@@ -13,6 +13,7 @@ export type CurrentMonthCategoryBreakdown = {
   currency: string;
   totalAmount: number;
   items: CurrentMonthCategoryBreakdownItem[];
+  fullItems: CurrentMonthCategoryBreakdownItem[];
 };
 
 export type SummaryCategoryItem = {

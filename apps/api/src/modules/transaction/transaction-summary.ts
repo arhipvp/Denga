@@ -220,6 +220,7 @@ export function calculateCurrentMonthCategoryBreakdown(input: {
       ...item,
       share: totalAmount > 0 ? item.amount / totalAmount : 0,
     }));
+  const fullItems = sortedItems.map((item) => ({ ...item }));
   const minimumVisibleShare = input.minimumVisibleShare ?? 0.05;
   const visibleItems = sortedItems.filter((item) => item.share >= minimumVisibleShare);
   const hiddenItems = sortedItems.filter((item) => item.share < minimumVisibleShare);
@@ -242,6 +243,7 @@ export function calculateCurrentMonthCategoryBreakdown(input: {
     currency: input.currency,
     totalAmount,
     items: visibleItems,
+    fullItems,
   };
 }
 
