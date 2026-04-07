@@ -45,19 +45,26 @@ docker compose up -d postgres
 ```bash
 npm ci
 npm run prisma:generate
-npx prisma db push
+npm run prisma:migrate:deploy
 npm run prisma:seed
 ```
 
 `npm run prisma:seed` больше не создает и не синхронизирует категории. Категории хранятся только в БД и управляются вручную через админку.
 
-Если в базе уже были плоские категории до перехода на иерархию, после `prisma db push` выполните одноразовую миграцию:
+Для локальной разработки все следующие изменения схемы оформляйте через Prisma-миграции:
 
 ```bash
-npm run categories:migrate-hierarchy
+npm run prisma:migrate -- --name <migration_name>
 ```
 
-Скрипт создает для каждой старой плоской категории верхнюю категорию с прежним названием и переводит исходную запись в подкатегорию `Общее`, сохраняя существующие ссылки операций на ту же leaf-запись.
+Если база была создана до появления Prisma-истории миграций и в ней уже есть текущая схема, сначала пометьте baseline как примененный, а затем примените остальные миграции:
+
+```bash
+npx prisma migrate resolve --applied 20260407110000_init
+npm run prisma:migrate:deploy
+```
+
+Этого достаточно и для одноразового перевода старых плоских категорий в иерархию: миграция `20260407111000_migrate_category_hierarchy` сама создает для каждой прежней плоской категории верхнюю категорию с тем же именем и переводит исходную запись в подкатегорию `Общее`, сохраняя существующие ссылки операций на ту же leaf-запись.
 
 Если локальная сборка или dev-сервер оставили служебные артефакты, очистите рабочее дерево:
 
@@ -90,7 +97,7 @@ docker compose up --build -d
 Что делает контейнерный запуск:
 
 - поднимает PostgreSQL
-- API-контейнер автоматически применяет `prisma db push`
+- API-контейнер автоматически применяет `prisma migrate deploy`
 - API-контейнер автоматически выполняет `npm run prisma:seed` только для bootstrap-данных и настроек, но не трогает категории
 - затем запускаются backend и frontend
 - файловые логи сохраняются в `./logs`, а локальные бэкапы базы в `./backups`
@@ -254,7 +261,7 @@ ssh root@<server> "chown root:root /root/denga/.env && chmod 600 /root/denga/.en
 Восстановление из backup:
 
 ```bash
-npx prisma db push
+npm run prisma:migrate:deploy
 pg_restore --clean --if-exists --no-owner --host localhost --port 5433 --username denga --dbname denga ./backups/<backup-file>.dump
 ```
 
