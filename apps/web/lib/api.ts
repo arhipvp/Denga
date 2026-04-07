@@ -34,6 +34,25 @@ type DownloadResult = {
   fileName: string | null;
 };
 
+function extractApiErrorMessage(rawBody: string) {
+  const body = rawBody.trim();
+
+  if (!body) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(body) as { message?: string | string[] };
+    if (Array.isArray(parsed.message)) {
+      return parsed.message.join(', ');
+    }
+
+    return typeof parsed.message === 'string' ? parsed.message : body;
+  } catch {
+    return body;
+  }
+}
+
 function resolveApiUrl(apiUrl?: string | null) {
   return requireApiUrl({
     apiUrl: apiUrl ?? getWebAppConfig().apiUrl,
@@ -111,7 +130,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
           throw new UnauthorizedError();
         }
 
-        const message = (await response.text()).trim();
+        const message = extractApiErrorMessage(await response.text());
         throw new Error(message || `API request failed: ${path} (${response.status})`);
       }
 
@@ -132,7 +151,10 @@ export function createApiClient(options: ApiClientOptions = {}) {
           throw new UnauthorizedError();
         }
 
-        throw new Error(await response.text());
+        throw new Error(
+          extractApiErrorMessage(await response.text()) ||
+            `API request failed: ${path} (${response.status})`,
+        );
       }
 
       return {

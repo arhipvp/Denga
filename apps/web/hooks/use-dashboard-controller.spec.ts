@@ -142,6 +142,7 @@ jest.mock('./use-categories-section', () => {
   return {
     useCategoriesSection: () => {
       const [isCategoryModalOpen, setCategoryModalOpen] = React.useState(false);
+      const [categoryMessage, setCategoryMessage] = React.useState<string | null>(null);
       const [categoryForm, setCategoryFormState] = React.useState({
         id: '',
         name: '',
@@ -164,6 +165,7 @@ jest.mock('./use-categories-section', () => {
 
       const reset = React.useCallback(() => {
         setCategoryModalOpen(false);
+        setCategoryMessage(null);
         setCategoryFormState({
           id: '',
           name: '',
@@ -177,6 +179,8 @@ jest.mock('./use-categories-section', () => {
         setCategoryStatusFilter: jest.fn(),
         categoryTypeFilter: 'all' as const,
         setCategoryTypeFilter: jest.fn(),
+        categoryMessage,
+        setCategoryMessage,
         isCategoryModalOpen,
         setCategoryModalOpen,
         categoryForm,

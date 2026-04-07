@@ -237,6 +237,7 @@ export async function runDashboardMutation(input: {
   onUnauthorized: HandleUnauthorized;
   fallbackMessage: string;
   onSuccess?: () => Promise<void>;
+  onError?: (message: string) => void;
 }) {
   if (!input.auth) {
     return false;
@@ -245,6 +246,9 @@ export async function runDashboardMutation(input: {
   try {
     await input.execute(input.auth.accessToken);
   } catch (error) {
+    if (error instanceof Error && input.onError) {
+      input.onError(error.message || input.fallbackMessage);
+    }
     input.onUnauthorized(error, input.fallbackMessage);
     return false;
   }

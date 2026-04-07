@@ -59,6 +59,7 @@ export function useDashboardController(apiUrl: string | null) {
   } = operations;
   const {
     categoryForm,
+    setCategoryMessage,
     reset: resetCategories,
   } = categorySection;
   const {
@@ -97,6 +98,18 @@ export function useDashboardController(apiUrl: string | null) {
       return false;
     },
     [clearSession, setError],
+  );
+
+  const handleCategoryApiError = useCallback(
+    (candidate: unknown) => {
+      if (candidate instanceof UnauthorizedError) {
+        clearSession(candidate.message);
+        return true;
+      }
+
+      return false;
+    },
+    [clearSession],
   );
 
   const loadDashboard = useCallback(async () => {
@@ -236,6 +249,7 @@ export function useDashboardController(apiUrl: string | null) {
   const handleSaveCategory = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
+      setCategoryMessage(null);
       await runDashboardMutation({
         auth,
         execute: (token) =>
@@ -246,41 +260,46 @@ export function useDashboardController(apiUrl: string | null) {
             isActive: categoryForm.isActive,
             parentId: categoryForm.kind === 'leaf' ? categoryForm.parentId : null,
           }),
-        onUnauthorized: handleApiError,
+        onUnauthorized: handleCategoryApiError,
         fallbackMessage: 'Не удалось сохранить категорию',
+        onError: setCategoryMessage,
         onSuccess: async () => {
           resetCategories();
           await loadDashboard();
         },
       });
     },
-    [auth, categoryForm, featureApi.categories, handleApiError, loadDashboard, resetCategories],
+    [auth, categoryForm, featureApi.categories, handleCategoryApiError, loadDashboard, resetCategories, setCategoryMessage],
   );
 
   const handleDeactivateCategory = useCallback(
     async (id: string) => {
+      setCategoryMessage(null);
       await runDashboardMutation({
         auth,
         execute: (token) => featureApi.categories.deactivate(token, id),
-        onUnauthorized: handleApiError,
+        onUnauthorized: handleCategoryApiError,
         fallbackMessage: 'Не удалось отключить категорию',
+        onError: setCategoryMessage,
         onSuccess: loadDashboard,
       });
     },
-    [auth, featureApi.categories, handleApiError, loadDashboard],
+    [auth, featureApi.categories, handleCategoryApiError, loadDashboard, setCategoryMessage],
   );
 
   const handleRestoreCategory = useCallback(
     async (id: string) => {
+      setCategoryMessage(null);
       await runDashboardMutation({
         auth,
         execute: (token) => featureApi.categories.restore(token, id),
-        onUnauthorized: handleApiError,
+        onUnauthorized: handleCategoryApiError,
         fallbackMessage: 'Не удалось включить категорию',
+        onError: setCategoryMessage,
         onSuccess: loadDashboard,
       });
     },
-    [auth, featureApi.categories, handleApiError, loadDashboard],
+    [auth, featureApi.categories, handleCategoryApiError, loadDashboard, setCategoryMessage],
   );
 
   return {

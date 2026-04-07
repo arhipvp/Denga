@@ -67,6 +67,7 @@ export function Dashboard() {
         {section === 'categories' ? (
           <CategoriesSection
             categories={categorySection.visibleCategories}
+            message={categorySection.categoryMessage}
             statusFilter={categorySection.categoryStatusFilter}
             typeFilter={categorySection.categoryTypeFilter}
             onStatusFilterChange={categorySection.setCategoryStatusFilter}

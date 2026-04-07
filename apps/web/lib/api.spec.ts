@@ -85,4 +85,23 @@ describe('api client', () => {
       },
     } satisfies Partial<ApiResponseParseError>);
   });
+
+  it('extracts message from json error responses', async () => {
+    const client = createApiClient({
+      apiUrl: 'http://localhost:3001/api',
+      fetchImpl: jest.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: jest
+          .fn()
+          .mockResolvedValue(
+            '{"message":"Cannot disable a parent category with active children","error":"Bad Request","statusCode":400}',
+          ),
+      }),
+    });
+
+    await expect(client.request('/categories/test', 'token')).rejects.toThrow(
+      'Cannot disable a parent category with active children',
+    );
+  });
 });

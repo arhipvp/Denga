@@ -8,6 +8,7 @@ import type { Category, SortDirection } from '../../lib/types';
 
 type CategoriesSectionProps = {
   categories: Category[];
+  message: string | null;
   statusFilter: 'active' | 'inactive' | 'all';
   typeFilter: 'all' | 'income' | 'expense';
   onStatusFilterChange: (value: 'active' | 'inactive' | 'all') => void;
@@ -21,6 +22,7 @@ type CategoriesSectionProps = {
 
 export function CategoriesSection({
   categories,
+  message,
   statusFilter,
   typeFilter,
   onStatusFilterChange,
@@ -122,6 +124,16 @@ export function CategoriesSection({
     </>
   );
 
+  const getParentDisableReason = (category: Category) => {
+    if (category.parentId !== null) {
+      return null;
+    }
+
+    return category.children.some((child) => child.isActive)
+      ? 'Сначала отключите все активные подкатегории.'
+      : null;
+  };
+
   return (
     <section className="panel card">
       <TableToolbar
@@ -173,6 +185,7 @@ export function CategoriesSection({
           </button>
         }
       />
+      {message ? <p className="error categories-message">{message}</p> : null}
       <div className="table-shell categories-table-shell">
         <table className="table categories-table">
           <thead>
@@ -220,6 +233,7 @@ export function CategoriesSection({
           {table.rows.length > 0 ? (
             table.rows.map((item) => {
               const isExpanded = resolvedExpandedIds.has(item.id);
+              const parentDisableReason = getParentDisableReason(item);
               return (
                 <tbody key={item.id}>
                   <tr className="categories-row categories-row--parent">
@@ -255,8 +269,36 @@ export function CategoriesSection({
                           Добавить подкатегорию
                         </button>
                         <div className="actions categories-actions categories-actions--secondary">
-                          {renderActions(item)}
+                          <button
+                            className="button secondary button--compact"
+                            type="button"
+                            onClick={() => onEdit(item)}
+                          >
+                            Редактировать
+                          </button>
+                          {item.isActive ? (
+                            <button
+                              className="button danger button--compact"
+                              type="button"
+                              disabled={Boolean(parentDisableReason)}
+                              title={parentDisableReason ?? undefined}
+                              onClick={() => onDeactivate(item.id)}
+                            >
+                              Отключить
+                            </button>
+                          ) : (
+                            <button
+                              className="button button--compact"
+                              type="button"
+                              onClick={() => onRestore(item.id)}
+                            >
+                              Включить
+                            </button>
+                          )}
                         </div>
+                        {parentDisableReason ? (
+                          <span className="categories-hint">{parentDisableReason}</span>
+                        ) : null}
                       </div>
                     </td>
                   </tr>

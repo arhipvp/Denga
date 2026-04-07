@@ -10,6 +10,7 @@ export function useCategoriesSection(categories: Category[]) {
   const [categoryTypeFilter, setCategoryTypeFilter] = useState<'all' | 'income' | 'expense'>(
     'all',
   );
+  const [categoryMessage, setCategoryMessage] = useState<string | null>(null);
   const [isCategoryModalOpen, setCategoryModalOpen] = useState(false);
   const [categoryForm, setCategoryForm] = useState<CategoryFormState>(emptyCategoryForm);
   const parentCategories = useMemo(
@@ -31,11 +32,13 @@ export function useCategoriesSection(categories: Category[]) {
   }, [parentCategories, categoryStatusFilter, categoryTypeFilter]);
 
   const openCreateCategoryModal = useCallback(() => {
+    setCategoryMessage(null);
     setCategoryForm(emptyCategoryForm);
     setCategoryModalOpen(true);
   }, []);
 
   const openCreateSubcategoryModal = useCallback((parent: Category) => {
+    setCategoryMessage(null);
     setCategoryForm({
       ...emptyCategoryForm,
       type: parent.type === 'INCOME' ? 'income' : 'expense',
@@ -46,6 +49,7 @@ export function useCategoriesSection(categories: Category[]) {
   }, []);
 
   const openEditCategoryModal = useCallback((category: Category) => {
+    setCategoryMessage(null);
     setCategoryForm({
       id: category.id,
       name: category.name,
@@ -67,6 +71,8 @@ export function useCategoriesSection(categories: Category[]) {
     setCategoryStatusFilter,
     categoryTypeFilter,
     setCategoryTypeFilter,
+    categoryMessage,
+    setCategoryMessage,
     isCategoryModalOpen,
     setCategoryModalOpen,
     categoryForm,

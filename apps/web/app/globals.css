@@ -639,6 +639,18 @@ textarea:focus-visible {
   padding: 6px 12px;
 }
 
+.categories-hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.categories-message {
+  margin: 0 0 14px;
+}
+
 .categories-empty-inline {
   display: flex;
   align-items: center;
