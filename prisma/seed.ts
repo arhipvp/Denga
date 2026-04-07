@@ -1,31 +1,8 @@
 import 'dotenv/config';
 import bcrypt from 'bcrypt';
-import { CategoryType, PrismaClient, UserRole } from '@prisma/client';
+import { PrismaClient, UserRole } from '@prisma/client';
 
 const prisma = new PrismaClient();
-
-const categories: Array<{ name: string; type: CategoryType }> = [
-  { name: 'Продукты', type: CategoryType.EXPENSE },
-  { name: 'Кафе и рестораны', type: CategoryType.EXPENSE },
-  { name: 'Транспорт', type: CategoryType.EXPENSE },
-  { name: 'Авто', type: CategoryType.EXPENSE },
-  { name: 'Дом и быт', type: CategoryType.EXPENSE },
-  { name: 'Коммунальные услуги', type: CategoryType.EXPENSE },
-  { name: 'Здоровье', type: CategoryType.EXPENSE },
-  { name: 'Ребенок', type: CategoryType.EXPENSE },
-  { name: 'Образование', type: CategoryType.EXPENSE },
-  { name: 'Одежда', type: CategoryType.EXPENSE },
-  { name: 'Развлечения', type: CategoryType.EXPENSE },
-  { name: 'Подписки и сервисы', type: CategoryType.EXPENSE },
-  { name: 'Подарки', type: CategoryType.EXPENSE },
-  { name: 'Путешествия', type: CategoryType.EXPENSE },
-  { name: 'Прочее', type: CategoryType.EXPENSE },
-  { name: 'Зарплата', type: CategoryType.INCOME },
-  { name: 'Подработка', type: CategoryType.INCOME },
-  { name: 'Подарки и переводы', type: CategoryType.INCOME },
-  { name: 'Возвраты', type: CategoryType.INCOME },
-  { name: 'Прочий доход', type: CategoryType.INCOME },
-];
 const defaultParsingPrompt = `Ты разбираешь семейные доходы и расходы из сообщений Telegram.
 
 Нужно извлечь ровно одну финансовую операцию и вернуть только JSON.
@@ -136,24 +113,6 @@ async function main() {
       create: {
         userId: secondUser.id,
         telegramId: secondUserTelegramId,
-        isActive: true,
-      },
-    });
-  }
-
-  for (const category of categories) {
-    await prisma.category.upsert({
-      where: {
-        householdId_name: {
-          householdId: household.id,
-          name: category.name,
-        },
-      },
-      update: { isActive: true, type: category.type },
-      create: {
-        householdId: household.id,
-        name: category.name,
-        type: category.type,
         isActive: true,
       },
     });
