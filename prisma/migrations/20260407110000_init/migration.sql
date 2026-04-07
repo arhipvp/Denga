@@ -66,7 +66,6 @@ CREATE TABLE "TelegramAccount" (
 CREATE TABLE "Category" (
     "id" TEXT NOT NULL,
     "householdId" TEXT NOT NULL,
-    "parentId" TEXT,
     "name" TEXT NOT NULL,
     "type" "CategoryType" NOT NULL DEFAULT 'EXPENSE',
     "isActive" BOOLEAN NOT NULL DEFAULT true,
@@ -193,7 +192,7 @@ CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 CREATE UNIQUE INDEX "TelegramAccount_telegramId_key" ON "TelegramAccount"("telegramId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Category_householdId_parentId_type_name_key" ON "Category"("householdId", "parentId", "type", "name");
+CREATE UNIQUE INDEX "Category_householdId_name_key" ON "Category"("householdId", "name");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Transaction_sourceMessageId_key" ON "Transaction"("sourceMessageId");
@@ -220,8 +219,6 @@ ALTER TABLE "TelegramAccount" ADD CONSTRAINT "TelegramAccount_userId_fkey" FOREI
 ALTER TABLE "Category" ADD CONSTRAINT "Category_householdId_fkey" FOREIGN KEY ("householdId") REFERENCES "Household"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Category" ADD CONSTRAINT "Category_parentId_fkey" FOREIGN KEY ("parentId") REFERENCES "Category"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
 -- AddForeignKey
 ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_householdId_fkey" FOREIGN KEY ("householdId") REFERENCES "Household"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 

@@ -23,10 +23,11 @@ RUN apk add --no-cache postgresql16-client fontconfig ttf-dejavu
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
+COPY --from=builder /app/apps/api/docker-entrypoint.sh ./apps/api/docker-entrypoint.sh
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma/seed.ts ./prisma/seed.ts
 
 EXPOSE 3001
 
-CMD ["sh", "-c", "npx prisma migrate deploy && npm run prisma:seed && node apps/api/dist/main.js"]
+CMD ["sh", "./apps/api/docker-entrypoint.sh"]

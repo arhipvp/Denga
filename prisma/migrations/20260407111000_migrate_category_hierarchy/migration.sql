@@ -1,3 +1,15 @@
+ALTER TABLE "Category"
+ADD COLUMN "parentId" TEXT;
+
+DROP INDEX "Category_householdId_name_key";
+
+CREATE UNIQUE INDEX "Category_householdId_parentId_type_name_key"
+ON "Category"("householdId", "parentId", "type", "name");
+
+ALTER TABLE "Category"
+ADD CONSTRAINT "Category_parentId_fkey"
+FOREIGN KEY ("parentId") REFERENCES "Category"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
 CREATE TEMP TABLE "_CategoryHierarchyMigration" (
     "childId" TEXT PRIMARY KEY,
     "parentId" TEXT NOT NULL
