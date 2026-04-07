@@ -14,6 +14,14 @@ type ChartSegmentLayout = {
   sweep: number;
 };
 
+type LegendItemLayout = {
+  color: string;
+  label: string;
+  amountText: string;
+  percentText: string;
+  isOther: boolean;
+};
+
 @Injectable()
 export class TelegramStatsChartRenderer {
   private static readonly fullCircleEpsilon = 0.000001;
@@ -23,6 +31,7 @@ export class TelegramStatsChartRenderer {
   private readonly centerY = 380;
   private readonly radius = 190;
   private readonly legendMarkerX = 560;
+  private readonly legendValueX = 1080;
   private readonly fontFamily = TelegramStatsChartRenderer.ensureFontFamily();
   private readonly colors = [
     '#2563eb',
@@ -36,6 +45,7 @@ export class TelegramStatsChartRenderer {
     '#ea580c',
     '#475569',
   ];
+  private readonly otherColor = '#94a3b8';
 
   renderCategoryBreakdown(input: CurrentMonthCategoryBreakdown, reportTitle: string) {
     return this.renderCategoryBreakdownCanvas(input, reportTitle).toBuffer('image/png');
@@ -69,10 +79,12 @@ export class TelegramStatsChartRenderer {
 
     const segments: ChartSegmentLayout[] = [];
     let startAngle = -Math.PI / 2;
+    const legendItems = this.buildLegendItems(input);
+
     input.items.forEach((item: CurrentMonthCategoryBreakdownItem, index: number) => {
       const sweep = Math.PI * 2 * item.share;
       const endAngle = startAngle + sweep;
-      const color = this.colors[index % this.colors.length];
+      const color = legendItems[index]?.color ?? this.colors[index % this.colors.length];
       const isFullCircle =
         item.share >= 1 - TelegramStatsChartRenderer.fullCircleEpsilon ||
         sweep >= Math.PI * 2 - TelegramStatsChartRenderer.fullCircleEpsilon;
@@ -119,29 +131,38 @@ export class TelegramStatsChartRenderer {
     this.setFont(context, 26, 'bold');
     context.fillText('Категории', 560, 160);
 
-    input.items.forEach((item: CurrentMonthCategoryBreakdownItem, index: number) => {
-      const top = 210 + index * 70;
-      const nameWidth = 270;
-      const valueWidth = 250;
+    const legendTop = 210;
+    const legendBottom = this.height - 60;
+    const lineHeight = Math.min(66, Math.max(46, Math.floor((legendBottom - legendTop) / legendItems.length)));
+    const itemSpacing = Math.max(10, Math.floor(lineHeight * 0.34));
+    const itemHeight = lineHeight - itemSpacing;
 
-      context.fillStyle = this.colors[index % this.colors.length];
-      context.fillRect(this.legendMarkerX, top - 20, 24, 24);
+    legendItems.forEach((item, index) => {
+      const top = legendTop + index * lineHeight;
+      const markerSize = item.isOther ? 20 : 24;
+      const nameWidth = 340;
+
+      context.fillStyle = item.color;
+      context.fillRect(this.legendMarkerX, top - 19, markerSize, markerSize);
+
+      if (item.isOther) {
+        context.strokeStyle = '#cbd5e1';
+        context.lineWidth = 1;
+        context.strokeRect(this.legendMarkerX, top - 19, markerSize, markerSize);
+      }
 
       context.fillStyle = '#0f172a';
-      this.setFont(context, 21, 'bold');
-      context.fillText(this.ellipsizeText(context, item.categoryName, nameWidth), 600, top);
+      this.setFont(context, item.isOther ? 19 : 20, item.isOther ? 'normal' : 'bold');
+      context.fillText(this.ellipsizeText(context, item.label, nameWidth), 600, top);
 
       context.fillStyle = '#334155';
-      this.setFont(context, 19, 'normal');
-      context.fillText(
-        this.ellipsizeText(
-          context,
-          `${this.formatMoney(item.amount, input.currency)} · ${(item.share * 100).toFixed(1)}%`,
-          valueWidth,
-        ),
-        880,
-        top,
-      );
+      this.setFont(context, 18, 'normal');
+      context.textAlign = 'right';
+      context.fillText(item.amountText, this.legendValueX, top);
+      context.fillStyle = item.isOther ? '#64748b' : '#475569';
+      this.setFont(context, 17, 'normal');
+      context.fillText(item.percentText, this.legendValueX, top + itemHeight - 8);
+      context.textAlign = 'start';
     });
 
     return canvas;
@@ -182,6 +203,26 @@ export class TelegramStatsChartRenderer {
     }
 
     context.restore();
+  }
+
+  private buildLegendItems(input: CurrentMonthCategoryBreakdown): LegendItemLayout[] {
+    let rank = 0;
+
+    return input.items.map((item) => {
+      if (!item.isOther) {
+        rank += 1;
+      }
+
+      return {
+        color: item.isOther ? this.otherColor : this.colors[(rank - 1) % this.colors.length],
+        label: item.isOther
+          ? 'Прочее (мелкие категории)'
+          : `#${rank} ${item.categoryName}`,
+        amountText: this.formatMoney(item.amount, input.currency),
+        percentText: `${(item.share * 100).toFixed(1)}% от суммы`,
+        isOther: Boolean(item.isOther),
+      };
+    });
   }
 
   private setFont(context: SKRSContext2D, size: number, weight: 'normal' | 'bold') {

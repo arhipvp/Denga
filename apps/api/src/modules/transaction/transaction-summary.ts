@@ -222,11 +222,25 @@ export function calculateCurrentMonthCategoryBreakdown(input: {
     }));
   const fullItems = sortedItems.map((item) => ({ ...item }));
   const minimumVisibleShare = input.minimumVisibleShare ?? 0.05;
-  const visibleItems = sortedItems.filter((item) => item.share >= minimumVisibleShare);
-  const hiddenItems = sortedItems.filter((item) => item.share < minimumVisibleShare);
+  const visibleItems = sortedItems.map((item) => ({ ...item }));
 
-  if (hiddenItems.length > 0) {
-    const otherAmount = hiddenItems.reduce((sum, item) => sum + item.amount, 0);
+  let otherAmount = 0;
+  let hiddenCount = 0;
+
+  for (let index = sortedItems.length - 1; index >= 0; index -= 1) {
+    const nextAmount = otherAmount + sortedItems[index].amount;
+    const nextShare = totalAmount > 0 ? nextAmount / totalAmount : 0;
+
+    if (nextShare > minimumVisibleShare) {
+      break;
+    }
+
+    otherAmount = nextAmount;
+    hiddenCount += 1;
+  }
+
+  if (hiddenCount > 0) {
+    visibleItems.splice(visibleItems.length - hiddenCount, hiddenCount);
     visibleItems.push({
       categoryId: null,
       categoryName: 'Прочие категории',
@@ -235,8 +249,6 @@ export function calculateCurrentMonthCategoryBreakdown(input: {
       isOther: true,
     });
   }
-
-  visibleItems.sort((left, right) => right.amount - left.amount);
 
   return {
     periodLabel: formatCurrentMonthLabel(input.periodStart),

@@ -153,7 +153,7 @@ describe('transaction summary calculator', () => {
 });
 
 describe('current month category breakdown calculator', () => {
-  it('groups tiny categories into others', () => {
+  it('groups only the smallest tail that fits within the other-share limit', () => {
     const breakdown = calculateCurrentMonthCategoryBreakdown({
       periodStart: new Date('2026-04-01T00:00:00.000Z'),
       currency: 'EUR',
@@ -175,8 +175,123 @@ describe('current month category breakdown calculator', () => {
           categoryName: 'Такси',
         }),
         createTransaction({
+          id: 'tx-utilities',
+          amount: 9,
+          occurredAt: '2026-04-08T12:00:00.000Z',
+          type: TransactionType.EXPENSE,
+          categoryId: 'utilities',
+          categoryName: 'Коммуналка',
+        }),
+        createTransaction({
           id: 'tx-coffee',
-          amount: 8,
+          amount: 6,
+          occurredAt: '2026-04-07T12:00:00.000Z',
+          type: TransactionType.EXPENSE,
+          categoryId: 'coffee',
+          categoryName: 'Кофе',
+        }),
+        createTransaction({
+          id: 'tx-fee',
+          amount: 4,
+          occurredAt: '2026-04-06T12:00:00.000Z',
+          type: TransactionType.EXPENSE,
+          categoryId: 'fee',
+          categoryName: 'Комиссии',
+        }),
+      ],
+    });
+
+    expect(breakdown).toEqual({
+      periodLabel: 'Апрель 2026',
+      currency: 'EUR',
+      totalAmount: 199,
+      fullItems: [
+        expect.objectContaining({ categoryName: 'Еда', amount: 120, share: 120 / 199 }),
+        expect.objectContaining({ categoryName: 'Такси', amount: 60, share: 60 / 199 }),
+        expect.objectContaining({
+          categoryName: 'Коммуналка',
+          amount: 9,
+          share: 9 / 199,
+        }),
+        expect.objectContaining({ categoryName: 'Кофе', amount: 6, share: 6 / 199 }),
+        expect.objectContaining({ categoryName: 'Комиссии', amount: 4, share: 4 / 199 }),
+      ],
+      items: [
+        expect.objectContaining({ categoryName: 'Еда', amount: 120 }),
+        expect.objectContaining({ categoryName: 'Такси', amount: 60 }),
+        expect.objectContaining({ categoryName: 'Коммуналка', amount: 9 }),
+        expect.objectContaining({ categoryName: 'Кофе', amount: 6 }),
+        expect.objectContaining({
+          categoryName: 'Прочие категории',
+          amount: 4,
+          isOther: true,
+        }),
+      ],
+    });
+    expect(breakdown.items[4]?.share).toBeCloseTo(4 / 199, 5);
+  });
+
+  it('does not create other when even the smallest category exceeds the limit', () => {
+    const breakdown = calculateCurrentMonthCategoryBreakdown({
+      periodStart: new Date('2026-04-01T00:00:00.000Z'),
+      currency: 'EUR',
+      transactions: [
+        createTransaction({
+          id: 'tx-rent',
+          amount: 160,
+          occurredAt: '2026-04-12T12:00:00.000Z',
+          type: TransactionType.EXPENSE,
+          categoryId: 'rent',
+          categoryName: 'Аренда',
+        }),
+        createTransaction({
+          id: 'tx-food',
+          amount: 30,
+          occurredAt: '2026-04-10T12:00:00.000Z',
+          type: TransactionType.EXPENSE,
+          categoryId: 'food',
+          categoryName: 'Еда',
+        }),
+        createTransaction({
+          id: 'tx-transport',
+          amount: 11,
+          occurredAt: '2026-04-08T12:00:00.000Z',
+          type: TransactionType.EXPENSE,
+          categoryId: 'transport',
+          categoryName: 'Транспорт',
+        }),
+      ],
+    });
+
+    expect(breakdown.items).toHaveLength(3);
+    expect(breakdown.items.some((item) => item.isOther)).toBe(false);
+    expect(breakdown.fullItems).toHaveLength(3);
+  });
+
+  it('groups multiple smallest categories when their total share is exactly at the limit', () => {
+    const breakdown = calculateCurrentMonthCategoryBreakdown({
+      periodStart: new Date('2026-04-01T00:00:00.000Z'),
+      currency: 'EUR',
+      transactions: [
+        createTransaction({
+          id: 'tx-rent',
+          amount: 150,
+          occurredAt: '2026-04-12T12:00:00.000Z',
+          type: TransactionType.EXPENSE,
+          categoryId: 'rent',
+          categoryName: 'Аренда',
+        }),
+        createTransaction({
+          id: 'tx-food',
+          amount: 40,
+          occurredAt: '2026-04-10T12:00:00.000Z',
+          type: TransactionType.EXPENSE,
+          categoryId: 'food',
+          categoryName: 'Еда',
+        }),
+        createTransaction({
+          id: 'tx-coffee',
+          amount: 6,
           occurredAt: '2026-04-08T12:00:00.000Z',
           type: TransactionType.EXPENSE,
           categoryId: 'coffee',
@@ -193,27 +308,23 @@ describe('current month category breakdown calculator', () => {
       ],
     });
 
-    expect(breakdown).toEqual({
-      periodLabel: 'Апрель 2026',
-      currency: 'EUR',
-      totalAmount: 192,
-      fullItems: [
-        expect.objectContaining({ categoryName: 'Еда', amount: 120, share: 120 / 192 }),
-        expect.objectContaining({ categoryName: 'Такси', amount: 60, share: 60 / 192 }),
-        expect.objectContaining({ categoryName: 'Кофе', amount: 8, share: 8 / 192 }),
-        expect.objectContaining({ categoryName: 'Комиссии', amount: 4, share: 4 / 192 }),
-      ],
-      items: [
-        expect.objectContaining({ categoryName: 'Еда', amount: 120 }),
-        expect.objectContaining({ categoryName: 'Такси', amount: 60 }),
-        expect.objectContaining({
-          categoryName: 'Прочие категории',
-          amount: 12,
-          isOther: true,
-        }),
-      ],
-    });
-    expect(breakdown.items[2]?.share).toBeCloseTo(12 / 192, 5);
+    expect(breakdown.totalAmount).toBe(200);
+    expect(breakdown.items).toEqual([
+      expect.objectContaining({ categoryName: 'Аренда', amount: 150 }),
+      expect.objectContaining({ categoryName: 'Еда', amount: 40 }),
+      expect.objectContaining({
+        categoryName: 'Прочие категории',
+        amount: 10,
+        share: 0.05,
+        isOther: true,
+      }),
+    ]);
+    expect(breakdown.fullItems).toEqual([
+      expect.objectContaining({ categoryName: 'Аренда', amount: 150 }),
+      expect.objectContaining({ categoryName: 'Еда', amount: 40 }),
+      expect.objectContaining({ categoryName: 'Кофе', amount: 6 }),
+      expect.objectContaining({ categoryName: 'Комиссии', amount: 4 }),
+    ]);
   });
 
   it('returns an empty current month expense breakdown when there are no expenses', () => {
