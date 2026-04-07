@@ -6,6 +6,10 @@ import { ActiveCategory, ReviewDraft } from './telegram.types';
 
 @Injectable()
 export class TelegramDraftService {
+  private resolveCategoryPath(category: ActiveCategory) {
+    return category.displayPath ?? category.name;
+  }
+
   createDraftPayload(
     parsed: ParsedTransaction,
     inputText: string,
@@ -14,7 +18,11 @@ export class TelegramDraftService {
   ): Prisma.InputJsonValue {
     const normalizedCategoryName = this.normalizeCategoryCandidate(parsed.categoryCandidate, categories);
     const category = normalizedCategoryName
-      ? categories.find((item) => item.name.toLowerCase() === normalizedCategoryName.toLowerCase())
+      ? categories.find(
+          (item) =>
+            this.resolveCategoryPath(item).toLowerCase() ===
+            normalizedCategoryName.toLowerCase(),
+        )
       : null;
 
     const normalizedDate = this.normalizeDate(parsed.occurredAt);
@@ -24,7 +32,7 @@ export class TelegramDraftService {
       amount: parsed.amount,
       occurredAt: normalizedDate ?? new Date().toISOString(),
       categoryId: category?.id ?? null,
-      categoryName: category?.name ?? null,
+      categoryName: category ? this.resolveCategoryPath(category) : null,
       comment: parsed.comment ?? inputText ?? null,
       currency: parsed.resolvedCurrency ?? defaultCurrency,
       confidence: parsed.confidence,
@@ -126,22 +134,24 @@ export class TelegramDraftService {
 
     if (!next.categoryCandidate) {
       const hints: Array<[RegExp, string]> = [
-        [/(такси|метро|автобус|транспорт|uber|яндекс go)/, 'Транспорт'],
-        [/(lidl|aldi|kaufland|spar|tesco|ашан|пятерочк|перекрест|магнит|дикси|продукт|еда|магазин|кофе|ресторан)/, 'Продукты'],
-        [/(дом|квартир|аренд|жкх)/, 'Дом'],
-        [/(врач|аптек|лекарств|здоров)/, 'Здоровье'],
-        [/(зарплат|доход|преми|гонорар)/, 'Доход'],
+        [/(такси|метро|автобус|транспорт|uber|яндекс go)/, 'транспорт'],
+        [/(lidl|aldi|kaufland|spar|tesco|ашан|пятерочк|перекрест|магнит|дикси|продукт|еда|магазин|кофе|ресторан)/, 'продукт'],
+        [/(дом|квартир|аренд|жкх)/, 'дом'],
+        [/(врач|аптек|лекарств|здоров)/, 'здоров'],
+        [/(зарплат|доход|преми|гонорар)/, 'доход'],
       ];
-      for (const [pattern, categoryName] of hints) {
-        if (
-          pattern.test(normalized) &&
-          categories.some(
-            (item) =>
-              item.name === categoryName &&
-              (!next.type || item.type === (next.type === 'income' ? CategoryType.INCOME : CategoryType.EXPENSE)),
-          )
-        ) {
-          next.categoryCandidate = categoryName;
+      for (const [pattern, token] of hints) {
+        const candidate = categories.find(
+          (item) =>
+            pattern.test(normalized) &&
+            this.resolveCategoryPath(item).toLowerCase().includes(token) &&
+            (!next.type ||
+              item.type ===
+                (next.type === 'income' ? CategoryType.INCOME : CategoryType.EXPENSE)),
+        );
+
+        if (candidate) {
+          next.categoryCandidate = this.resolveCategoryPath(candidate);
           break;
         }
       }
@@ -165,8 +175,10 @@ export class TelegramDraftService {
     }
 
     const normalizedCandidate = categoryCandidate.trim().toLowerCase();
-    const match = categories.find((item) => item.name.trim().toLowerCase() === normalizedCandidate);
-    return match?.name ?? null;
+    const match = categories.find(
+      (item) => this.resolveCategoryPath(item).trim().toLowerCase() === normalizedCandidate,
+    );
+    return match ? this.resolveCategoryPath(match) : null;
   }
 
   renderDraftText(draft: ReviewDraft, confirmed: boolean) {

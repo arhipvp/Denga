@@ -76,6 +76,8 @@ describe('ClarificationService category picker', () => {
     categoryFindUnique.mockImplementation(async ({ where: { id } }: { where: { id: string } }) => ({
       id,
       name: `Категория ${id}`,
+      parentId: 'parent-1',
+      parent: { name: 'Родитель' },
     }));
     updateDraftField.mockResolvedValue({ accepted: true, status: 'pending_review' });
     jest.spyOn(service, 'updateDraftField').mockImplementation(updateDraftField);
@@ -127,9 +129,11 @@ describe('ClarificationService category picker', () => {
     categoryFindMany.mockResolvedValue(
       Array.from({ length: 10 }, (_, index) => ({
         id: `expense-${index + 1}`,
+        parentId: 'parent-1',
         name: `Расход ${String(index + 1).padStart(2, '0')}`,
         type: CategoryType.EXPENSE,
         isActive: true,
+        parent: { name: 'Транспорт' },
       })),
     );
 
@@ -153,14 +157,14 @@ describe('ClarificationService category picker', () => {
       'Выберите категорию (страница 1/2):',
       {
         inline_keyboard: [
-          [{ text: 'Расход 01', callback_data: 'draft:set-category:expense-1' }],
-          [{ text: 'Расход 02', callback_data: 'draft:set-category:expense-2' }],
-          [{ text: 'Расход 03', callback_data: 'draft:set-category:expense-3' }],
-          [{ text: 'Расход 04', callback_data: 'draft:set-category:expense-4' }],
-          [{ text: 'Расход 05', callback_data: 'draft:set-category:expense-5' }],
-          [{ text: 'Расход 06', callback_data: 'draft:set-category:expense-6' }],
-          [{ text: 'Расход 07', callback_data: 'draft:set-category:expense-7' }],
-          [{ text: 'Расход 08', callback_data: 'draft:set-category:expense-8' }],
+          [{ text: 'Транспорт / Расход 01', callback_data: 'draft:set-category:expense-1' }],
+          [{ text: 'Транспорт / Расход 02', callback_data: 'draft:set-category:expense-2' }],
+          [{ text: 'Транспорт / Расход 03', callback_data: 'draft:set-category:expense-3' }],
+          [{ text: 'Транспорт / Расход 04', callback_data: 'draft:set-category:expense-4' }],
+          [{ text: 'Транспорт / Расход 05', callback_data: 'draft:set-category:expense-5' }],
+          [{ text: 'Транспорт / Расход 06', callback_data: 'draft:set-category:expense-6' }],
+          [{ text: 'Транспорт / Расход 07', callback_data: 'draft:set-category:expense-7' }],
+          [{ text: 'Транспорт / Расход 08', callback_data: 'draft:set-category:expense-8' }],
           [{ text: 'Вперед', callback_data: 'draft:category-page:1' }],
         ],
       },
@@ -172,9 +176,11 @@ describe('ClarificationService category picker', () => {
     categoryFindMany.mockResolvedValue(
       Array.from({ length: 10 }, (_, index) => ({
         id: `expense-${index + 1}`,
+        parentId: 'parent-1',
         name: `Расход ${String(index + 1).padStart(2, '0')}`,
         type: CategoryType.EXPENSE,
         isActive: true,
+        parent: { name: 'Транспорт' },
       })),
     );
 
@@ -198,8 +204,8 @@ describe('ClarificationService category picker', () => {
       'Выберите категорию (страница 2/2):',
       {
         inline_keyboard: [
-          [{ text: 'Расход 09', callback_data: 'draft:set-category:expense-9' }],
-          [{ text: 'Расход 10', callback_data: 'draft:set-category:expense-10' }],
+          [{ text: 'Транспорт / Расход 09', callback_data: 'draft:set-category:expense-9' }],
+          [{ text: 'Транспорт / Расход 10', callback_data: 'draft:set-category:expense-10' }],
           [{ text: 'Назад', callback_data: 'draft:category-page:0' }],
         ],
       },
@@ -222,7 +228,7 @@ describe('ClarificationService category picker', () => {
     expect(clearDraftActivePicker).toHaveBeenCalledWith('draft-1', 'chat-1', 55);
     expect(updateDraftField).toHaveBeenCalledWith(
       'draft-1',
-      { categoryId: 'expense-9', categoryName: 'Категория expense-9' },
+      { categoryId: 'expense-9', categoryName: 'Родитель / Категория expense-9' },
       'chat-1',
     );
   });
@@ -388,9 +394,30 @@ describe('DraftLifecycleService clarification flow', () => {
 
   it('merges follow-up clarification into existing draft and stores categories in runtime system prompt', async () => {
     lifecycleCategoryFindMany.mockResolvedValue([
-      { id: 'cat-1', name: 'Транспорт', type: CategoryType.EXPENSE },
-      { id: 'cat-2', name: 'Продукты', type: CategoryType.EXPENSE },
-      { id: 'cat-3', name: 'Зарплата', type: CategoryType.INCOME },
+      {
+        id: 'cat-1',
+        name: 'Такси',
+        type: CategoryType.EXPENSE,
+        parentId: 'parent-1',
+        displayPath: 'Транспорт / Такси',
+        parent: { name: 'Транспорт' },
+      },
+      {
+        id: 'cat-2',
+        name: 'Супермаркет',
+        type: CategoryType.EXPENSE,
+        parentId: 'parent-2',
+        displayPath: 'Продукты / Супермаркет',
+        parent: { name: 'Продукты' },
+      },
+      {
+        id: 'cat-3',
+        name: 'Основная зарплата',
+        type: CategoryType.INCOME,
+        parentId: 'parent-3',
+        displayPath: 'Доходы / Основная зарплата',
+        parent: { name: 'Доходы' },
+      },
     ]);
     findUniqueOrThrow.mockResolvedValue({
       id: 'draft-1',
@@ -417,7 +444,7 @@ describe('DraftLifecycleService clarification flow', () => {
       type: 'expense',
       amount: 18,
       occurredAt: '2026-04-01',
-      categoryCandidate: 'Транспорт',
+      categoryCandidate: 'Транспорт / Такси',
       comment: null,
       confidence: 0.9,
       ambiguities: [],
@@ -431,7 +458,11 @@ describe('DraftLifecycleService clarification flow', () => {
 
     expect(parseTransaction).toHaveBeenCalledWith(
       expect.objectContaining({
-        categories: ['Транспорт', 'Продукты', 'Зарплата'],
+        categories: [
+          'Транспорт / Такси',
+          'Продукты / Супермаркет',
+          'Доходы / Основная зарплата',
+        ],
       }),
     );
     expect(pendingUpdate).toHaveBeenCalledWith(
@@ -443,7 +474,7 @@ describe('DraftLifecycleService clarification flow', () => {
             type: 'expense',
             amount: 18,
             categoryId: 'cat-1',
-            categoryName: 'Транспорт',
+            categoryName: 'Транспорт / Такси',
           }),
         }),
       }),
@@ -464,12 +495,16 @@ describe('DraftLifecycleService clarification flow', () => {
 
     expect(promptSnapshot.systemPrompt).toContain('parse');
     expect(promptSnapshot.systemPrompt).toContain(
-      'Доступные категории: Транспорт, Продукты, Зарплата.',
+      'Доступные категории: Транспорт / Такси, Продукты / Супермаркет, Доходы / Основная зарплата.',
     );
     expect(promptSnapshot.systemPrompt).toContain(
       'Правила: categoryCandidate должен быть только одним точным значением из списка доступных категорий или null.',
     );
-    expect(promptSnapshot.categories).toEqual(['Транспорт', 'Продукты', 'Зарплата']);
+    expect(promptSnapshot.categories).toEqual([
+      'Транспорт / Такси',
+      'Продукты / Супермаркет',
+      'Доходы / Основная зарплата',
+    ]);
     expect(promptSnapshot.userMessage).not.toContain('Доступные категории:');
     expect(promptSnapshot.userMessage).toContain('Текущее сообщение пользователя:\n18 евро на такси');
   });

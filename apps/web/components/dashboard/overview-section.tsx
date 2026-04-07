@@ -26,7 +26,7 @@ export function OverviewSection({
     rows: summary.recent,
     search,
     getSearchValue: (item) =>
-      `${item.comment ?? ''} ${item.category?.name ?? ''} ${item.sourceMessage?.type ?? ''} ${item.amount}`,
+      `${item.comment ?? ''} ${item.category?.displayPath ?? ''} ${item.sourceMessage?.type ?? ''} ${item.amount}`,
     sortBy,
     sortDir,
     page,
@@ -68,7 +68,7 @@ export function OverviewSection({
       {
         key: 'category',
         label: 'Категория',
-        render: (item: Transaction) => item.category?.name ?? 'Не определена',
+        render: (item: Transaction) => item.category?.displayPath ?? 'Не определена',
       },
       {
         key: 'status',

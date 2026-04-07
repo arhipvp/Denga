@@ -53,7 +53,7 @@ export function OperationsSection({
         key: 'category',
         label: 'Категория',
         sortable: true,
-        render: (item: Transaction) => item.category?.name ?? 'Не определена',
+        render: (item: Transaction) => item.category?.displayPath ?? 'Не определена',
       },
       {
         key: 'comment',

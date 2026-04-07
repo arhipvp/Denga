@@ -1,4 +1,11 @@
-import { IsBoolean, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsOptional,
+  IsString,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
 
 export class CreateCategoryDto {
   @IsString()
@@ -11,6 +18,11 @@ export class CreateCategoryDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ValidateIf((_, value) => value !== undefined && value !== null)
+  @IsString()
+  @MinLength(1)
+  parentId?: string | null;
 }
 
 export class UpdateCategoryDto {
@@ -26,4 +38,9 @@ export class UpdateCategoryDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ValidateIf((_, value) => value !== undefined && value !== null)
+  @IsString()
+  @MinLength(1)
+  parentId?: string | null;
 }

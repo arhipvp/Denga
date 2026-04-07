@@ -154,7 +154,7 @@ export class DraftParsingCoordinator {
       model: input.model,
       systemPrompt: input.parsingPrompt,
       clarificationPrompt: input.clarificationPrompt,
-      categories: categories.map((item) => item.name),
+      categories: categories.map((item) => item.displayPath),
       householdCurrency: input.defaultCurrency,
       currentDate: new Date().toISOString(),
       userInput: input.inputText,

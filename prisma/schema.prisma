@@ -100,15 +100,18 @@ model TelegramAccount {
 model Category {
   id          String        @id @default(cuid())
   householdId String
+  parentId    String?
   name        String
   type        CategoryType   @default(EXPENSE)
   isActive    Boolean       @default(true)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
   household   Household     @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  parent      Category?     @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[]    @relation("CategoryHierarchy")
   transactions Transaction[]
 
-  @@unique([householdId, name])
+  @@unique([householdId, parentId, type, name])
 }
 
 model Transaction {

@@ -37,7 +37,8 @@ export function CategoriesSection({
   const table = useClientTable({
     rows: categories,
     search,
-    getSearchValue: (item) => `${item.name} ${item.type} ${item.isActive ? 'active' : 'inactive'}`,
+    getSearchValue: (item) =>
+      `${item.displayPath} ${item.type} ${item.isActive ? 'active' : 'inactive'}`,
     sortBy,
     sortDir,
     page,
@@ -61,7 +62,7 @@ export function CategoriesSection({
         key: 'name',
         label: 'Название',
         sortable: true,
-        render: (item: Category) => item.name,
+        render: (item: Category) => item.displayPath,
       },
       {
         key: 'type',

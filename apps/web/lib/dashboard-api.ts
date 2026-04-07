@@ -79,6 +79,7 @@ export function createDashboardFeatureApi(apiClient: ApiClientLike) {
           name: string;
           type: 'income' | 'expense';
           isActive: boolean;
+          parentId?: string | null;
         },
       ) {
         return apiClient.request<unknown>(

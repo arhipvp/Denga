@@ -72,6 +72,8 @@ export type SummaryCalculationTransaction = {
   occurredAt: Date;
   categoryId: string | null;
   categoryName: string | null;
+  parentCategoryId: string | null;
+  parentCategoryName: string | null;
 };
 
 export type SortDirection = 'asc' | 'desc';

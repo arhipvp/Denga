@@ -12,10 +12,20 @@ import { TransactionService } from '../src/modules/transaction/transaction.servi
 describe('CategoryService', () => {
   const create = jest.fn();
   const update = jest.fn();
-  const service = new CategoryService({ category: { create, update } } as never);
+  const findFirst = jest.fn();
+  const findUnique = jest.fn();
+  const service = new CategoryService({
+    category: { create, update, findFirst, findUnique },
+  } as never);
 
   beforeEach(() => {
     jest.clearAllMocks();
+    findFirst.mockResolvedValue(null);
+    findUnique.mockResolvedValue({
+      id: 'cat-1',
+      householdId: 'bootstrap-household',
+      children: [],
+    });
   });
 
   it('creates categories with mapped prisma type', async () => {
@@ -158,7 +168,10 @@ describe('TransactionService', () => {
 
   it('creates manual transactions with validated category type', async () => {
     sourceMessageCreate.mockResolvedValue({ id: 'source-1' });
-    categoryFindUniqueOrThrow.mockResolvedValue({ type: CategoryType.EXPENSE });
+    categoryFindUniqueOrThrow.mockResolvedValue({
+      type: CategoryType.EXPENSE,
+      parentId: 'parent-1',
+    });
     transactionCreate.mockResolvedValue({ id: 'tx-1' });
 
     await service.createManual(
@@ -200,7 +213,10 @@ describe('TransactionService', () => {
       type: TransactionType.EXPENSE,
       categoryId: 'cat-1',
     });
-    categoryFindUniqueOrThrow.mockResolvedValue({ type: CategoryType.EXPENSE });
+    categoryFindUniqueOrThrow.mockResolvedValue({
+      type: CategoryType.EXPENSE,
+      parentId: 'parent-1',
+    });
     transactionUpdate.mockResolvedValue({ id: 'tx-1' });
 
     await service.update('tx-1', {

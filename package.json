@@ -18,7 +18,8 @@
     "lint": "npm run lint --workspace @denga/web",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "tsx prisma/seed.ts",
+    "categories:migrate-hierarchy": "tsx scripts/migrate-category-hierarchy.ts"
   },
   "overrides": {
     "test-exclude": "8.0.0"

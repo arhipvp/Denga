@@ -244,6 +244,7 @@ export function useDashboardController(apiUrl: string | null) {
             name: categoryForm.name.trim(),
             type: categoryForm.type,
             isActive: categoryForm.isActive,
+            parentId: categoryForm.kind === 'leaf' ? categoryForm.parentId : null,
           }),
         onUnauthorized: handleApiError,
         fallbackMessage: 'Не удалось сохранить категорию',

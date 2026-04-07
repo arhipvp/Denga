@@ -132,6 +132,7 @@ export function Dashboard() {
       <CategoryModal
         isOpen={categorySection.isCategoryModalOpen}
         form={categorySection.categoryForm}
+        parentCategories={categorySection.parentCategories}
         onClose={() => categorySection.setCategoryModalOpen(false)}
         onSubmit={handlers.handleSaveCategory}
         onChange={(updater) => categorySection.setCategoryForm(updater)}

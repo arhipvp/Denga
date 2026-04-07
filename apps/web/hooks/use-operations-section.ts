@@ -19,28 +19,38 @@ const defaultTransactionFilters: TransactionListFilters = {
   pageSize: 10,
 };
 
+function flattenLeafCategories(categories: Category[]): Category[] {
+  return categories.flatMap((item) =>
+    item.isLeaf ? [item] : flattenLeafCategories(item.children ?? []),
+  );
+}
+
 export function useOperationsSection(categories: Category[]) {
   const [filters, setFilters] = useState<TransactionListFilters>(defaultTransactionFilters);
   const [isOperationModalOpen, setOperationModalOpen] = useState(false);
   const [operationForm, setOperationForm] = useState<OperationFormState>(emptyOperationForm);
+  const leafCategories = useMemo(() => flattenLeafCategories(categories), [categories]);
 
   const filteredCategories = useMemo(
     () =>
-      categories.filter(
+      leafCategories.filter(
         (item) =>
           item.isActive &&
           item.type === (operationForm.type === 'income' ? 'INCOME' : 'EXPENSE'),
       ),
-    [categories, operationForm.type],
+    [leafCategories, operationForm.type],
   );
 
   const openCreateOperationModal = useCallback(() => {
     setOperationForm({
       ...emptyOperationForm,
-      categoryId: categories.find((item) => item.type === 'EXPENSE')?.id ?? '',
+      categoryId:
+        leafCategories.find(
+          (item) => item.type === 'EXPENSE' && item.isActive,
+        )?.id ?? '',
     });
     setOperationModalOpen(true);
-  }, [categories]);
+  }, [leafCategories]);
 
   const openEditOperationModal = useCallback((transaction: Transaction) => {
     setOperationForm({

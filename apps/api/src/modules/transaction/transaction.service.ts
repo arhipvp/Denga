@@ -101,12 +101,16 @@ export class TransactionService {
         householdId,
       },
       include: {
-        category: true,
+        category: {
+          include: {
+            parent: true,
+          },
+        },
       },
       orderBy: {
         occurredAt: 'asc',
       },
-    });
+    } as any);
 
     return {
       ...calculateTransactionSummary(
@@ -190,11 +194,15 @@ export class TransactionService {
         status: TransactionStatus.CONFIRMED,
       },
       include: {
-        category: true,
+        category: {
+          include: {
+            parent: true,
+          },
+        },
         author: true,
         sourceMessage: true,
       },
-    });
+    } as any);
 
     await this.transactionNotificationService.notifyTransactionCreated(transaction.id);
 
@@ -392,7 +400,7 @@ export class TransactionService {
     amount: Decimal;
     occurredAt: Date;
     categoryId: string | null;
-    category?: { name: string } | null;
+    category?: { name: string; parent?: { id: string; name: string } | null } | null;
   }): SummaryCalculationTransaction {
     return {
       id: item.id,
@@ -402,6 +410,8 @@ export class TransactionService {
       occurredAt: item.occurredAt,
       categoryId: item.categoryId,
       categoryName: item.category?.name ?? null,
+      parentCategoryId: item.category?.parent?.id ?? null,
+      parentCategoryName: item.category?.parent?.name ?? null,
     };
   }
 }

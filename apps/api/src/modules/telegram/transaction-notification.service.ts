@@ -41,16 +41,20 @@ export class TransactionNotificationService {
     options?: TransactionNotificationOptions,
   ) {
     const householdId = this.householdContext.getHouseholdId();
-    const transaction = await this.prisma.transaction.findFirst({
+    const transaction = (await this.prisma.transaction.findFirst({
       where: {
         id: transactionId,
         householdId,
       },
       include: {
         author: true,
-        category: true,
+        category: {
+          include: {
+            parent: true,
+          },
+        },
       },
-    });
+    } as any)) as any;
 
     if (!transaction) {
       this.logger.warn(`transaction_not_found id=${transactionId}`);
@@ -102,7 +106,10 @@ export class TransactionNotificationService {
       amount: String(transaction.amount),
       currency: transaction.currency,
       occurredAt: transaction.occurredAt,
-      categoryName: transaction.category?.name ?? null,
+      categoryName:
+        transaction.category?.parent?.name && transaction.category?.name
+          ? `${transaction.category.parent.name} / ${transaction.category.name}`
+          : transaction.category?.name ?? null,
       comment: transaction.comment,
       authorName: transaction.author?.displayName ?? null,
     });

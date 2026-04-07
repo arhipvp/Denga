@@ -27,8 +27,8 @@ function buildMonthKeys(now: Date, count = 6) {
 
 function createCategoryAccumulator(item: SummaryCalculationTransaction) {
   return {
-    categoryId: item.categoryId,
-    categoryName: item.categoryName ?? UNCATEGORIZED_LABEL,
+    categoryId: item.parentCategoryId ?? item.categoryId,
+    categoryName: item.parentCategoryName ?? item.categoryName ?? UNCATEGORIZED_LABEL,
     amount: 0,
   };
 }
@@ -124,7 +124,7 @@ export function calculateTransactionSummary(
         averageAccumulator.incomeTotal += item.amount;
         averageAccumulator.incomeCount += 1;
 
-        const key = item.categoryId ?? UNCATEGORIZED_INCOME_KEY;
+        const key = item.parentCategoryId ?? item.categoryId ?? UNCATEGORIZED_INCOME_KEY;
         const current =
           currentCategoryIncomeMap.get(key) ?? createCategoryAccumulator(item);
         current.amount += item.amount;
@@ -136,7 +136,7 @@ export function calculateTransactionSummary(
         averageAccumulator.expenseTotal += item.amount;
         averageAccumulator.expenseCount += 1;
 
-        const key = item.categoryId ?? UNCATEGORIZED_EXPENSE_KEY;
+        const key = item.parentCategoryId ?? item.categoryId ?? UNCATEGORIZED_EXPENSE_KEY;
         const current =
           currentCategoryExpenseMap.get(key) ?? createCategoryAccumulator(item);
         current.amount += item.amount;
@@ -208,7 +208,7 @@ export function calculateCurrentMonthCategoryBreakdown(input: {
   >();
 
   for (const item of input.transactions) {
-    const key = item.categoryId ?? UNCATEGORIZED_EXPENSE_KEY;
+    const key = item.parentCategoryId ?? item.categoryId ?? UNCATEGORIZED_EXPENSE_KEY;
     const current = categoryMap.get(key) ?? createCategoryAccumulator(item);
     current.amount += item.amount;
     categoryMap.set(key, current);

@@ -38,6 +38,7 @@ export class CategoryController {
       actorEmail: request.user.email,
       categoryId: category.id,
       type: category.type,
+      parentId: category.parentId,
     });
     return category;
   }
@@ -53,6 +54,7 @@ export class CategoryController {
       actorId: request.user.sub,
       actorEmail: request.user.email,
       categoryId: id,
+      parentId: category.parentId,
     });
     return category;
   }

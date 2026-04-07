@@ -98,9 +98,19 @@ export class ClarificationService {
 
     if (data.startsWith('draft:set-category:')) {
       const categoryId = data.replace('draft:set-category:', '');
-      const category = await this.prisma.category.findUnique({ where: { id: categoryId } });
+      const category = (await this.prisma.category.findUnique({
+        where: { id: categoryId },
+        include: { parent: true },
+      } as any)) as any;
       if (!category) {
         await this.telegramDeliveryService.answerCallbackQuery(callback.id, 'Категория не найдена');
+        return { accepted: true, ignored: true };
+      }
+      if (!category.parentId) {
+        await this.telegramDeliveryService.answerCallbackQuery(
+          callback.id,
+          'Нужно выбрать подкатегорию',
+        );
         return { accepted: true, ignored: true };
       }
       await this.telegramDeliveryService.answerCallbackQuery(callback.id);
@@ -111,7 +121,10 @@ export class ClarificationService {
       );
       return this.updateDraftField(
         draft.id,
-        { categoryId: category.id, categoryName: category.name },
+        {
+          categoryId: category.id,
+          categoryName: `${category.parent?.name ?? 'Без родителя'} / ${category.name}`,
+        },
         chatId,
       );
     }
@@ -294,7 +307,7 @@ export class ClarificationService {
       startIndex + ClarificationService.categoryPageSize,
     );
     const keyboard = pageItems.map((item) => [
-      { text: item.name, callback_data: `draft:set-category:${item.id}` },
+      { text: item.displayPath, callback_data: `draft:set-category:${item.id}` },
     ]);
     const paginationRow = [
       ...(currentPage > 0
@@ -338,9 +351,23 @@ export class ClarificationService {
       where: {
         householdId: this.householdContext.getHouseholdId(),
         isActive: true,
+        parentId: {
+          not: null,
+        },
+        parent: {
+          isActive: true,
+        },
         ...(draft.type ? { type: categoryType } : {}),
       },
-      orderBy: { name: 'asc' },
-    });
+      include: {
+        parent: true,
+      },
+      orderBy: [{ parent: { name: 'asc' } }, { name: 'asc' }],
+    } as any).then((categories: any[]) =>
+      categories.map((item) => ({
+        ...item,
+        displayPath: `${item.parent?.name ?? 'Без родителя'} / ${item.name}`,
+      })),
+    );
   }
 }

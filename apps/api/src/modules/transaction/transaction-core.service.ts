@@ -23,14 +23,21 @@ export class TransactionCoreService {
     categoryId: string,
     type: 'income' | 'expense',
   ) {
-    const category = await this.prisma.category.findUniqueOrThrow({
+    const category = (await this.prisma.category.findUniqueOrThrow({
       where: { id: categoryId },
-    });
+      include: {
+        parent: true,
+      },
+    } as any)) as any;
 
     const expected =
       type === 'income' ? CategoryType.INCOME : CategoryType.EXPENSE;
     if (category.type !== expected) {
       throw new Error('Category type does not match transaction type');
+    }
+
+    if (!category.parentId) {
+      throw new Error('Transactions can only use subcategories');
     }
 
     return category;

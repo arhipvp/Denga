@@ -109,7 +109,7 @@ export function OperationModal({
               <option value="">Выберите категорию</option>
               {filteredCategories.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.name}
+                  {item.displayPath}
                 </option>
               ))}
             </select>
@@ -156,6 +156,7 @@ export function OperationModal({
 type CategoryModalProps = {
   isOpen: boolean;
   form: CategoryFormState;
+  parentCategories: Category[];
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onChange: (
@@ -166,6 +167,7 @@ type CategoryModalProps = {
 export function CategoryModal({
   isOpen,
   form,
+  parentCategories,
   onClose,
   onSubmit,
   onChange,
@@ -216,6 +218,10 @@ export function CategoryModal({
                 onChange((current) => ({
                   ...current,
                   type: event.target.value as 'income' | 'expense',
+                  parentId:
+                    current.kind === 'leaf' && current.parentId
+                      ? current.parentId
+                      : '',
                 }))
               }
             >
@@ -223,6 +229,50 @@ export function CategoryModal({
               <option value="income">доход</option>
             </select>
           </div>
+          <div className="field">
+            <label>Уровень</label>
+            <select
+              value={form.kind}
+              onChange={(event) =>
+                onChange((current) => ({
+                  ...current,
+                  kind: event.target.value as 'parent' | 'leaf',
+                  parentId: event.target.value === 'leaf' ? current.parentId : '',
+                }))
+              }
+            >
+              <option value="parent">верхняя категория</option>
+              <option value="leaf">подкатегория</option>
+            </select>
+          </div>
+          {form.kind === 'leaf' ? (
+            <div className="field">
+              <label>Родитель</label>
+              <select
+                value={form.parentId}
+                onChange={(event) =>
+                  onChange((current) => ({
+                    ...current,
+                    parentId: event.target.value,
+                  }))
+                }
+                required
+              >
+                <option value="">Выберите верхнюю категорию</option>
+                {parentCategories
+                  .filter(
+                    (item) =>
+                      item.type === (form.type === 'income' ? 'INCOME' : 'EXPENSE') &&
+                      item.isActive,
+                  )
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.displayPath}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          ) : null}
           {form.id ? (
             <div className="field">
               <label>Статус</label>

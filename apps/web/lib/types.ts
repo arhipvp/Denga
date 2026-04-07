@@ -8,9 +8,13 @@ export type AuthState = {
 
 export type Category = {
   id: string;
+  parentId: string | null;
   name: string;
   type: 'INCOME' | 'EXPENSE';
   isActive: boolean;
+  isLeaf: boolean;
+  displayPath: string;
+  children: Category[];
 };
 
 export type Transaction = {
@@ -170,6 +174,8 @@ export type CategoryFormState = {
   name: string;
   type: 'income' | 'expense';
   isActive: boolean;
+  kind: 'parent' | 'leaf';
+  parentId: string;
 };
 
 export type PasswordFormState = {
@@ -231,6 +237,8 @@ export const emptyCategoryForm: CategoryFormState = {
   name: '',
   type: 'expense',
   isActive: true,
+  kind: 'parent',
+  parentId: '',
 };
 
 export const emptyPasswordForm: PasswordFormState = {

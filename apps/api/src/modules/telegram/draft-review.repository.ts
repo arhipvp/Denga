@@ -117,13 +117,30 @@ export class DraftReviewRepository {
       where: {
         householdId,
         isActive: true,
+        parentId: {
+          not: null,
+        },
+        parent: {
+          isActive: true,
+        },
         ...(type
           ? {
               type: type === 'income' ? CategoryType.INCOME : CategoryType.EXPENSE,
             }
           : {}),
       },
-      orderBy: { name: 'asc' },
-    });
+      include: {
+        parent: true,
+      },
+      orderBy: [{ parent: { name: 'asc' } }, { name: 'asc' }],
+    } as any).then((categories: any[]) =>
+      categories.map((category) => ({
+        id: category.id,
+        name: category.name,
+        type: category.type,
+        parentId: category.parentId!,
+        displayPath: `${category.parent?.name ?? 'Без родителя'} / ${category.name}`,
+      })),
+    );
   }
 }

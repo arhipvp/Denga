@@ -3,6 +3,10 @@
 import { useCallback, useMemo, useState } from 'react';
 import { emptyCategoryForm, type Category, type CategoryFormState } from '../lib/types';
 
+function flattenCategories(categories: Category[]): Category[] {
+  return categories.flatMap((item) => [item, ...flattenCategories(item.children ?? [])]);
+}
+
 export function useCategoriesSection(categories: Category[]) {
   const [categoryStatusFilter, setCategoryStatusFilter] = useState<'active' | 'inactive' | 'all'>(
     'active',
@@ -12,9 +16,14 @@ export function useCategoriesSection(categories: Category[]) {
   );
   const [isCategoryModalOpen, setCategoryModalOpen] = useState(false);
   const [categoryForm, setCategoryForm] = useState<CategoryFormState>(emptyCategoryForm);
+  const flattenedCategories = useMemo(() => flattenCategories(categories), [categories]);
+  const parentCategories = useMemo(
+    () => flattenedCategories.filter((item) => item.parentId === null),
+    [flattenedCategories],
+  );
 
   const visibleCategories = useMemo(() => {
-    return categories.filter((item) => {
+    return flattenedCategories.filter((item) => {
       const matchesStatus =
         categoryStatusFilter === 'all' ||
         (categoryStatusFilter === 'active' ? item.isActive : !item.isActive);
@@ -24,7 +33,7 @@ export function useCategoriesSection(categories: Category[]) {
 
       return matchesStatus && matchesType;
     });
-  }, [categories, categoryStatusFilter, categoryTypeFilter]);
+  }, [flattenedCategories, categoryStatusFilter, categoryTypeFilter]);
 
   const openCreateCategoryModal = useCallback(() => {
     setCategoryForm(emptyCategoryForm);
@@ -37,6 +46,8 @@ export function useCategoriesSection(categories: Category[]) {
       name: category.name,
       type: category.type === 'INCOME' ? 'income' : 'expense',
       isActive: category.isActive,
+      kind: category.parentId ? 'leaf' : 'parent',
+      parentId: category.parentId ?? '',
     });
     setCategoryModalOpen(true);
   }, []);
@@ -56,6 +67,7 @@ export function useCategoriesSection(categories: Category[]) {
     categoryForm,
     setCategoryForm,
     visibleCategories,
+    parentCategories,
     openCreateCategoryModal,
     openEditCategoryModal,
     reset,

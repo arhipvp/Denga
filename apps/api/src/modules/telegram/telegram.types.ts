@@ -63,4 +63,6 @@ export type ActiveCategory = {
   id: string;
   name: string;
   type: CategoryType;
+  parentId: string;
+  displayPath: string;
 };

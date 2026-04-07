@@ -1,5 +1,9 @@
 export const transactionDetailInclude = {
-  category: true,
+  category: {
+    include: {
+      parent: true,
+    },
+  },
   author: true,
   sourceMessage: {
     include: {
@@ -13,4 +17,4 @@ export const transactionDetailInclude = {
       },
     },
   },
-} as const;
+} as const satisfies Record<string, unknown>;
