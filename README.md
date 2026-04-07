@@ -25,6 +25,7 @@
 - Давать администратору ручной CRUD категорий с мягким отключением и восстановлением
 - Показывать в админке расширенный финансовый обзор: KPI за месяц, сравнение с прошлым месяцем, тренд и топ категорий
 - Показывать операции, категории, пользователей и настройки в админке
+- Поддерживать в админке единый data-table UX: поиск, сортировки, пагинацию, валютные обозначения и цветовые индикаторы доходов/расходов
 - Позволять администратору менять пароль из админки после входа
 - Создавать bootstrap-администратора из env/seed
 - Хранить категории только в БД и менять их только вручную через админку
@@ -142,11 +143,12 @@ docker compose up --build -d
 - `GET /api/auth/me`
 - `GET /api/health`
 - `GET /api/health/ready`
-- `GET /api/logs`
+- `GET /api/logs` с query-параметрами `level`, `source`, `search`, `sortBy`, `sortDir`, `page`, `pageSize`
 - `POST /api/backups`
 - `GET /api/backups/latest`
 - `GET /api/backups/latest/download`
-- `GET/POST/PATCH/DELETE /api/transactions`
+- `GET /api/transactions` с query-параметрами `status`, `type`, `search`, `sortBy`, `sortDir`, `page`, `pageSize`
+- `POST/PATCH/DELETE /api/transactions`
 - `GET /api/transactions/summary`
 - `GET/POST/PATCH/DELETE /api/categories`
 - `GET /api/users`

@@ -61,6 +61,26 @@ export type Transaction = {
   } | null;
 };
 
+export type SortDirection = 'asc' | 'desc';
+
+export type TransactionSortField =
+  | 'occurredAt'
+  | 'amount'
+  | 'type'
+  | 'status'
+  | 'category'
+  | 'author'
+  | 'createdAt';
+
+export type LogSortField = 'timestamp' | 'level' | 'source' | 'event';
+
+export type PagedResponse<T> = {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
 export type User = {
   id: string;
   displayName: string;
@@ -165,6 +185,26 @@ export type LogEntry = {
   event: string;
   message: string;
   context?: Record<string, unknown>;
+};
+
+export type TransactionListFilters = {
+  status: 'all' | 'confirmed' | 'cancelled';
+  type: 'all' | 'income' | 'expense';
+  search: string;
+  sortBy: TransactionSortField;
+  sortDir: SortDirection;
+  page: number;
+  pageSize: number;
+};
+
+export type LogListFilters = {
+  level: 'all' | LogEntry['level'];
+  source: string;
+  search: string;
+  sortBy: LogSortField;
+  sortDir: SortDirection;
+  page: number;
+  pageSize: number;
 };
 
 export const sections = [

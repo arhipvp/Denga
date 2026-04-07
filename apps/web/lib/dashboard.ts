@@ -45,3 +45,34 @@ export function formatTransactionStatusLabel(
 export function formatCategoryStatusLabel(isActive: boolean) {
   return isActive ? 'Активна' : 'Отключена';
 }
+
+export function getTransactionTone(type: 'INCOME' | 'EXPENSE' | 'income' | 'expense' | null) {
+  if (type === 'INCOME' || type === 'income') {
+    return 'income';
+  }
+
+  if (type === 'EXPENSE' || type === 'expense') {
+    return 'expense';
+  }
+
+  return 'neutral';
+}
+
+export function getTransactionStatusBadgeClass(
+  status:
+    | 'CONFIRMED'
+    | 'NEEDS_CLARIFICATION'
+    | 'CANCELLED'
+    | 'confirmed'
+    | 'cancelled',
+) {
+  if (status === 'CONFIRMED' || status === 'confirmed') {
+    return 'badge success';
+  }
+
+  if (status === 'NEEDS_CLARIFICATION') {
+    return 'badge warn';
+  }
+
+  return 'badge danger';
+}

@@ -1,15 +1,12 @@
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { useDashboardController } from './use-dashboard-controller';
+import type { LogListFilters, TransactionListFilters } from '../lib/types';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-const mockReloadData = jest.fn<Promise<void>, [string, 'all' | 'confirmed' | 'cancelled', 'all' | 'income' | 'expense']>(
-  async () => undefined,
-);
-const mockReloadLogs = jest.fn<Promise<void>, [string, 'all' | 'debug' | 'info' | 'warn' | 'error', string]>(
-  async () => undefined,
-);
+const mockReloadData = jest.fn<Promise<void>, [string, TransactionListFilters]>(async () => undefined);
+const mockReloadLogs = jest.fn<Promise<void>, [string, LogListFilters]>(async () => undefined);
 const mockSaveAuth = jest.fn();
 const mockClearAuth = jest.fn();
 const mockSetSettings = jest.fn();
@@ -55,7 +52,7 @@ jest.mock('./use-dashboard-data', () => ({
   useDashboardData: () => ({
     featureApi: mockFeatureApi,
     categories: [],
-    logs: [],
+    logs: { items: [], total: 0, page: 1, pageSize: 10 },
     settings: null,
     latestBackup: null,
     setSettings: mockSetSettings,
@@ -71,10 +68,15 @@ jest.mock('./use-dashboard-data', () => ({
 jest.mock('./use-operations-section', () => {
   return {
     useOperationsSection: () => {
-      const [statusFilter, setStatusFilter] = React.useState<'all' | 'confirmed' | 'cancelled'>(
-        'confirmed',
-      );
-      const [typeFilter, setTypeFilter] = React.useState<'all' | 'income' | 'expense'>('all');
+      const [filters, setFiltersState] = React.useState<TransactionListFilters>({
+        status: 'confirmed',
+        type: 'all',
+        search: '',
+        sortBy: 'occurredAt',
+        sortDir: 'desc',
+        page: 1,
+        pageSize: 10,
+      });
       const [isOperationModalOpen, setOperationModalOpen] = React.useState(false);
       const [operationForm, setOperationFormState] = React.useState({
         id: '',
@@ -113,10 +115,16 @@ jest.mock('./use-operations-section', () => {
       }, []);
 
       return {
-        statusFilter,
-        setStatusFilter,
-        typeFilter,
-        setTypeFilter,
+        filters,
+        setFilters: (
+          updater:
+            | TransactionListFilters
+            | ((current: TransactionListFilters) => TransactionListFilters),
+        ) => {
+          setFiltersState((current) =>
+            typeof updater === 'function' ? updater(current) : updater,
+          );
+        },
         isOperationModalOpen,
         setOperationModalOpen,
         operationForm,
@@ -237,16 +245,25 @@ jest.mock('./use-settings-section', () => {
 jest.mock('./use-logs-section', () => {
   return {
     useLogsSection: () => {
-      const [logLevelFilter, setLogLevelFilter] = React.useState<
-        'all' | 'debug' | 'info' | 'warn' | 'error'
-      >('all');
-      const [logSourceFilter, setLogSourceFilter] = React.useState('all');
+      const [filters, setFiltersState] = React.useState<LogListFilters>({
+        level: 'all',
+        source: 'all',
+        search: '',
+        sortBy: 'timestamp',
+        sortDir: 'desc',
+        page: 1,
+        pageSize: 10,
+      });
 
       return {
-        logLevelFilter,
-        setLogLevelFilter,
-        logSourceFilter,
-        setLogSourceFilter,
+        filters,
+        setFilters: (
+          updater: LogListFilters | ((current: LogListFilters) => LogListFilters),
+        ) => {
+          setFiltersState((current) =>
+            typeof updater === 'function' ? updater(current) : updater,
+          );
+        },
         logSources: [],
       };
     },
@@ -281,7 +298,9 @@ describe('useDashboardController', () => {
 
   afterEach(() => {
     if (renderer) {
-      renderer.unmount();
+      act(() => {
+        renderer?.unmount();
+      });
       renderer = null;
     }
   });
@@ -291,14 +310,23 @@ describe('useDashboardController', () => {
       renderer = create(React.createElement(TestHarness, { apiUrl: 'http://localhost:3000' }));
     });
 
-    expect(mockReloadData).toHaveBeenCalledTimes(1);
-    expect(mockReloadData).toHaveBeenLastCalledWith('token', 'confirmed', 'all');
+    expect(mockReloadData).toHaveBeenCalled();
+    expect(mockReloadData).toHaveBeenLastCalledWith('token', {
+      status: 'confirmed',
+      type: 'all',
+      search: '',
+      sortBy: 'occurredAt',
+      sortDir: 'desc',
+      page: 1,
+      pageSize: 10,
+    });
+    const initialCalls = mockReloadData.mock.calls.length;
 
     await act(async () => {
       renderer?.update(React.createElement(TestHarness, { apiUrl: 'http://localhost:3000' }));
     });
 
-    expect(mockReloadData).toHaveBeenCalledTimes(1);
+    expect(mockReloadData).toHaveBeenCalledTimes(initialCalls);
   });
 
   it('does not reload logs on a stable rerender while logs section is open', async () => {
@@ -310,14 +338,23 @@ describe('useDashboardController', () => {
       latestController?.setSection('logs');
     });
 
-    expect(mockReloadLogs).toHaveBeenCalledTimes(1);
-    expect(mockReloadLogs).toHaveBeenLastCalledWith('token', 'all', 'all');
+    expect(mockReloadLogs).toHaveBeenCalled();
+    expect(mockReloadLogs).toHaveBeenLastCalledWith('token', {
+      level: 'all',
+      source: 'all',
+      search: '',
+      sortBy: 'timestamp',
+      sortDir: 'desc',
+      page: 1,
+      pageSize: 10,
+    });
+    const initialCalls = mockReloadLogs.mock.calls.length;
 
     await act(async () => {
       renderer?.update(React.createElement(TestHarness, { apiUrl: 'http://localhost:3000' }));
     });
 
-    expect(mockReloadLogs).toHaveBeenCalledTimes(1);
+    expect(mockReloadLogs).toHaveBeenCalledTimes(initialCalls);
   });
 
   it('reloads exactly once when dashboard and log filters change', async () => {
@@ -328,11 +365,19 @@ describe('useDashboardController', () => {
     mockReloadData.mockClear();
 
     await act(async () => {
-      latestController?.operations.setStatusFilter('all');
+      latestController?.operations.setFilters((current) => ({ ...current, status: 'all' }));
     });
 
     expect(mockReloadData).toHaveBeenCalledTimes(1);
-    expect(mockReloadData).toHaveBeenLastCalledWith('token', 'all', 'all');
+    expect(mockReloadData).toHaveBeenLastCalledWith('token', {
+      status: 'all',
+      type: 'all',
+      search: '',
+      sortBy: 'occurredAt',
+      sortDir: 'desc',
+      page: 1,
+      pageSize: 10,
+    });
 
     await act(async () => {
       latestController?.setSection('logs');
@@ -341,10 +386,18 @@ describe('useDashboardController', () => {
     mockReloadLogs.mockClear();
 
     await act(async () => {
-      latestController?.logsSection.setLogLevelFilter('error');
+      latestController?.logsSection.setFilters((current) => ({ ...current, level: 'error' }));
     });
 
     expect(mockReloadLogs).toHaveBeenCalledTimes(1);
-    expect(mockReloadLogs).toHaveBeenLastCalledWith('token', 'error', 'all');
+    expect(mockReloadLogs).toHaveBeenLastCalledWith('token', {
+      level: 'error',
+      source: 'all',
+      search: '',
+      sortBy: 'timestamp',
+      sortDir: 'desc',
+      page: 1,
+      pageSize: 10,
+    });
   });
 });

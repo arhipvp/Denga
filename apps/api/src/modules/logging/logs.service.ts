@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { LoggingService } from './logging.service';
+import type { ReadLogsFilters } from './logging.types';
 
 @Injectable()
 export class LogsService {
@@ -7,7 +8,7 @@ export class LogsService {
 
   list(
     actor: { role?: string },
-    filters: { level?: string; source?: string; limit?: number },
+    filters: ReadLogsFilters,
   ) {
     if (actor.role !== 'ADMIN') {
       throw new ForbiddenException('Admin access required');

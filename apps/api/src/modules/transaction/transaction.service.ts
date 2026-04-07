@@ -19,12 +19,19 @@ import {
 import { TransactionCoreService } from './transaction-core.service';
 import type {
   CurrentMonthCategoryBreakdown,
+  PagedResult,
+  SortDirection,
   SummaryCalculationTransaction,
+  TransactionListFilters,
+  TransactionSortField,
   TransactionSummary,
 } from './transaction.types';
 
 @Injectable()
 export class TransactionService {
+  private static readonly defaultPageSize = 20;
+  private static readonly maxPageSize = 100;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly settingsService: SettingsService,
@@ -33,33 +40,45 @@ export class TransactionService {
     private readonly transactionNotificationService: TransactionNotificationService,
   ) {}
 
-  list(status?: string, type?: string) {
-    return this.prisma.transaction.findMany({
-      where: {
-        householdId: this.householdContext.getHouseholdId(),
-        ...(status ? { status: this.mapStatus(status) } : {}),
-        ...(type ? { type: this.mapType(type) } : {}),
-      },
-      include: {
-        category: true,
-        author: true,
-        sourceMessage: {
-          include: {
-            attachments: true,
-            clarificationSession: true,
-            reviewDraft: true,
-            parseAttempts: {
-              orderBy: {
-                createdAt: 'desc',
+  async list(filters: TransactionListFilters): Promise<PagedResult<unknown>> {
+    const householdId = this.householdContext.getHouseholdId();
+    const page = this.normalizePage(filters.page);
+    const pageSize = this.normalizePageSize(filters.pageSize);
+    const where = this.buildListWhere(filters, householdId);
+    const orderBy = this.buildOrderBy(filters.sortBy, filters.sortDir);
+
+    const [items, total] = await Promise.all([
+      this.prisma.transaction.findMany({
+        where,
+        include: {
+          category: true,
+          author: true,
+          sourceMessage: {
+            include: {
+              attachments: true,
+              clarificationSession: true,
+              reviewDraft: true,
+              parseAttempts: {
+                orderBy: {
+                  createdAt: 'desc',
+                },
               },
             },
           },
         },
-      },
-      orderBy: {
-        occurredAt: 'desc',
-      },
-    });
+        orderBy,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.transaction.count({ where }),
+    ]);
+
+    return {
+      items,
+      total,
+      page,
+      pageSize,
+    };
   }
 
   async summary() {
@@ -253,6 +272,117 @@ export class TransactionService {
       default:
         return undefined;
     }
+  }
+
+  private buildListWhere(filters: TransactionListFilters, householdId: string) {
+    const search = filters.search?.trim();
+    const mappedStatus = filters.status ? this.mapStatus(filters.status) : undefined;
+    const mappedType = filters.type ? this.mapType(filters.type) : undefined;
+
+    return {
+      householdId,
+      ...(mappedStatus ? { status: mappedStatus } : {}),
+      ...(mappedType ? { type: mappedType } : {}),
+      ...(search
+        ? {
+            OR: [
+              {
+                comment: {
+                  contains: search,
+                  mode: 'insensitive' as const,
+                },
+              },
+              {
+                category: {
+                  name: {
+                    contains: search,
+                    mode: 'insensitive' as const,
+                  },
+                },
+              },
+              {
+                author: {
+                  displayName: {
+                    contains: search,
+                    mode: 'insensitive' as const,
+                  },
+                },
+              },
+              {
+                sourceMessage: {
+                  text: {
+                    contains: search,
+                    mode: 'insensitive' as const,
+                  },
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+  }
+
+  private buildOrderBy(sortBy?: string, sortDir?: string) {
+    const direction: SortDirection = sortDir === 'asc' ? 'asc' : 'desc';
+    const field = this.resolveSortField(sortBy);
+
+    switch (field) {
+      case 'amount':
+      case 'type':
+      case 'status':
+      case 'createdAt':
+      case 'occurredAt':
+        return [{ [field]: direction }, { occurredAt: 'desc' as const }];
+      case 'category':
+        return [
+          {
+            category: {
+              name: direction,
+            },
+          },
+          { occurredAt: 'desc' as const },
+        ];
+      case 'author':
+        return [
+          {
+            author: {
+              displayName: direction,
+            },
+          },
+          { occurredAt: 'desc' as const },
+        ];
+      default:
+        return [{ occurredAt: 'desc' as const }];
+    }
+  }
+
+  private resolveSortField(value?: string): TransactionSortField {
+    switch (value) {
+      case 'amount':
+      case 'type':
+      case 'status':
+      case 'category':
+      case 'author':
+      case 'createdAt':
+        return value;
+      default:
+        return 'occurredAt';
+    }
+  }
+
+  private normalizePage(value?: number) {
+    if (!value || Number.isNaN(value) || value < 1) {
+      return 1;
+    }
+    return Math.floor(value);
+  }
+
+  private normalizePageSize(value?: number) {
+    if (!value || Number.isNaN(value) || value < 1) {
+      return TransactionService.defaultPageSize;
+    }
+
+    return Math.min(Math.floor(value), TransactionService.maxPageSize);
   }
 
   private toSummaryTransaction(item: {

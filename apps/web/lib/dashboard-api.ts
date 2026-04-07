@@ -7,8 +7,9 @@ import {
 import type {
   AuthState,
   BackupInfo,
-  LogEntry,
+  LogListFilters,
   Settings,
+  TransactionListFilters,
 } from './types';
 
 type ApiClientLike = {
@@ -28,16 +29,10 @@ export function createDashboardFeatureApi(apiClient: ApiClientLike) {
       },
     },
     dataset: {
-      loadMain(
-        token: string,
-        filters: { status: 'all' | 'confirmed' | 'cancelled'; type: 'all' | 'income' | 'expense' },
-      ) {
+      loadMain(token: string, filters: TransactionListFilters) {
         return loadDashboardDataset(apiClient, token, filters);
       },
-      loadLogs(
-        token: string,
-        filters: { level: 'all' | LogEntry['level']; source: string },
-      ) {
+      loadLogs(token: string, filters: LogListFilters) {
         return loadLogsDataset(apiClient, token, filters);
       },
     },

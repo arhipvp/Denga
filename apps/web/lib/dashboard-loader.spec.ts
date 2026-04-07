@@ -35,8 +35,8 @@ describe('dashboard loader', () => {
   it('loads all primary dashboard resources', async () => {
     const request = jest.fn(async (path: string) => {
       switch (path) {
-        case '/transactions?status=confirmed':
-          return [{ id: 'tx-1' }];
+        case '/transactions?status=confirmed&sortBy=occurredAt&sortDir=desc&page=1&pageSize=20':
+          return { items: [{ id: 'tx-1' }], total: 1, page: 1, pageSize: 20 };
         case '/categories':
           return [{ id: 'cat-1' }];
         case '/users':
@@ -55,11 +55,24 @@ describe('dashboard loader', () => {
     const dataset = await loadDashboardDataset(
       { request },
       'token',
-      { status: 'confirmed', type: 'all' },
+      {
+        status: 'confirmed',
+        type: 'all',
+        search: '',
+        sortBy: 'occurredAt',
+        sortDir: 'desc',
+        page: 1,
+        pageSize: 20,
+      },
     );
 
     expect(dataset).toMatchObject({
-      transactions: [{ id: 'tx-1' }],
+      transactions: {
+        items: [{ id: 'tx-1' }],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+      },
       categories: [{ id: 'cat-1' }],
       users: [{ id: 'user-1' }],
       settings: { householdName: 'Denga' },
@@ -71,8 +84,8 @@ describe('dashboard loader', () => {
   it('reports which resource failed when a required endpoint returns empty body', async () => {
     const request = jest.fn(async (path: string) => {
       switch (path) {
-        case '/transactions':
-          return [];
+        case '/transactions?sortBy=occurredAt&sortDir=desc&page=1&pageSize=20':
+          return { items: [], total: 0, page: 1, pageSize: 20 };
         case '/categories':
           return [];
         case '/users':
@@ -92,7 +105,15 @@ describe('dashboard loader', () => {
       loadDashboardDataset(
         { request },
         'token',
-        { status: 'all', type: 'all' },
+        {
+          status: 'all',
+          type: 'all',
+          search: '',
+          sortBy: 'occurredAt',
+          sortDir: 'desc',
+          page: 1,
+          pageSize: 20,
+        },
       ),
     ).rejects.toMatchObject({
       name: 'DashboardDataLoadError',
@@ -105,11 +126,23 @@ describe('dashboard loader', () => {
     const request = jest.fn().mockResolvedValue(null);
 
     await expect(
-      loadLogsDataset({ request }, 'token', { level: 'all', source: 'all' }),
+      loadLogsDataset(
+        { request },
+        'token',
+        {
+          level: 'all',
+          source: 'all',
+          search: '',
+          sortBy: 'timestamp',
+          sortDir: 'desc',
+          page: 1,
+          pageSize: 20,
+        },
+      ),
     ).rejects.toMatchObject({
       name: 'DashboardDataLoadError',
       resource: 'логи',
-      path: '/logs?limit=100',
+      path: '/logs?sortBy=timestamp&sortDir=desc&page=1&pageSize=20',
     } satisfies Partial<DashboardDataLoadError>);
   });
 });

@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { mkdirSync, appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getApiRuntimeConfig } from '../common/runtime-config';
-import { LogLevel, LogRecord } from './logging.types';
+import { LogLevel, LogRecord, LogSortField, PagedLogRecords, ReadLogsFilters } from './logging.types';
 
 const levelWeights: Record<LogLevel, number> = {
   debug: 10,
@@ -21,6 +21,9 @@ export class LoggingService {
   constructor() {
     mkdirSync(join(process.cwd(), this.logDir), { recursive: true });
   }
+
+  private static readonly defaultPageSize = 20;
+  private static readonly maxPageSize = 100;
 
   debug(source: string, event: string, message: string, context?: Record<string, unknown>) {
     this.write({
@@ -66,9 +69,15 @@ export class LoggingService {
     });
   }
 
-  readLogs(filters: { level?: string; source?: string; limit?: number }) {
+  readLogs(filters: ReadLogsFilters): PagedLogRecords {
     if (!existsSync(this.logFile)) {
-      return [] as LogRecord[];
+      const pageSize = this.normalizePageSize(filters.pageSize);
+      return {
+        items: [],
+        total: 0,
+        page: this.normalizePage(filters.page),
+        pageSize,
+      };
     }
 
     const rows = readFileSync(this.logFile, 'utf8')
@@ -83,6 +92,7 @@ export class LoggingService {
       })
       .filter((entry): entry is LogRecord => Boolean(entry));
 
+    const searchTerm = filters.search?.trim().toLowerCase();
     const filtered = rows.filter((entry) => {
       if (filters.level && entry.level !== filters.level) {
         return false;
@@ -90,10 +100,35 @@ export class LoggingService {
       if (filters.source && entry.source !== filters.source) {
         return false;
       }
+      if (
+        searchTerm &&
+        !`${entry.source} ${entry.event} ${entry.message}`.toLowerCase().includes(searchTerm)
+      ) {
+        return false;
+      }
       return true;
     });
 
-    return filtered.slice(-(filters.limit ?? 100)).reverse();
+    const sortBy = this.resolveSortField(filters.sortBy);
+    const sortDir = filters.sortDir === 'asc' ? 'asc' : 'desc';
+    const sorted = [...filtered].sort((left, right) => {
+      const leftValue = this.getSortValue(left, sortBy);
+      const rightValue = this.getSortValue(right, sortBy);
+      const comparison =
+        leftValue > rightValue ? 1 : leftValue < rightValue ? -1 : 0;
+      return sortDir === 'asc' ? comparison : -comparison;
+    });
+
+    const page = this.normalizePage(filters.page);
+    const pageSize = this.normalizePageSize(filters.pageSize);
+    const start = (page - 1) * pageSize;
+
+    return {
+      items: sorted.slice(start, start + pageSize),
+      total: sorted.length,
+      page,
+      pageSize,
+    };
   }
 
   private write(record: LogRecord) {
@@ -122,6 +157,45 @@ export class LoggingService {
       return value;
     }
     return 'info';
+  }
+
+  private resolveSortField(value?: string): LogSortField {
+    switch (value) {
+      case 'level':
+      case 'source':
+      case 'event':
+        return value;
+      default:
+        return 'timestamp';
+    }
+  }
+
+  private getSortValue(record: LogRecord, sortBy: LogSortField): string | number {
+    switch (sortBy) {
+      case 'level':
+        return levelWeights[record.level];
+      case 'source':
+        return record.source.toLowerCase();
+      case 'event':
+        return record.event.toLowerCase();
+      default:
+        return record.timestamp;
+    }
+  }
+
+  private normalizePage(value?: number) {
+    if (!value || Number.isNaN(value) || value < 1) {
+      return 1;
+    }
+    return Math.floor(value);
+  }
+
+  private normalizePageSize(value?: number) {
+    if (!value || Number.isNaN(value) || value < 1) {
+      return LoggingService.defaultPageSize;
+    }
+
+    return Math.min(Math.floor(value), LoggingService.maxPageSize);
   }
 
   private sanitize(value: unknown): unknown {

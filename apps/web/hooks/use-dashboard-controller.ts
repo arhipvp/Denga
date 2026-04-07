@@ -51,10 +51,9 @@ export function useDashboardController(apiUrl: string | null) {
   const operations = useOperationsSection(categories);
   const categorySection = useCategoriesSection(categories);
   const settingsSection = useSettingsSection();
-  const logsSection = useLogsSection(logs);
+  const logsSection = useLogsSection(logs.items);
   const {
-    statusFilter,
-    typeFilter,
+    filters: operationFilters,
     operationForm,
     reset: resetOperations,
   } = operations;
@@ -69,7 +68,7 @@ export function useDashboardController(apiUrl: string | null) {
     setPasswordState,
     reset: resetSettings,
   } = settingsSection;
-  const { logLevelFilter, logSourceFilter } = logsSection;
+  const { filters: logFilters } = logsSection;
 
   const resetDashboardUi = useCallback(() => {
     resetOperations();
@@ -106,11 +105,11 @@ export function useDashboardController(apiUrl: string | null) {
     }
 
     try {
-      await reloadData(auth.accessToken, statusFilter, typeFilter);
+      await reloadData(auth.accessToken, operationFilters);
     } catch (error) {
       handleApiError(error, 'Не удалось загрузить данные');
     }
-  }, [auth, handleApiError, reloadData, statusFilter, typeFilter]);
+  }, [auth, handleApiError, operationFilters, reloadData]);
 
   const loadLogs = useCallback(async () => {
     if (!auth || section !== 'logs') {
@@ -118,13 +117,13 @@ export function useDashboardController(apiUrl: string | null) {
     }
 
     try {
-      await reloadLogs(auth.accessToken, logLevelFilter, logSourceFilter);
+      await reloadLogs(auth.accessToken, logFilters);
     } catch (error) {
       if (!handleApiError(error, 'Не удалось загрузить логи')) {
         setLogsError(error instanceof Error ? error.message : 'Не удалось загрузить логи');
       }
     }
-  }, [auth, handleApiError, logLevelFilter, logSourceFilter, reloadLogs, section, setLogsError]);
+  }, [auth, handleApiError, logFilters, reloadLogs, section, setLogsError]);
 
   useEffect(() => {
     void loadDashboard();

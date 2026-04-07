@@ -49,15 +49,16 @@ export function Dashboard() {
         onSectionChange={setSection}
       >
         {section === 'overview' && data.summary ? (
-          <OverviewSection summary={data.summary} />
+          <OverviewSection
+            summary={data.summary}
+            currency={data.settings?.defaultCurrency ?? 'EUR'}
+          />
         ) : null}
         {section === 'operations' ? (
           <OperationsSection
             transactions={data.transactions}
-            statusFilter={operations.statusFilter}
-            typeFilter={operations.typeFilter}
-            onStatusFilterChange={operations.setStatusFilter}
-            onTypeFilterChange={operations.setTypeFilter}
+            filters={operations.filters}
+            onFiltersChange={(updater) => operations.setFilters(updater)}
             onCreate={operations.openCreateOperationModal}
             onEdit={operations.openEditOperationModal}
             onCancel={(id) => void handlers.handleCancelOperation(id)}
@@ -83,10 +84,8 @@ export function Dashboard() {
             logsLoading={data.logsLoading}
             logsError={data.logsError}
             logSources={logsSection.logSources}
-            logLevelFilter={logsSection.logLevelFilter}
-            logSourceFilter={logsSection.logSourceFilter}
-            onLogLevelChange={logsSection.setLogLevelFilter}
-            onLogSourceChange={logsSection.setLogSourceFilter}
+            filters={logsSection.filters}
+            onFiltersChange={(updater) => logsSection.setFilters(updater)}
             onRefresh={() => void handlers.loadLogs()}
           />
         ) : null}

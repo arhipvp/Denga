@@ -27,8 +27,21 @@ export class TransactionController {
   list(
     @Query('status') status?: string,
     @Query('type') type?: string,
+    @Query('search') search?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
   ) {
-    return this.transactionService.list(status, type);
+    return this.transactionService.list({
+      status,
+      type,
+      search,
+      sortBy,
+      sortDir,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
   }
 
   @Get('summary')

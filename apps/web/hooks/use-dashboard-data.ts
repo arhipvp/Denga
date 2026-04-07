@@ -7,23 +7,36 @@ import { createDashboardFeatureApi, DashboardDataLoadError } from '../lib/dashbo
 import type {
   BackupInfo,
   Category,
+  LogListFilters,
   LogEntry,
+  PagedResponse,
   Settings,
   Summary,
   Transaction,
+  TransactionListFilters,
   User,
 } from '../lib/types';
 
 export function useDashboardData(apiUrl: string | null) {
   const apiClient = useMemo(() => createApiClient({ apiUrl }), [apiUrl]);
   const featureApi = useMemo(() => createDashboardFeatureApi(apiClient), [apiClient]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [transactions, setTransactions] = useState<PagedResponse<Transaction>>({
+    items: [],
+    total: 0,
+    page: 1,
+    pageSize: 20,
+  });
   const [categories, setCategories] = useState<Category[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [latestBackup, setLatestBackup] = useState<BackupInfo | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logs, setLogs] = useState<PagedResponse<LogEntry>>({
+    items: [],
+    total: 0,
+    page: 1,
+    pageSize: 20,
+  });
   const [mainState, setMainState] = useState(createAsyncState);
   const [logsState, setLogsState] = useState(createAsyncState);
 
@@ -58,28 +71,34 @@ export function useDashboardData(apiUrl: string | null) {
   }, []);
 
   const resetData = useCallback(() => {
-    setTransactions([]);
+    setTransactions({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 20,
+    });
     setCategories([]);
     setUsers([]);
     setSettings(null);
     setLatestBackup(null);
     setSummary(null);
-    setLogs([]);
+    setLogs({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 20,
+    });
     setMainState(createAsyncState());
     setLogsState(createAsyncState());
   }, []);
 
   const reloadData = useCallback(
-    async (
-      token: string,
-      status: 'all' | 'confirmed' | 'cancelled',
-      type: 'all' | 'income' | 'expense',
-    ) => {
+    async (token: string, filters: TransactionListFilters) => {
       setLoading(true);
       setError(null);
 
       try {
-        const dataset = await featureApi.dataset.loadMain(token, { status, type });
+        const dataset = await featureApi.dataset.loadMain(token, filters);
 
         setTransactions(dataset.transactions);
         setCategories(dataset.categories);
@@ -102,16 +121,12 @@ export function useDashboardData(apiUrl: string | null) {
   );
 
   const reloadLogs = useCallback(
-    async (
-      token: string,
-      level: 'all' | LogEntry['level'],
-      source: string,
-    ) => {
+    async (token: string, filters: LogListFilters) => {
       setLogsLoading(true);
       setLogsError(null);
 
       try {
-        const nextLogs = await featureApi.dataset.loadLogs(token, { level, source });
+        const nextLogs = await featureApi.dataset.loadLogs(token, filters);
         setLogs(nextLogs);
         setLogsState({ status: 'success', error: null });
       } catch (error) {

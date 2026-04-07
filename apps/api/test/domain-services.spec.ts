@@ -51,6 +51,7 @@ describe('TransactionService', () => {
   const transactionUpdate = jest.fn();
   const transactionFindUniqueOrThrow = jest.fn();
   const transactionFindMany = jest.fn();
+  const transactionCount = jest.fn();
   const categoryFindUniqueOrThrow = jest.fn();
   const notifyTransactionCreated = jest.fn();
   const notifyTransactionDeleted = jest.fn();
@@ -87,6 +88,7 @@ describe('TransactionService', () => {
         update: transactionUpdate,
         findUniqueOrThrow: transactionFindUniqueOrThrow,
         findMany: transactionFindMany,
+        count: transactionCount,
       },
       category: {
         findUniqueOrThrow: categoryFindUniqueOrThrow,
@@ -232,6 +234,48 @@ describe('TransactionService', () => {
       },
     });
     expect(notifyTransactionDeleted).toHaveBeenCalledWith('tx-1');
+  });
+
+  it('lists transactions with search, sorting and pagination metadata', async () => {
+    transactionFindMany.mockResolvedValue([{ id: 'tx-2' }]);
+    transactionCount.mockResolvedValue(7);
+
+    const payload = await service.list({
+      status: 'confirmed',
+      type: 'expense',
+      search: 'такси',
+      sortBy: 'amount',
+      sortDir: 'asc',
+      page: 2,
+      pageSize: 3,
+    });
+
+    expect(transactionFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          householdId: 'household-1',
+          status: TransactionStatus.CONFIRMED,
+          type: TransactionType.EXPENSE,
+          OR: expect.any(Array),
+        }),
+        orderBy: [{ amount: 'asc' }, { occurredAt: 'desc' }],
+        skip: 3,
+        take: 3,
+      }),
+    );
+    expect(transactionCount).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        householdId: 'household-1',
+        status: TransactionStatus.CONFIRMED,
+        type: TransactionType.EXPENSE,
+      }),
+    });
+    expect(payload).toEqual({
+      items: [{ id: 'tx-2' }],
+      total: 7,
+      page: 2,
+      pageSize: 3,
+    });
   });
 
   it('returns empty summary when there are no transactions', async () => {

@@ -1,13 +1,26 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { emptyOperationForm, type Category, type OperationFormState, type Transaction } from '../lib/types';
+import {
+  emptyOperationForm,
+  type Category,
+  type OperationFormState,
+  type Transaction,
+  type TransactionListFilters,
+} from '../lib/types';
+
+const defaultTransactionFilters: TransactionListFilters = {
+  status: 'confirmed',
+  type: 'all',
+  search: '',
+  sortBy: 'occurredAt',
+  sortDir: 'desc',
+  page: 1,
+  pageSize: 10,
+};
 
 export function useOperationsSection(categories: Category[]) {
-  const [statusFilter, setStatusFilter] = useState<'all' | 'confirmed' | 'cancelled'>(
-    'confirmed',
-  );
-  const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense'>('all');
+  const [filters, setFilters] = useState<TransactionListFilters>(defaultTransactionFilters);
   const [isOperationModalOpen, setOperationModalOpen] = useState(false);
   const [operationForm, setOperationForm] = useState<OperationFormState>(emptyOperationForm);
 
@@ -48,10 +61,8 @@ export function useOperationsSection(categories: Category[]) {
   }, []);
 
   return {
-    statusFilter,
-    setStatusFilter,
-    typeFilter,
-    setTypeFilter,
+    filters,
+    setFilters,
     isOperationModalOpen,
     setOperationModalOpen,
     operationForm,

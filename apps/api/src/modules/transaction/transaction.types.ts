@@ -73,3 +73,31 @@ export type SummaryCalculationTransaction = {
   categoryId: string | null;
   categoryName: string | null;
 };
+
+export type SortDirection = 'asc' | 'desc';
+
+export type TransactionSortField =
+  | 'occurredAt'
+  | 'amount'
+  | 'type'
+  | 'status'
+  | 'category'
+  | 'author'
+  | 'createdAt';
+
+export type TransactionListFilters = {
+  status?: string;
+  type?: string;
+  search?: string;
+  sortBy?: string;
+  sortDir?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export type PagedResult<T> = {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+};

@@ -13,12 +13,20 @@ export class LogsController {
     @Req() request: { user: { sub: string; email: string; role: string } },
     @Query('level') level?: string,
     @Query('source') source?: string,
-    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
   ) {
     return this.logsService.list(request.user, {
       level,
       source,
-      limit: limit ? Number(limit) : 100,
+      search,
+      sortBy,
+      sortDir,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
     });
   }
 }
