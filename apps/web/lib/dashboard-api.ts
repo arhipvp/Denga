@@ -10,6 +10,7 @@ import type {
   LogListFilters,
   Settings,
   TransactionListFilters,
+  User,
 } from './types';
 
 type ApiClientLike = {
@@ -100,6 +101,14 @@ export function createDashboardFeatureApi(apiClient: ApiClientLike) {
         return apiClient.request<unknown>(`/categories/${id}`, token, {
           method: 'PATCH',
           body: JSON.stringify({ isActive: true }),
+        });
+      },
+    },
+    users: {
+      rename(token: string, id: string, payload: { displayName: string }) {
+        return apiClient.request<User>(`/users/${id}`, token, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
         });
       },
     },

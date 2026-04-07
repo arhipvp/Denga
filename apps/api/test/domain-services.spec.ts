@@ -615,7 +615,7 @@ describe('TransactionService', () => {
     });
   });
 
-  it('builds full current month expense breakdown and groups tiny categories into others', async () => {
+  it('builds full current month expense breakdown and groups only the smallest tail into others', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-04-20T12:00:00.000Z'));
     transactionFindMany.mockResolvedValue([
       createTransaction({
@@ -666,13 +666,14 @@ describe('TransactionService', () => {
     expect(breakdown.items).toEqual([
       expect.objectContaining({ categoryName: 'Еда', amount: 120 }),
       expect.objectContaining({ categoryName: 'Такси', amount: 60 }),
+      expect.objectContaining({ categoryName: 'Кофе', amount: 8 }),
       expect.objectContaining({
         categoryName: 'Прочие категории',
-        amount: 12,
+        amount: 4,
         isOther: true,
       }),
     ]);
-    expect(breakdown.items[2].share).toBeCloseTo(12 / 192, 5);
+    expect(breakdown.items[3].share).toBeCloseTo(4 / 192, 5);
   });
 
   it('returns an empty current month expense breakdown when there are no expenses', async () => {

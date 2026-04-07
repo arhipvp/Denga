@@ -79,7 +79,12 @@ export function Dashboard() {
             onRestore={(id) => void handlers.handleRestoreCategory(id)}
           />
         ) : null}
-        {section === 'users' ? <UsersSection users={data.users} /> : null}
+        {section === 'users' ? (
+          <UsersSection
+            users={data.users}
+            onRenameUser={(id, displayName) => handlers.handleRenameUser(id, displayName)}
+          />
+        ) : null}
         {section === 'logs' ? (
           <LogsSection
             logs={data.logs}
@@ -106,13 +111,21 @@ export function Dashboard() {
               settingsSection.backupTaskState.currentAction === 'download'
             }
             settingsMessage={settingsSection.settingsMessage}
+            settingsForm={settingsSection.settingsForm ?? data.settings}
+            hasUnsavedChanges={settingsSection.hasUnsavedChanges}
+            aiExpanded={settingsSection.aiExpanded}
             passwordForm={settingsSection.passwordState.form}
             passwordError={settingsSection.passwordState.error}
             passwordSuccess={settingsSection.passwordState.success}
             onCreateBackup={handlers.handleCreateBackup}
             onDownloadLatestBackup={handlers.handleDownloadLatestBackup}
             onSaveSettings={handlers.handleSaveSettings}
+            onResetSettings={settingsSection.resetSettingsForm}
             onChangePassword={handlers.handleChangePassword}
+            onSettingsFormChange={(updater) =>
+              settingsSection.setSettingsForm((current) => updater(current ?? data.settings!))
+            }
+            onToggleAiExpanded={() => settingsSection.setAiExpanded((current) => !current)}
             onPasswordFormChange={(updater) =>
               settingsSection.setPasswordState({
                 ...settingsSection.passwordState,

@@ -1,10 +1,26 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { createAsyncTaskState } from '../lib/async-state';
-import { emptyPasswordForm } from '../lib/types';
+import { emptyPasswordForm, type Settings, type SettingsFormState } from '../lib/types';
 
-export function useSettingsSection() {
+function areSettingsEqual(left: SettingsFormState | null, right: Settings | null) {
+  if (!left || !right) {
+    return false;
+  }
+
+  return (
+    left.householdName === right.householdName &&
+    left.defaultCurrency === right.defaultCurrency &&
+    left.telegramMode === right.telegramMode &&
+    left.aiModel === right.aiModel &&
+    left.clarificationTimeoutMinutes === right.clarificationTimeoutMinutes &&
+    left.parsingPrompt === right.parsingPrompt &&
+    left.clarificationPrompt === right.clarificationPrompt
+  );
+}
+
+export function useSettingsSection(settings: Settings | null) {
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [backupTaskState, setBackupTaskState] = useState(() => ({
     ...createAsyncTaskState(),
@@ -15,6 +31,18 @@ export function useSettingsSection() {
     error: null as string | null,
     success: null as string | null,
   });
+  const [settingsForm, setSettingsForm] = useState<SettingsFormState | null>(null);
+  const [aiExpanded, setAiExpanded] = useState(false);
+
+  const hasUnsavedChanges = useMemo(
+    () => Boolean(settingsForm && settings && !areSettingsEqual(settingsForm, settings)),
+    [settings, settingsForm],
+  );
+
+  const resetSettingsForm = useCallback(() => {
+    setSettingsForm(null);
+    setSettingsMessage(null);
+  }, []);
 
   const reset = useCallback(() => {
     setSettingsMessage(null);
@@ -27,6 +55,8 @@ export function useSettingsSection() {
       error: null,
       success: null,
     });
+    setSettingsForm(null);
+    setAiExpanded(false);
   }, []);
 
   return {
@@ -36,6 +66,12 @@ export function useSettingsSection() {
     setBackupTaskState,
     passwordState,
     setPasswordState,
+    settingsForm,
+    setSettingsForm,
+    hasUnsavedChanges,
+    resetSettingsForm,
+    aiExpanded,
+    setAiExpanded,
     reset,
   };
 }

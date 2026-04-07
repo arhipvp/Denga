@@ -98,7 +98,9 @@ export type User = {
   id: string;
   displayName: string;
   email: string | null;
-  telegramAccounts: Array<{ telegramId: string; username: string | null }>;
+  role: 'ADMIN' | 'MEMBER';
+  createdAt: string;
+  telegramAccounts: Array<{ telegramId: string; username: string | null; isActive: boolean }>;
 };
 
 export type Settings = {
@@ -110,6 +112,8 @@ export type Settings = {
   parsingPrompt: string;
   clarificationPrompt: string;
 };
+
+export type SettingsFormState = Settings;
 
 export type BackupInfo = {
   id: string;

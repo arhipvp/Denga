@@ -6,6 +6,7 @@ import {
   changePasswordAction,
   createBackupAction,
   downloadLatestBackupAction,
+  renameUserAction,
   runDashboardMutation,
   saveOperationAction,
   saveSettingsAction,
@@ -39,6 +40,7 @@ export function useDashboardController(apiUrl: string | null) {
     logs,
     settings,
     latestBackup,
+    setUsers,
     setSettings,
     setLatestBackup,
     setError,
@@ -50,7 +52,7 @@ export function useDashboardController(apiUrl: string | null) {
   const [section, setSection] = useState<Section>('overview');
   const operations = useOperationsSection(categories);
   const categorySection = useCategoriesSection(categories);
-  const settingsSection = useSettingsSection();
+  const settingsSection = useSettingsSection(settings);
   const logsSection = useLogsSection(logs.items);
   const {
     filters: operationFilters,
@@ -67,6 +69,7 @@ export function useDashboardController(apiUrl: string | null) {
     setBackupTaskState,
     passwordState,
     setPasswordState,
+    settingsForm,
     reset: resetSettings,
   } = settingsSection;
   const { filters: logFilters } = logsSection;
@@ -168,19 +171,23 @@ export function useDashboardController(apiUrl: string | null) {
   );
 
   const handleSaveSettings = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
+    async () => {
+      if (!settings) {
+        return;
+      }
+
       await saveSettingsAction({
         auth,
         settings,
-        formData: new FormData(event.currentTarget),
+        settingsForm: settingsForm ?? settings,
         featureApi,
         onUnauthorized: handleApiError,
         setSettings,
         setSettingsMessage,
       });
+      return;
     },
-    [auth, featureApi, handleApiError, setSettings, setSettingsMessage, settings],
+    [auth, featureApi, handleApiError, setSettings, setSettingsMessage, settings, settingsForm],
   );
 
   const handleCreateBackup = useCallback(async () => {
@@ -216,6 +223,20 @@ export function useDashboardController(apiUrl: string | null) {
       });
     },
     [auth, clearSession, featureApi, passwordState.form, setPasswordState],
+  );
+
+  const handleRenameUser = useCallback(
+    async (id: string, displayName: string) => {
+      return renameUserAction({
+        auth,
+        featureApi,
+        userId: id,
+        displayName,
+        onUnauthorized: handleApiError,
+        setUsers,
+      });
+    },
+    [auth, featureApi, handleApiError, setUsers],
   );
 
   const handleSaveOperation = useCallback(
@@ -318,6 +339,7 @@ export function useDashboardController(apiUrl: string | null) {
       handleCreateBackup,
       handleDownloadLatestBackup,
       handleChangePassword,
+      handleRenameUser,
       handleSaveOperation,
       handleCancelOperation,
       handleSaveCategory,

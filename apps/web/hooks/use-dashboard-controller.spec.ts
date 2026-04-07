@@ -10,6 +10,7 @@ const mockReloadLogs = jest.fn<Promise<void>, [string, LogListFilters]>(async ()
 const mockSaveAuth = jest.fn();
 const mockClearAuth = jest.fn();
 const mockSetSettings = jest.fn();
+const mockSetUsers = jest.fn();
 const mockSetLatestBackup = jest.fn();
 const mockSetError = jest.fn();
 const mockSetLogsError = jest.fn();
@@ -32,6 +33,7 @@ const mockFeatureApi = {
   auth: { login: jest.fn() },
   operations: { save: jest.fn(), cancel: jest.fn() },
   categories: { save: jest.fn(), deactivate: jest.fn(), restore: jest.fn() },
+  users: { rename: jest.fn() },
   settings: {
     save: jest.fn(),
     createBackup: jest.fn(),
@@ -53,8 +55,10 @@ jest.mock('./use-dashboard-data', () => ({
     featureApi: mockFeatureApi,
     categories: [],
     logs: { items: [], total: 0, page: 1, pageSize: 10 },
+    users: [],
     settings: null,
     latestBackup: null,
+    setUsers: mockSetUsers,
     setSettings: mockSetSettings,
     setLatestBackup: mockSetLatestBackup,
     setError: mockSetError,
@@ -215,6 +219,16 @@ jest.mock('./use-settings-section', () => {
         error: null as string | null,
         success: null as string | null,
       });
+      const [settingsForm, setSettingsForm] = React.useState(null as null | {
+        householdName: string;
+        defaultCurrency: string;
+        telegramMode: 'polling' | 'webhook';
+        aiModel: string;
+        clarificationTimeoutMinutes: number;
+        parsingPrompt: string;
+        clarificationPrompt: string;
+      });
+      const [aiExpanded, setAiExpanded] = React.useState(false);
 
       const reset = React.useCallback(() => {
         setSettingsMessage(null);
@@ -233,6 +247,8 @@ jest.mock('./use-settings-section', () => {
           error: null,
           success: null,
         });
+        setSettingsForm(null);
+        setAiExpanded(false);
       }, []);
 
       return {
@@ -242,6 +258,12 @@ jest.mock('./use-settings-section', () => {
         setBackupTaskState,
         passwordState,
         setPasswordState,
+        settingsForm,
+        setSettingsForm,
+        hasUnsavedChanges: false,
+        resetSettingsForm: jest.fn(),
+        aiExpanded,
+        setAiExpanded,
         reset,
       };
     },
@@ -296,6 +318,7 @@ describe('useDashboardController', () => {
     mockSaveAuth.mockClear();
     mockClearAuth.mockClear();
     mockSetSettings.mockClear();
+    mockSetUsers.mockClear();
     mockSetLatestBackup.mockClear();
     mockSetError.mockClear();
     mockSetLogsError.mockClear();

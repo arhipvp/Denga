@@ -44,4 +44,24 @@ describe('dashboard feature api', () => {
     });
     expect(download).toHaveBeenCalledWith('/backups/latest/download', 'token');
   });
+
+  it('uses dedicated users rename method', async () => {
+    const request = jest.fn().mockResolvedValue({ id: 'user-1', displayName: 'Новое имя' });
+    const api = createDashboardFeatureApi({
+      request,
+      download: jest.fn(),
+      login: jest.fn(),
+    });
+
+    await api.users.rename('token', 'user-1', { displayName: 'Новое имя' });
+
+    expect(request).toHaveBeenCalledWith(
+      '/users/user-1',
+      'token',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ displayName: 'Новое имя' }),
+      }),
+    );
+  });
 });

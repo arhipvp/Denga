@@ -6,6 +6,8 @@ import type {
   OperationFormState,
   PasswordFormState,
   Settings,
+  SettingsFormState,
+  User,
 } from './types';
 
 type HandleUnauthorized = (candidate: unknown, fallbackMessage: string) => boolean;
@@ -13,7 +15,7 @@ type HandleUnauthorized = (candidate: unknown, fallbackMessage: string) => boole
 export async function saveSettingsAction(input: {
   auth: AuthState | null;
   settings: Settings | null;
-  formData: FormData;
+  settingsForm: SettingsFormState;
   featureApi: DashboardFeatureApi;
   onUnauthorized: HandleUnauthorized;
   setSettings: (settings: Settings) => void;
@@ -26,22 +28,43 @@ export async function saveSettingsAction(input: {
   input.setSettingsMessage(null);
 
   try {
-    const nextSettings = await input.featureApi.settings.save(input.auth.accessToken, {
-      householdName: input.formData.get('householdName'),
-      defaultCurrency: input.formData.get('defaultCurrency'),
-      telegramMode: input.formData.get('telegramMode'),
-      aiModel: input.formData.get('aiModel'),
-      clarificationTimeoutMinutes: Number(
-        input.formData.get('clarificationTimeoutMinutes'),
-      ),
-      parsingPrompt: input.formData.get('parsingPrompt'),
-      clarificationPrompt: input.formData.get('clarificationPrompt'),
-    });
+    const nextSettings = await input.featureApi.settings.save(
+      input.auth.accessToken,
+      input.settingsForm,
+    );
     input.setSettings(nextSettings);
     input.setSettingsMessage('Настройки сохранены');
     return true;
   } catch (error) {
     input.onUnauthorized(error, 'Не удалось сохранить настройки');
+    return false;
+  }
+}
+
+export async function renameUserAction(input: {
+  auth: AuthState | null;
+  featureApi: DashboardFeatureApi;
+  userId: string;
+  displayName: string;
+  onUnauthorized: HandleUnauthorized;
+  setUsers: (updater: (current: User[]) => User[]) => void;
+}) {
+  if (!input.auth) {
+    return false;
+  }
+
+  const nextDisplayName = input.displayName.trim();
+
+  try {
+    const updatedUser = await input.featureApi.users.rename(input.auth.accessToken, input.userId, {
+      displayName: nextDisplayName,
+    });
+    input.setUsers((current) =>
+      current.map((user) => (user.id === updatedUser.id ? updatedUser : user)),
+    );
+    return true;
+  } catch (error) {
+    input.onUnauthorized(error, 'Не удалось переименовать пользователя');
     return false;
   }
 }

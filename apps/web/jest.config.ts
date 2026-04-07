@@ -2,8 +2,8 @@ import type { Config } from 'jest';
 
 const config: Config = {
   testEnvironment: 'node',
-  roots: ['<rootDir>/lib', '<rootDir>/hooks'],
-  testMatch: ['**/*.spec.ts'],
+  roots: ['<rootDir>/lib', '<rootDir>/hooks', '<rootDir>/components'],
+  testMatch: ['**/*.spec.ts', '**/*.spec.tsx'],
   transform: {
     '^.+\\.(t|j)sx?$': [
       '@swc/jest',

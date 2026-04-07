@@ -148,6 +148,7 @@ export function useDashboardData(apiUrl: string | null) {
     transactions,
     categories,
     users,
+    setUsers,
     settings,
     setSettings,
     latestBackup,

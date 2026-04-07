@@ -3,6 +3,7 @@ import {
   changePasswordAction,
   createBackupAction,
   downloadLatestBackupAction,
+  renameUserAction,
   runDashboardMutation,
   saveSettingsAction,
 } from './dashboard-actions';
@@ -24,7 +25,15 @@ describe('dashboard actions', () => {
         parsingPrompt: 'parse',
         clarificationPrompt: 'clarify',
       },
-      formData: new FormData(),
+      settingsForm: {
+        householdName: 'Denga',
+        defaultCurrency: 'EUR',
+        telegramMode: 'polling',
+        aiModel: 'model',
+        clarificationTimeoutMinutes: 30,
+        parsingPrompt: 'parse',
+        clarificationPrompt: 'clarify',
+      },
       featureApi: {
         settings: { save },
       } as never,
@@ -37,6 +46,44 @@ describe('dashboard actions', () => {
     expect(save).toHaveBeenCalled();
     expect(setSettings).toHaveBeenCalledWith({ householdName: 'Denga' });
     expect(setSettingsMessage).toHaveBeenLastCalledWith('Настройки сохранены');
+  });
+
+  it('renames a user and patches dashboard state in place', async () => {
+    const rename = jest.fn().mockResolvedValue({
+      id: 'user-1',
+      displayName: 'Новое имя',
+      email: null,
+      role: 'MEMBER',
+      createdAt: '2026-04-07T00:00:00.000Z',
+      telegramAccounts: [],
+    });
+    const setUsers = jest.fn((updater) =>
+      updater([
+        {
+          id: 'user-1',
+          displayName: 'Старое имя',
+          email: null,
+          role: 'MEMBER',
+          createdAt: '2026-04-07T00:00:00.000Z',
+          telegramAccounts: [],
+        },
+      ]),
+    );
+
+    const result = await renameUserAction({
+      auth: { accessToken: 'token', user: { email: 'a@b.c', role: 'ADMIN' } },
+      featureApi: {
+        users: { rename },
+      } as never,
+      userId: 'user-1',
+      displayName: '  Новое имя  ',
+      onUnauthorized: jest.fn().mockReturnValue(false),
+      setUsers,
+    });
+
+    expect(result).toBe(true);
+    expect(rename).toHaveBeenCalledWith('token', 'user-1', { displayName: 'Новое имя' });
+    expect(setUsers).toHaveBeenCalled();
   });
 
   it('marks backup creation as success', async () => {

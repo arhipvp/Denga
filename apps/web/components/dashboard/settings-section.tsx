@@ -2,7 +2,7 @@
 
 import { format } from 'date-fns';
 import type { FormEvent } from 'react';
-import type { BackupInfo, PasswordFormState, Settings } from '../../lib/types';
+import type { BackupInfo, PasswordFormState, Settings, SettingsFormState } from '../../lib/types';
 
 function formatBackupSize(sizeBytes: number) {
   if (sizeBytes < 1024) {
@@ -18,6 +18,9 @@ function formatBackupSize(sizeBytes: number) {
 
 type SettingsSectionProps = {
   settings: Settings;
+  settingsForm: SettingsFormState | null;
+  hasUnsavedChanges: boolean;
+  aiExpanded: boolean;
   latestBackup: BackupInfo | null;
   backupMessage: string | null;
   backupError: string | null;
@@ -29,8 +32,13 @@ type SettingsSectionProps = {
   passwordSuccess: string | null;
   onCreateBackup: () => Promise<void>;
   onDownloadLatestBackup: () => Promise<void>;
-  onSaveSettings: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  onSaveSettings: () => Promise<void>;
+  onResetSettings: () => void;
   onChangePassword: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  onSettingsFormChange: (
+    updater: (current: SettingsFormState) => SettingsFormState,
+  ) => void;
+  onToggleAiExpanded: () => void;
   onPasswordFormChange: (
     updater: (current: PasswordFormState) => PasswordFormState,
   ) => void;
@@ -38,6 +46,9 @@ type SettingsSectionProps = {
 
 export function SettingsSection({
   settings,
+  settingsForm,
+  hasUnsavedChanges,
+  aiExpanded,
   latestBackup,
   backupMessage,
   backupError,
@@ -50,57 +61,179 @@ export function SettingsSection({
   onCreateBackup,
   onDownloadLatestBackup,
   onSaveSettings,
+  onResetSettings,
   onChangePassword,
+  onSettingsFormChange,
+  onToggleAiExpanded,
   onPasswordFormChange,
 }: SettingsSectionProps) {
+  if (!settingsForm) {
+    return null;
+  }
+
   return (
-    <section className="panel card settings-layout">
+    <section className="settings-page">
       <div className="section-intro">
         <h3>Настройки</h3>
-        <p>Конфигурация семьи, Telegram-режима, AI-подсказок и резервного копирования.</p>
+        <p>Управляйте базовой конфигурацией семьи, продвинутыми AI-параметрами и административными действиями.</p>
       </div>
-      <form className="form-grid" onSubmit={onSaveSettings}>
-        <div className="field">
-          <label htmlFor="householdName">Название семьи</label>
-          <input defaultValue={settings.householdName} id="householdName" name="householdName" required />
+
+      <article className="panel card settings-card">
+        <div className="settings-card__header">
+          <div className="section-intro">
+            <h3>Основное</h3>
+            <p>Текущая операционная конфигурация семьи и Telegram-канала.</p>
+          </div>
+          <div className="settings-card__status">
+            <span className={`badge ${hasUnsavedChanges ? 'warn' : 'success'}`}>
+              {hasUnsavedChanges ? 'Есть несохраненные изменения' : 'Все изменения сохранены'}
+            </span>
+          </div>
         </div>
-        <div className="field">
-          <label htmlFor="defaultCurrency">Базовая валюта</label>
-          <input defaultValue="EUR" id="defaultCurrency" maxLength={3} name="defaultCurrency" readOnly required />
-          <small>Все новые операции в системе сохраняются только в евро.</small>
-        </div>
-        <div className="field">
-          <label htmlFor="telegramMode">Режим Telegram</label>
-          <select defaultValue={settings.telegramMode} id="telegramMode" name="telegramMode">
-            <option value="polling">опрос</option>
-            <option value="webhook">вебхук</option>
-          </select>
-        </div>
-        <div className="field">
-          <label htmlFor="aiModel">AI-модель</label>
-          <input defaultValue={settings.aiModel} id="aiModel" name="aiModel" required />
-        </div>
-        <div className="field">
-          <label htmlFor="clarificationTimeoutMinutes">Таймаут уточнения</label>
-          <input defaultValue={settings.clarificationTimeoutMinutes} id="clarificationTimeoutMinutes" name="clarificationTimeoutMinutes" type="number" />
-        </div>
-        <div className="field field--full">
-          <label htmlFor="parsingPrompt">Промпт разбора</label>
-          <textarea defaultValue={settings.parsingPrompt} id="parsingPrompt" name="parsingPrompt" />
-        </div>
-        <div className="field field--full">
-          <label htmlFor="clarificationPrompt">Промпт уточнения</label>
-          <textarea defaultValue={settings.clarificationPrompt} id="clarificationPrompt" name="clarificationPrompt" />
-        </div>
-        <div className="actions field--full">
-          <button className="button" type="submit">
-            Сохранить настройки
+
+        <form
+          className="settings-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void onSaveSettings();
+          }}
+        >
+          <div className="form-grid">
+            <div className="field">
+              <label htmlFor="householdName">Название семьи</label>
+              <input
+                id="householdName"
+                value={settingsForm.householdName}
+                onChange={(event) =>
+                  onSettingsFormChange((current) => ({
+                    ...current,
+                    householdName: event.target.value,
+                  }))
+                }
+                required
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="defaultCurrency">Базовая валюта</label>
+              <input id="defaultCurrency" value={settings.defaultCurrency} readOnly required />
+              <small>Все новые операции в системе сохраняются только в евро.</small>
+            </div>
+            <div className="field">
+              <label htmlFor="telegramMode">Режим Telegram</label>
+              <select
+                id="telegramMode"
+                value={settingsForm.telegramMode}
+                onChange={(event) =>
+                  onSettingsFormChange((current) => ({
+                    ...current,
+                    telegramMode: event.target.value as Settings['telegramMode'],
+                  }))
+                }
+              >
+                <option value="polling">опрос</option>
+                <option value="webhook">вебхук</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="clarificationTimeoutMinutes">Таймаут уточнения</label>
+              <input
+                id="clarificationTimeoutMinutes"
+                type="number"
+                min={1}
+                value={settingsForm.clarificationTimeoutMinutes}
+                onChange={(event) =>
+                  onSettingsFormChange((current) => ({
+                    ...current,
+                    clarificationTimeoutMinutes: Number(event.target.value) || 0,
+                  }))
+                }
+              />
+            </div>
+          </div>
+
+          <div className="settings-form__footer">
+            <div className="settings-form__copy">
+              <strong>Черновик настроек</strong>
+              <span>
+                {hasUnsavedChanges
+                  ? 'Изменения пока не применены. Сохраните их или сбросьте к текущему состоянию.'
+                  : 'Форма синхронизирована с последней сохраненной конфигурацией.'}
+              </span>
+            </div>
+            <div className="actions">
+              <button className="button secondary" type="button" disabled={!hasUnsavedChanges} onClick={onResetSettings}>
+                Сбросить
+              </button>
+              <button className="button" type="submit" disabled={!hasUnsavedChanges}>
+                Сохранить настройки
+              </button>
+            </div>
+          </div>
+
+          {settingsMessage ? <p className="settings-inline-message">{settingsMessage}</p> : null}
+        </form>
+      </article>
+
+      <article className="panel card settings-card">
+        <div className="settings-card__header">
+          <div className="section-intro">
+            <h3>AI-настройки</h3>
+            <p>Продвинутые параметры разбора и уточнения сообщений. По умолчанию блок свернут.</p>
+          </div>
+          <button className="button secondary" type="button" onClick={onToggleAiExpanded}>
+            {aiExpanded ? 'Скрыть advanced' : 'Показать advanced'}
           </button>
         </div>
-        {settingsMessage ? <p className="field--full">{settingsMessage}</p> : null}
-      </form>
 
-      <div className="settings-subsection">
+        {aiExpanded ? (
+          <div className="form-grid">
+            <div className="field">
+              <label htmlFor="aiModel">AI-модель</label>
+              <input
+                id="aiModel"
+                value={settingsForm.aiModel}
+                onChange={(event) =>
+                  onSettingsFormChange((current) => ({
+                    ...current,
+                    aiModel: event.target.value,
+                  }))
+                }
+                required
+              />
+            </div>
+            <div className="field field--full">
+              <label htmlFor="parsingPrompt">Промпт разбора</label>
+              <textarea
+                id="parsingPrompt"
+                value={settingsForm.parsingPrompt}
+                onChange={(event) =>
+                  onSettingsFormChange((current) => ({
+                    ...current,
+                    parsingPrompt: event.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className="field field--full">
+              <label htmlFor="clarificationPrompt">Промпт уточнения</label>
+              <textarea
+                id="clarificationPrompt"
+                value={settingsForm.clarificationPrompt}
+                onChange={(event) =>
+                  onSettingsFormChange((current) => ({
+                    ...current,
+                    clarificationPrompt: event.target.value,
+                  }))
+                }
+              />
+            </div>
+          </div>
+        ) : (
+          <p className="empty-copy">Advanced AI-параметры скрыты до явного раскрытия блока.</p>
+        )}
+      </article>
+
+      <article className="panel card settings-card">
         <div className="section-intro">
           <h3>Бэкапы</h3>
           <p>Локальный backup PostgreSQL только для операций и справочников.</p>
@@ -126,7 +259,7 @@ export function SettingsSection({
         )}
 
         {backupError ? <p className="error">{backupError}</p> : null}
-        {backupMessage ? <p>{backupMessage}</p> : null}
+        {backupMessage ? <p className="settings-inline-message">{backupMessage}</p> : null}
 
         <div className="actions">
           <button className="button" type="button" disabled={backupCreating} onClick={() => void onCreateBackup()}>
@@ -141,12 +274,12 @@ export function SettingsSection({
             {backupDownloading ? 'Скачивание...' : 'Скачать последний'}
           </button>
         </div>
-      </div>
+      </article>
 
-      <div className="settings-subsection">
+      <article className="panel card settings-card">
         <div className="section-intro">
-          <h3>Сменить пароль администратора</h3>
-          <p>Обновление происходит без выхода из текущей сессии, если данные введены корректно.</p>
+          <h3>Безопасность</h3>
+          <p>Обновление пароля администратора без выхода из текущей сессии, если данные введены корректно.</p>
         </div>
         <form className="form-grid" onSubmit={onChangePassword}>
           <div className="field">
@@ -186,14 +319,14 @@ export function SettingsSection({
             />
           </div>
           {passwordError ? <p className="error field--full">{passwordError}</p> : null}
-          {passwordSuccess ? <p className="field--full">{passwordSuccess}</p> : null}
+          {passwordSuccess ? <p className="settings-inline-message field--full">{passwordSuccess}</p> : null}
           <div className="actions field--full">
             <button className="button" type="submit">
               Обновить пароль
             </button>
           </div>
         </form>
-      </div>
+      </article>
     </section>
   );
 }
