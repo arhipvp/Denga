@@ -265,7 +265,6 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 - `SSH_KNOWN_HOSTS`
 - `REMOTE_APP_DIR`: абсолютный путь проекта на сервере
 - `APP_URL`: URL главной страницы для post-deploy проверки
-- `API_HEALTHCHECK_URL`: URL API для post-deploy проверки
 - `VERIFY_MEMBER_EMAIL` / `VERIFY_MEMBER_PASSWORD`: опциональные данные обычного пользователя для `403`-проверки в contract gate
 
 Production `.env` должен храниться только на сервере в `$REMOTE_APP_DIR/.env`. GitHub Actions деплоит код, но не хранит и не перезаписывает боевые секреты.

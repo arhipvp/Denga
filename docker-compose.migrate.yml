@@ -16,13 +16,13 @@ services:
       - |
         set -eu
         BASELINE_MIGRATION="20260407110000_init"
-        if migrate_output=$(npx prisma migrate deploy 2>&1); then
-          printf '%s\n' "$migrate_output"
+        if migrate_output=$$(npx prisma migrate deploy 2>&1); then
+          printf '%s\n' "$$migrate_output"
         else
-          printf '%s\n' "$migrate_output" >&2
-          if printf '%s' "$migrate_output" | grep -q 'P3005'; then
-            echo "Existing database without Prisma migration history detected, applying baseline ${BASELINE_MIGRATION}." >&2
-            npx prisma migrate resolve --applied "$BASELINE_MIGRATION"
+          printf '%s\n' "$$migrate_output" >&2
+          if printf '%s' "$$migrate_output" | grep -q 'P3005'; then
+            echo "Existing database without Prisma migration history detected, applying baseline $${BASELINE_MIGRATION}." >&2
+            npx prisma migrate resolve --applied "$$BASELINE_MIGRATION"
             npx prisma migrate deploy
           else
             exit 1

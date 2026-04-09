@@ -33,10 +33,9 @@ jobs:
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
           APP_URL: ${{ secrets.APP_URL }}
-          API_HEALTHCHECK_URL: ${{ secrets.API_HEALTHCHECK_URL }}
         run: |
           missing=0
-          for key in SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS REMOTE_APP_DIR APP_URL API_HEALTHCHECK_URL; do
+          for key in SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS REMOTE_APP_DIR APP_URL; do
             if [ -z "${!key}" ]; then
               echo "Missing required secret: $key" >&2
               missing=1
@@ -97,12 +96,11 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
           APP_URL: ${{ secrets.APP_URL }}
-          API_HEALTHCHECK_URL: ${{ secrets.API_HEALTHCHECK_URL }}
         run: |
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
             set -e
             cd '$REMOTE_APP_DIR'
-            APP_URL='$APP_URL' API_HEALTHCHECK_URL='$API_HEALTHCHECK_URL' sh ./scripts/production-cutover.sh
+            APP_URL='$APP_URL' sh ./scripts/production-cutover.sh
           "
 
       - name: Verify services on server
@@ -112,7 +110,6 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
           APP_URL: ${{ secrets.APP_URL }}
-          API_HEALTHCHECK_URL: ${{ secrets.API_HEALTHCHECK_URL }}
         run: |
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
             set -e
@@ -159,6 +156,6 @@ jobs:
             }
 
             verify_running_service 'python-worker'
-            verify_url 'API' '$API_HEALTHCHECK_URL'
+            verify_url 'API' 'http://127.0.0.1:3001/api/health/ready'
             verify_url 'Web' '$APP_URL'
           "

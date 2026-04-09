@@ -59,7 +59,7 @@ apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_inva
 3. Запустить deploy workflow или вручную выполнить на сервере:
 
 ```bash
-APP_URL='<app_url>' API_HEALTHCHECK_URL='<api_healthcheck_url>' sh ./scripts/production-cutover.sh
+APP_URL='<app_url>' sh ./scripts/production-cutover.sh
 ```
 
 4. Скрипт сам:
@@ -77,7 +77,7 @@ APP_URL='<app_url>' API_HEALTHCHECK_URL='<api_healthcheck_url>' sh ./scripts/pro
 5. После выката проверить:
 
 - `python-worker` в `docker compose ps` находится в состоянии `running`
-- `API_HEALTHCHECK_URL` отвечает `200`
+- `http://127.0.0.1:3001/api/health/ready` отвечает `200`
 - `APP_URL` отвечает `200`
 - contract smoke проходит на боевом адресе
 - инварианты по `Transaction` и `Category` совпадают с pre-cutover snapshot

@@ -41,7 +41,7 @@ else
   VERIFY_API_BASE_URL="${VERIFY_API_BASE_URL:-http://localhost:3001/api}"
 fi
 
-API_HEALTHCHECK_URL="${API_HEALTHCHECK_URL:-${VERIFY_API_BASE_URL%/api}/health/ready}"
+INTERNAL_API_HEALTHCHECK_URL="${INTERNAL_API_HEALTHCHECK_URL:-http://127.0.0.1:3001/api/health/ready}"
 APP_URL="${APP_URL:-${WEB_URL_VALUE:-http://localhost:3000}}"
 VERIFY_ADMIN_EMAIL="${VERIFY_ADMIN_EMAIL:-$ADMIN_EMAIL_VALUE}"
 VERIFY_ADMIN_PASSWORD="${VERIFY_ADMIN_PASSWORD:-$ADMIN_PASSWORD_VALUE}"
@@ -100,7 +100,7 @@ $COMPOSE_CMD -f docker-compose.yml -f docker-compose.migrate.yml run --rm prisma
 echo 'Starting python-api and python-worker'
 $COMPOSE_CMD up --build -d --remove-orphans python-api python-worker
 
-if ! verify_running_service python-worker || ! verify_url API "$API_HEALTHCHECK_URL"; then
+if ! verify_running_service python-worker || ! verify_url API "$INTERNAL_API_HEALTHCHECK_URL"; then
   rollback
   exit 1
 fi
