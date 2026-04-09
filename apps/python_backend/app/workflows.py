@@ -50,6 +50,7 @@ from app.telegram_helpers import (
     normalize_date,
     render_draft_text,
 )
+from app.telegram_stats import send_current_month_report
 from app.telegram_types import ActiveCategory, ParsedTransaction, ReviewDraft, extract_message_text
 
 
@@ -627,8 +628,12 @@ def handle_callback_query(db: Session, callback: dict[str, Any], telegram: Teleg
     author_telegram_id = str((callback.get("from") or {}).get("id"))
     if data in {TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK, TELEGRAM_INCOME_CURRENT_MONTH_CALLBACK}:
         telegram.answer_callback_query(callback["id"])
-        telegram.send_message(chat_id, "Отчет пока не перенесен в Python worker.")
-        return {"accepted": True, "status": "stats_placeholder_sent"}
+        return send_current_month_report(
+            db,
+            telegram,
+            chat_id,
+            type_=TransactionType.EXPENSE if data == TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK else TransactionType.INCOME,
+        )
     account = db.execute(select(TelegramAccount).where(TelegramAccount.telegram_id == author_telegram_id).options(joinedload(TelegramAccount.user))).scalar_one_or_none()
     if not account or not account.user:
         telegram.answer_callback_query(callback["id"], "Пользователь не найден")

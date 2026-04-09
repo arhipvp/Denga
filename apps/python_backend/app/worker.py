@@ -4,7 +4,7 @@ import time
 
 from app.config import get_settings
 from app.database import SessionLocal
-from app.jobs import claim_next_job, mark_job_completed, mark_job_failed
+from app.jobs import claim_next_job, enqueue_job, mark_job_completed, mark_job_failed
 from app.logging_utils import logger
 from app.telegram_adapter import TelegramAdapter
 from app.workflows import (
@@ -20,6 +20,8 @@ from app.workflows import (
     reparse_draft_with_clarification,
     route_telegram_update,
 )
+
+POLLING_RETRY_DELAY_SECONDS = 30
 
 
 def _handle_job(job, telegram: TelegramAdapter, db) -> None:
@@ -51,12 +53,43 @@ def _handle_job(job, telegram: TelegramAdapter, db) -> None:
     )
 
 
+def _poll_telegram_updates(db, telegram: TelegramAdapter, offset: int | None) -> int | None:
+    if get_settings().telegram_mode != "polling" or not get_settings().telegram_bot_token:
+        return offset
+    updates = telegram.get_updates(offset=offset, timeout=1)
+    next_offset = offset
+    for update in updates:
+        update_id = update.get("update_id")
+        enqueue_job(
+            db,
+            job_type=JOB_TYPE_TELEGRAM_UPDATE,
+            payload=update,
+            household_id=get_settings().bootstrap_household_id,
+        )
+        if isinstance(update_id, int):
+            next_offset = update_id + 1
+    return next_offset
+
+
 def main() -> None:
     settings = get_settings()
     telegram = TelegramAdapter(settings)
+    polling_offset: int | None = None
+    polling_backoff_until = 0.0
     logger.info("worker", "worker_started", "Python worker started", {"workerId": settings.worker_id})
     while True:
         with SessionLocal() as db:
+            if settings.telegram_mode == "polling" and settings.telegram_bot_token and time.time() >= polling_backoff_until:
+                try:
+                    polling_offset = _poll_telegram_updates(db, telegram, polling_offset)
+                except Exception as exc:
+                    polling_backoff_until = time.time() + POLLING_RETRY_DELAY_SECONDS
+                    logger.error(
+                        "telegram",
+                        "polling_failed",
+                        "Telegram polling launch failed",
+                        {"error": exc, "retryDelaySeconds": POLLING_RETRY_DELAY_SECONDS},
+                    )
             maybe_enqueue_scheduled_backup(db, settings)
             job = claim_next_job(db)
             if not job:

@@ -43,6 +43,16 @@ class TelegramAdapter:
                 data["caption"] = caption
             return self._request("sendDocument", method="POST", data=data, files=files).get("result", {"message_id": 0})
 
+    def send_photo(self, *, chat_id: str, file_name: str, photo: bytes, caption: str | None = None) -> dict[str, Any]:
+        if not self.settings.telegram_bot_token:
+            return {"message_id": 0}
+        files = {"photo": (file_name, photo, "image/png")}
+        data = {"chat_id": chat_id}
+        if caption:
+            data["caption"] = caption
+            data["parse_mode"] = "HTML"
+        return self._request("sendPhoto", method="POST", data=data, files=files).get("result", {"message_id": 0})
+
     def edit_message(self, chat_id: str, message_id: int, text: str, reply_markup: dict | None = None) -> bool:
         if not self.settings.telegram_bot_token:
             return False
@@ -89,6 +99,12 @@ class TelegramAdapter:
 
     def get_file_metadata(self, file_id: str) -> dict[str, Any]:
         return self._request("getFile", method="GET", params={"file_id": file_id}).get("result", {})
+
+    def get_updates(self, *, offset: int | None = None, timeout: int = 20) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"timeout": timeout}
+        if offset is not None:
+            params["offset"] = offset
+        return self._request("getUpdates", method="GET", params=params).get("result", [])
 
     def download_file_bytes(self, file_path: str) -> bytes:
         if not self.settings.telegram_bot_token:

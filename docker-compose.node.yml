@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: denga
+      POSTGRES_USER: denga
+      POSTGRES_PASSWORD: denga
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://denga:denga@postgres:5432/denga?schema=public
+      NODE_OPTIONS: --dns-result-order=ipv4first
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./logs:/app/logs
+      - ./backups:/app/backups
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    restart: unless-stopped
+    depends_on:
+      - api
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data:

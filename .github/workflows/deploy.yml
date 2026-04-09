@@ -96,19 +96,13 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+          APP_URL: ${{ secrets.APP_URL }}
+          API_HEALTHCHECK_URL: ${{ secrets.API_HEALTHCHECK_URL }}
         run: |
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
             set -e
             cd '$REMOTE_APP_DIR'
-            if docker compose version >/dev/null 2>&1; then
-              COMPOSE_CMD='docker compose'
-            elif command -v docker-compose >/dev/null 2>&1; then
-              COMPOSE_CMD='docker-compose'
-            else
-              echo 'Neither docker compose nor docker-compose is available on the server' >&2
-              exit 1
-            fi
-            \$COMPOSE_CMD up --build -d
+            APP_URL='$APP_URL' API_HEALTHCHECK_URL='$API_HEALTHCHECK_URL' sh ./scripts/production-cutover.sh
           "
 
       - name: Verify services on server
@@ -148,11 +142,23 @@ jobs:
 
               echo \"\$name did not become ready in time\" >&2
               \$COMPOSE_CMD ps >&2 || true
-              \$COMPOSE_CMD logs --tail=200 api >&2 || true
+              \$COMPOSE_CMD logs --tail=200 python-api >&2 || true
+              \$COMPOSE_CMD logs --tail=200 python-worker >&2 || true
               \$COMPOSE_CMD logs --tail=100 web >&2 || true
               return 1
             }
 
+            verify_running_service() {
+              service_name=\"\$1\"
+              if ! \$COMPOSE_CMD ps --status running --services | grep -Fx \"\$service_name\" >/dev/null; then
+                echo \"Service \$service_name is not running\" >&2
+                \$COMPOSE_CMD ps >&2 || true
+                \$COMPOSE_CMD logs --tail=200 \"\$service_name\" >&2 || true
+                return 1
+              fi
+            }
+
+            verify_running_service 'python-worker'
             verify_url 'API' '$API_HEALTHCHECK_URL'
             verify_url 'Web' '$APP_URL'
           "

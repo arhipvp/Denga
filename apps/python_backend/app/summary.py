@@ -155,3 +155,69 @@ def calculate_transaction_summary(
         "topIncomeCategories": build_top_categories(income_categories, current["income"]),
         "monthly": list(monthly.values()),
     }
+
+
+def format_current_month_label(date: datetime) -> str:
+    months = [
+        "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+        "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+    ]
+    return f"{months[date.month - 1]} {date.year}"
+
+
+def calculate_current_month_category_breakdown(
+    *,
+    transactions: list[SummaryTransaction],
+    period_start: datetime,
+    currency: str,
+    minimum_visible_share: float = 0.05,
+) -> dict:
+    total_amount = sum(item.amount for item in transactions)
+    category_map: dict[str, dict] = {}
+    for item in transactions:
+        category_key = item.parent_category_id or item.category_id or f"uncategorized-{item.type.lower()}"
+        if category_key not in category_map:
+            category_map[category_key] = {
+                "categoryId": item.parent_category_id or item.category_id,
+                "categoryName": item.parent_category_name or item.category_name or UNCATEGORIZED_LABEL,
+                "amount": 0.0,
+            }
+        category_map[category_key]["amount"] += item.amount
+
+    sorted_items = [
+        {
+            **item,
+            "share": (item["amount"] / total_amount) if total_amount > 0 else 0.0,
+        }
+        for item in sorted(category_map.values(), key=lambda current: current["amount"], reverse=True)
+    ]
+    full_items = [{**item} for item in sorted_items]
+    visible_items = [{**item} for item in sorted_items]
+    other_amount = 0.0
+    hidden_count = 0
+    for index in range(len(sorted_items) - 1, -1, -1):
+        next_amount = other_amount + sorted_items[index]["amount"]
+        next_share = (next_amount / total_amount) if total_amount > 0 else 0.0
+        if next_share > minimum_visible_share:
+            break
+        other_amount = next_amount
+        hidden_count += 1
+    if hidden_count > 0:
+        visible_items = visible_items[: len(visible_items) - hidden_count]
+        visible_items.append(
+            {
+                "categoryId": None,
+                "categoryName": "Прочие категории",
+                "amount": other_amount,
+                "share": (other_amount / total_amount) if total_amount > 0 else 0.0,
+                "isOther": True,
+            }
+        )
+
+    return {
+        "periodLabel": format_current_month_label(period_start),
+        "currency": currency,
+        "totalAmount": total_amount,
+        "items": visible_items,
+        "fullItems": full_items,
+    }
