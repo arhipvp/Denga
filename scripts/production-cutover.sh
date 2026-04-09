@@ -15,25 +15,36 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
-set -a
-. ./.env
-set +a
+read_compose_env() {
+  var_name="$1"
+  $COMPOSE_CMD run --rm --no-deps python-api python -c "import os; print(os.getenv('$var_name', ''))" | tr -d '\r'
+}
 
-if [ -z "${ADMIN_EMAIL:-}" ] || [ -z "${ADMIN_PASSWORD:-}" ]; then
+echo 'Building release images before write freeze'
+$COMPOSE_CMD build python-api python-worker web
+$COMPOSE_CMD -f docker-compose.yml -f docker-compose.migrate.yml build prisma-bootstrap
+
+ADMIN_EMAIL_VALUE="${ADMIN_EMAIL:-$(read_compose_env ADMIN_EMAIL)}"
+ADMIN_PASSWORD_VALUE="${ADMIN_PASSWORD:-$(read_compose_env ADMIN_PASSWORD)}"
+
+if [ -z "$ADMIN_EMAIL_VALUE" ] || [ -z "$ADMIN_PASSWORD_VALUE" ]; then
   echo 'ADMIN_EMAIL and ADMIN_PASSWORD must be set in .env for contract verification' >&2
   exit 1
 fi
 
-if [ -n "${NEXT_PUBLIC_API_URL:-}" ]; then
-  VERIFY_API_BASE_URL="${VERIFY_API_BASE_URL:-$NEXT_PUBLIC_API_URL}"
+NEXT_PUBLIC_API_URL_VALUE="${NEXT_PUBLIC_API_URL:-$(read_compose_env NEXT_PUBLIC_API_URL)}"
+WEB_URL_VALUE="${WEB_URL:-$(read_compose_env WEB_URL)}"
+
+if [ -n "$NEXT_PUBLIC_API_URL_VALUE" ]; then
+  VERIFY_API_BASE_URL="${VERIFY_API_BASE_URL:-$NEXT_PUBLIC_API_URL_VALUE}"
 else
   VERIFY_API_BASE_URL="${VERIFY_API_BASE_URL:-http://localhost:3001/api}"
 fi
 
-API_HEALTHCHECK_URL="${API_HEALTHCHECK_URL:-${VERIFY_API_BASE_URL%/api}/api/health/ready}"
-APP_URL="${APP_URL:-${WEB_URL:-http://localhost:3000}}"
-VERIFY_ADMIN_EMAIL="${VERIFY_ADMIN_EMAIL:-$ADMIN_EMAIL}"
-VERIFY_ADMIN_PASSWORD="${VERIFY_ADMIN_PASSWORD:-$ADMIN_PASSWORD}"
+API_HEALTHCHECK_URL="${API_HEALTHCHECK_URL:-${VERIFY_API_BASE_URL%/api}/health/ready}"
+APP_URL="${APP_URL:-${WEB_URL_VALUE:-http://localhost:3000}}"
+VERIFY_ADMIN_EMAIL="${VERIFY_ADMIN_EMAIL:-$ADMIN_EMAIL_VALUE}"
+VERIFY_ADMIN_PASSWORD="${VERIFY_ADMIN_PASSWORD:-$ADMIN_PASSWORD_VALUE}"
 
 mkdir -p backups
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -112,7 +123,7 @@ if ! $COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --comp
 fi
 
 echo 'Starting web after automated gates passed'
-$COMPOSE_CMD up --build -d web
+$COMPOSE_CMD up -d web
 
 if ! verify_url Web "$APP_URL"; then
   rollback
