@@ -214,7 +214,7 @@ jobs:
               exit 1
             fi
 
-            VERIFY_API_BASE_URL=\$(\$COMPOSE_CMD run --rm --no-deps python-api python -c \"import os; print(os.getenv('NEXT_PUBLIC_API_URL', 'http://localhost:3001/api'))\" | tr -d '\r')
+            VERIFY_API_BASE_URL='http://python-api:3001/api'
             VERIFY_ADMIN_EMAIL=\$(\$COMPOSE_CMD run --rm --no-deps python-api python -c \"import os; print(os.getenv('ADMIN_EMAIL', ''))\" | tr -d '\r')
             VERIFY_ADMIN_PASSWORD=\$(\$COMPOSE_CMD run --rm --no-deps python-api python -c \"import os; print(os.getenv('ADMIN_PASSWORD', ''))\" | tr -d '\r')
             VERIFY_MEMBER_EMAIL=\$(\$COMPOSE_CMD run --rm --no-deps python-api python -c \"import os; print(os.getenv('VERIFY_MEMBER_EMAIL', ''))\" | tr -d '\r')
