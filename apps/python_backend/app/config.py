@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     api_prefix: str = "/api"
     port: int = 3001
     node_env: str = "development"
+    web_url: str | None = None
+    cors_allowed_origins: str | None = None
     database_url: str = "postgresql://denga:denga@localhost:5433/denga?schema=public"
     jwt_secret: str = "change-me"
     jwt_expires_days: int = 7
@@ -43,6 +45,22 @@ class Settings(BaseSettings):
     @property
     def log_path(self) -> Path:
         return Path.cwd() / self.log_dir
+
+    @property
+    def allowed_cors_origins(self) -> list[str]:
+        origins: list[str] = []
+
+        def add_origin(candidate: str | None) -> None:
+            value = candidate.strip() if candidate else ""
+            if value and value not in origins:
+                origins.append(value)
+
+        add_origin(self.web_url)
+        if self.cors_allowed_origins:
+            for origin in self.cors_allowed_origins.split(","):
+                add_origin(origin)
+
+        return origins
 
 
 @lru_cache

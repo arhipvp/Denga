@@ -152,6 +152,8 @@ Runbook для rehearsal, production cutover и rollback лежит в [`docs/py
 - `JWT_SECRET`: secret for admin auth
 - `ADMIN_EMAIL` / `ADMIN_PASSWORD`: bootstrap-администратор
 - `NEXT_PUBLIC_API_URL`: обязательный публичный base URL API для Next.js админки
+- `WEB_URL`: origin web-приложения; используется в том числе для CORS allowlist Python API
+- `CORS_ALLOWED_ORIGINS`: дополнительный comma-separated список origin-ов для CORS, если кроме `WEB_URL` нужно разрешить другие клиенты
 - `TELEGRAM_BOT_TOKEN`: token бота
 - `TELEGRAM_MODE`: `polling` или `webhook`
 - `TELEGRAM_WEBHOOK_URL`: публичный URL для webhook-режима
