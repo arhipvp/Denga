@@ -33,7 +33,9 @@ from app.models import (
 from app.services_core import bootstrap_household_id, get_settings_payload
 from app.telegram_adapter import TelegramAdapter
 from app.telegram_helpers import (
-    CATEGORY_PAGE_CALLBACK_PREFIX,
+    CATEGORY_LEAF_PAGE_CALLBACK_PREFIX,
+    CATEGORY_PARENT_CALLBACK_PREFIX,
+    CATEGORY_PARENT_PAGE_CALLBACK_PREFIX,
     TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK,
     TELEGRAM_INCOME_CURRENT_MONTH_CALLBACK,
     apply_heuristics,
@@ -86,6 +88,7 @@ def load_active_categories(db: Session, type_: str | None = None) -> list[Active
                 name=item.name,
                 type=item.type,
                 parent_id=item.parent_id or "",
+                parent_name=item.parent.name,
                 display_path=f"{item.parent.name} / {item.name}",
             )
         )
@@ -402,10 +405,12 @@ def apply_manual_edit(db: Session, draft_id: str, field: str, value: str, chat_i
 
 def begin_field_edit(db: Session, draft_id: str, field: str, chat_id: str, telegram: TelegramAdapter) -> dict[str, Any]:
     draft = db.execute(select(PendingOperationReview).where(PendingOperationReview.id == draft_id)).scalar_one()
+    active_picker_id = draft.active_picker_message_id
     if field == "type":
         draft.pending_field = None
         draft.active_picker_message_id = None
         db.commit()
+        clear_active_picker_message(chat_id, active_picker_id, telegram)
         result = telegram.send_message(
             chat_id,
             "Выберите тип операции:",
@@ -418,7 +423,8 @@ def begin_field_edit(db: Session, draft_id: str, field: str, chat_id: str, teleg
         draft.pending_field = None
         draft.active_picker_message_id = None
         db.commit()
-        return show_category_page(db, draft_id, chat_id, None, 0, telegram)
+        clear_active_picker_message(chat_id, active_picker_id, telegram)
+        return show_category_page(db, draft_id, chat_id, None, 0, telegram, parent_id=None, parent_page=0)
     prompts = {"amount": "Введите новую сумму.", "date": 'Введите новую дату. Можно написать "сегодня" или "2026-03-31".', "comment": "Введите новый комментарий."}
     draft.pending_field = field
     db.commit()
@@ -426,11 +432,26 @@ def begin_field_edit(db: Session, draft_id: str, field: str, chat_id: str, teleg
     return {"accepted": True, "status": "awaiting_edit"}
 
 
-def show_category_page(db: Session, draft_id: str, chat_id: str, message_id: int | None, requested_page: int, telegram: TelegramAdapter) -> dict[str, Any]:
+def show_category_page(
+    db: Session,
+    draft_id: str,
+    chat_id: str,
+    message_id: int | None,
+    requested_page: int,
+    telegram: TelegramAdapter,
+    *,
+    parent_id: str | None,
+    parent_page: int,
+) -> dict[str, Any]:
     draft_record = db.execute(select(PendingOperationReview).where(PendingOperationReview.id == draft_id)).scalar_one()
     review_draft = ReviewDraft.from_dict(draft_record.draft)
     categories = load_active_categories(db, review_draft.type)
-    page_payload = build_category_picker_page(categories, requested_page)
+    page_payload = build_category_picker_page(
+        categories,
+        requested_page,
+        parent_id=parent_id,
+        parent_page=parent_page,
+    )
     if not page_payload:
         text_value = "Нет активных категорий для выбранного типа операции."
         if message_id is None:
@@ -663,6 +684,7 @@ def handle_callback_query(db: Session, callback: dict[str, Any], telegram: Teleg
         review_draft.type = data.replace("draft:set-type:", "")
         review_draft.category_id = None
         review_draft.category_name = None
+        clear_active_picker_message(chat_id, draft.active_picker_message_id, telegram)
         draft.draft = review_draft.to_dict()
         draft.active_picker_message_id = None
         draft.pending_field = None
@@ -682,16 +704,54 @@ def handle_callback_query(db: Session, callback: dict[str, Any], telegram: Teleg
         review_draft = ReviewDraft.from_dict(draft.draft)
         review_draft.category_id = category.id
         review_draft.category_name = f"{category.parent.name if category.parent else 'Без родителя'} / {category.name}"
+        clear_active_picker_message(chat_id, draft.active_picker_message_id, telegram)
         draft.draft = review_draft.to_dict()
         draft.active_picker_message_id = None
         draft.pending_field = None
         db.commit()
         render_or_send_draft_card(db, draft.id, chat_id, telegram)
         return {"accepted": True, "status": "pending_review"}
-    if data.startswith(CATEGORY_PAGE_CALLBACK_PREFIX):
+    if data.startswith(CATEGORY_PARENT_CALLBACK_PREFIX):
         telegram.answer_callback_query(callback["id"])
-        page = int(data.replace(CATEGORY_PAGE_CALLBACK_PREFIX, "") or "0")
-        return show_category_page(db, draft.id, chat_id, int(message_id), page, telegram)
+        parent_payload = data.replace(CATEGORY_PARENT_CALLBACK_PREFIX, "")
+        parent_id, _, parent_page_value = parent_payload.partition(":")
+        return show_category_page(
+            db,
+            draft.id,
+            chat_id,
+            int(message_id),
+            0,
+            telegram,
+            parent_id=parent_id,
+            parent_page=int(parent_page_value or "0"),
+        )
+    if data.startswith(CATEGORY_PARENT_PAGE_CALLBACK_PREFIX):
+        telegram.answer_callback_query(callback["id"])
+        page = int(data.replace(CATEGORY_PARENT_PAGE_CALLBACK_PREFIX, "") or "0")
+        return show_category_page(
+            db,
+            draft.id,
+            chat_id,
+            int(message_id),
+            page,
+            telegram,
+            parent_id=None,
+            parent_page=page,
+        )
+    if data.startswith(CATEGORY_LEAF_PAGE_CALLBACK_PREFIX):
+        telegram.answer_callback_query(callback["id"])
+        payload = data.replace(CATEGORY_LEAF_PAGE_CALLBACK_PREFIX, "")
+        parent_id, parent_page_value, page_value = (payload.split(":", 2) + ["0", "0"])[:3]
+        return show_category_page(
+            db,
+            draft.id,
+            chat_id,
+            int(message_id),
+            int(page_value or "0"),
+            telegram,
+            parent_id=parent_id,
+            parent_page=int(parent_page_value or "0"),
+        )
     telegram.answer_callback_query(callback["id"], "Неизвестное действие")
     return {"accepted": True, "ignored": True}
 

@@ -42,6 +42,12 @@ def test_renderer_returns_png_bytes() -> None:
     assert len(image) > 1000
 
 
+def test_renderer_resolves_ttf_font_path() -> None:
+    renderer = TelegramStatsRenderer()
+    assert renderer._resolve_font_path() is not None
+    assert renderer._resolve_font_path(bold=True) is not None
+
+
 def test_polling_enqueues_updates(monkeypatch) -> None:
     monkeypatch.setenv("TELEGRAM_MODE", "polling")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")

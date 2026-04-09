@@ -17,8 +17,38 @@ def _expense_category() -> list[ActiveCategory]:
             name="Такси",
             type=CategoryType.EXPENSE,
             parent_id="parent-1",
+            parent_name="Транспорт",
             display_path="Транспорт / Такси",
         )
+    ]
+
+
+def _hierarchical_categories() -> list[ActiveCategory]:
+    return [
+        ActiveCategory(
+            id="cat-1",
+            name="Такси",
+            type=CategoryType.EXPENSE,
+            parent_id="parent-1",
+            parent_name="Транспорт",
+            display_path="Транспорт / Такси",
+        ),
+        ActiveCategory(
+            id="cat-2",
+            name="Метро",
+            type=CategoryType.EXPENSE,
+            parent_id="parent-1",
+            parent_name="Транспорт",
+            display_path="Транспорт / Метро",
+        ),
+        ActiveCategory(
+            id="cat-3",
+            name="Кофе",
+            type=CategoryType.EXPENSE,
+            parent_id="parent-2",
+            parent_name="Еда",
+            display_path="Еда / Кофе",
+        ),
     ]
 
 
@@ -82,11 +112,30 @@ def test_missing_fields_and_category_picker_page() -> None:
         _expense_category(),
     )
     missing = get_missing_draft_fields(draft)
-    picker = build_category_picker_page(_expense_category(), 0)
+    picker = build_category_picker_page(_expense_category(), 0, parent_id=None, parent_page=0)
     assert "тип" in missing
     assert "сумма" in missing
     assert picker is not None
-    assert "Выберите категорию" in picker["text"]
+    assert "Выберите главную категорию" in picker["text"]
+
+
+def test_category_picker_supports_parent_and_child_navigation() -> None:
+    parent_picker = build_category_picker_page(_hierarchical_categories(), 0, parent_id=None, parent_page=0)
+    assert parent_picker is not None
+    assert parent_picker["replyMarkup"]["inline_keyboard"][0][0]["text"] == "Еда"
+    assert parent_picker["replyMarkup"]["inline_keyboard"][1][0]["text"] == "Транспорт"
+
+    child_picker = build_category_picker_page(
+        _hierarchical_categories(),
+        0,
+        parent_id="parent-1",
+        parent_page=0,
+    )
+    assert child_picker is not None
+    assert "Выберите подкатегорию" in child_picker["text"]
+    assert child_picker["replyMarkup"]["inline_keyboard"][0][0]["text"] == "Метро"
+    assert child_picker["replyMarkup"]["inline_keyboard"][1][0]["text"] == "Такси"
+    assert child_picker["replyMarkup"]["inline_keyboard"][-1][0]["text"] == "К главным категориям"
 
 
 def test_normalize_date_handles_relative_values() -> None:

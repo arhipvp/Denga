@@ -11,7 +11,9 @@ TELEGRAM_STATS_MENU_LABEL = "Посмотреть статистику"
 TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK = "stats:expense-current-month"
 TELEGRAM_INCOME_CURRENT_MONTH_CALLBACK = "stats:income-current-month"
 CATEGORY_PAGE_SIZE = 8
-CATEGORY_PAGE_CALLBACK_PREFIX = "draft:category-page:"
+CATEGORY_PARENT_PAGE_CALLBACK_PREFIX = "draft:category-parent-page:"
+CATEGORY_PARENT_CALLBACK_PREFIX = "draft:category-parent:"
+CATEGORY_LEAF_PAGE_CALLBACK_PREFIX = "draft:category-leaf-page:"
 
 
 def create_main_menu_reply_markup() -> dict:
@@ -245,22 +247,86 @@ def create_draft_keyboard() -> dict:
     }
 
 
-def build_category_picker_page(categories: list[ActiveCategory], requested_page: int) -> dict | None:
+def build_category_picker_page(
+    categories: list[ActiveCategory],
+    requested_page: int,
+    *,
+    parent_id: str | None = None,
+    parent_page: int = 0,
+) -> dict | None:
     if not categories:
         return None
-    total_pages = (len(categories) + CATEGORY_PAGE_SIZE - 1) // CATEGORY_PAGE_SIZE
+    if parent_id is None:
+        parents = []
+        seen_parent_ids: set[str] = set()
+        for item in categories:
+            if item.parent_id in seen_parent_ids:
+                continue
+            seen_parent_ids.add(item.parent_id)
+            parents.append({"id": item.parent_id, "name": item.parent_name})
+        parents.sort(key=lambda item: item["name"].lower())
+
+        total_pages = (len(parents) + CATEGORY_PAGE_SIZE - 1) // CATEGORY_PAGE_SIZE
+        current_page = min(max(0, requested_page), total_pages - 1)
+        start = current_page * CATEGORY_PAGE_SIZE
+        page_items = parents[start:start + CATEGORY_PAGE_SIZE]
+        keyboard = [
+            [
+                {
+                    "text": item["name"],
+                    "callback_data": f"{CATEGORY_PARENT_CALLBACK_PREFIX}{item['id']}:{current_page}",
+                }
+            ]
+            for item in page_items
+        ]
+        pagination_row: list[dict] = []
+        if current_page > 0:
+            pagination_row.append({"text": "Назад", "callback_data": f"{CATEGORY_PARENT_PAGE_CALLBACK_PREFIX}{current_page - 1}"})
+        if current_page < total_pages - 1:
+            pagination_row.append({"text": "Вперед", "callback_data": f"{CATEGORY_PARENT_PAGE_CALLBACK_PREFIX}{current_page + 1}"})
+        if pagination_row:
+            keyboard.append(pagination_row)
+        return {
+            "text": (
+                f"Выберите главную категорию (страница {current_page + 1}/{total_pages}):"
+                if total_pages > 1
+                else "Выберите главную категорию:"
+            ),
+            "replyMarkup": {"inline_keyboard": keyboard},
+        }
+
+    leaf_items = [item for item in categories if item.parent_id == parent_id]
+    if not leaf_items:
+        return None
+    leaf_items.sort(key=lambda item: item.name.lower())
+    total_pages = (len(leaf_items) + CATEGORY_PAGE_SIZE - 1) // CATEGORY_PAGE_SIZE
     current_page = min(max(0, requested_page), total_pages - 1)
     start = current_page * CATEGORY_PAGE_SIZE
-    page_items = categories[start:start + CATEGORY_PAGE_SIZE]
-    keyboard = [[{"text": item.display_path, "callback_data": f"draft:set-category:{item.id}"}] for item in page_items]
+    page_items = leaf_items[start:start + CATEGORY_PAGE_SIZE]
+    keyboard = [[{"text": item.name, "callback_data": f"draft:set-category:{item.id}"}] for item in page_items]
     pagination_row: list[dict] = []
     if current_page > 0:
-        pagination_row.append({"text": "Назад", "callback_data": f"{CATEGORY_PAGE_CALLBACK_PREFIX}{current_page - 1}"})
+        pagination_row.append(
+            {
+                "text": "Назад",
+                "callback_data": f"{CATEGORY_LEAF_PAGE_CALLBACK_PREFIX}{parent_id}:{parent_page}:{current_page - 1}",
+            }
+        )
     if current_page < total_pages - 1:
-        pagination_row.append({"text": "Вперед", "callback_data": f"{CATEGORY_PAGE_CALLBACK_PREFIX}{current_page + 1}"})
+        pagination_row.append(
+            {
+                "text": "Вперед",
+                "callback_data": f"{CATEGORY_LEAF_PAGE_CALLBACK_PREFIX}{parent_id}:{parent_page}:{current_page + 1}",
+            }
+        )
     if pagination_row:
         keyboard.append(pagination_row)
+    keyboard.append([{"text": "К главным категориям", "callback_data": f"{CATEGORY_PARENT_PAGE_CALLBACK_PREFIX}{parent_page}"}])
     return {
-        "text": f"Выберите категорию (страница {current_page + 1}/{total_pages}):" if total_pages > 1 else "Выберите категорию:",
+        "text": (
+            f"Выберите подкатегорию «{leaf_items[0].parent_name}» (страница {current_page + 1}/{total_pages}):"
+            if total_pages > 1
+            else f"Выберите подкатегорию «{leaf_items[0].parent_name}»:"
+        ),
         "replyMarkup": {"inline_keyboard": keyboard},
     }

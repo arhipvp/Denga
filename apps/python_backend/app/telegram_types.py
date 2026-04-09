@@ -15,6 +15,7 @@ class ActiveCategory:
     name: str
     type: CategoryType
     parent_id: str
+    parent_name: str
     display_path: str
 
 

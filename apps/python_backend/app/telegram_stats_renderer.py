@@ -4,33 +4,39 @@ from io import BytesIO
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
+from app.logging_utils import logger
 
 
 class TelegramStatsRenderer:
     def __init__(self) -> None:
-        self.width = 1200
-        self.height = 760
-        self.center_x = 290
-        self.center_y = 380
-        self.radius = 190
+        self.width = 1100
+        self.height = 700
+        self.center_x = 250
+        self.center_y = 365
+        self.radius = 205
+        self.legend_x = 505
+        self.legend_width = 350
+        self.amount_x = 880
+        self.percent_x = 1020
         self.colors = [
             "#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed",
             "#0891b2", "#db2777", "#65a30d", "#ea580c", "#475569",
         ]
         self.other_color = "#94a3b8"
-        self.title_font = self._load_font(38, bold=True)
-        self.subtitle_font = self._load_font(24)
-        self.label_font = self._load_font(20, bold=True)
-        self.small_font = self._load_font(18)
-        self.center_font = self._load_font(28, bold=True)
+        self.title_font = self._load_font(44, bold=True)
+        self.subtitle_font = self._load_font(28)
+        self.label_font = self._load_font(24, bold=True)
+        self.small_font = self._load_font(22)
+        self.center_font = self._load_font(34, bold=True)
+        self.center_amount_font = self._load_font(28, bold=True)
 
     def render_category_breakdown(self, breakdown: dict, report_title: str) -> bytes:
         image = Image.new("RGB", (self.width, self.height), "#f8fafc")
         draw = ImageDraw.Draw(image)
-        draw.text((60, 45), f"{report_title} за {breakdown['periodLabel'].lower()}", font=self.title_font, fill="#0f172a")
-        draw.text((60, 95), f"Общая сумма: {self._format_money(breakdown['totalAmount'], breakdown['currency'])}", font=self.subtitle_font, fill="#475569")
+        draw.text((48, 34), f"{report_title} за {breakdown['periodLabel'].lower()}", font=self.title_font, fill="#0f172a")
+        draw.text((48, 92), f"Общая сумма: {self._format_money(breakdown['totalAmount'], breakdown['currency'])}", font=self.subtitle_font, fill="#475569")
         if not breakdown["items"]:
-            draw.text((60, 180), "Нет данных для построения диаграммы", font=self.subtitle_font, fill="#334155")
+            draw.text((48, 180), "Нет данных для построения диаграммы", font=self.subtitle_font, fill="#334155")
             return self._to_png_bytes(image)
 
         bbox = (self.center_x - self.radius, self.center_y - self.radius, self.center_x + self.radius, self.center_y + self.radius)
@@ -49,22 +55,45 @@ class TelegramStatsRenderer:
         inner_radius = int(self.radius * 0.54)
         inner_bbox = (self.center_x - inner_radius, self.center_y - inner_radius, self.center_x + inner_radius, self.center_y + inner_radius)
         draw.ellipse(inner_bbox, fill="#f8fafc")
-        draw.text((self.center_x - 34, self.center_y - 24), "Итого", font=self.center_font, fill="#0f172a")
-        draw.text((self.center_x - 78, self.center_y + 10), self._format_money(breakdown["totalAmount"], breakdown["currency"]), font=self.small_font, fill="#0f172a")
+        self._draw_centered_text(draw, self.center_x, self.center_y - 22, "Итого", self.center_font, "#0f172a")
+        self._draw_centered_text(
+            draw,
+            self.center_x,
+            self.center_y + 22,
+            self._format_money(breakdown["totalAmount"], breakdown["currency"]),
+            self.center_amount_font,
+            "#0f172a",
+        )
 
-        draw.text((560, 150), "Категории", font=self.label_font, fill="#0f172a")
-        legend_top = 210
-        line_height = min(58, max(42, int((self.height - 270) / max(len(legend_items), 1))))
+        draw.text((self.legend_x, 146), "Категории", font=self.label_font, fill="#0f172a")
+        legend_top = 204
+        if len(legend_items) <= 3:
+            line_height = 78
+        elif len(legend_items) <= 5:
+            line_height = 66
+        else:
+            line_height = min(64, max(48, int((self.height - 250) / max(len(legend_items), 1))))
         for index, (color, item) in enumerate(legend_items):
             top = legend_top + index * line_height
-            marker_size = 20 if item.get("isOther") else 24
-            draw.rectangle((560, top - 19, 560 + marker_size, top - 19 + marker_size), fill=color, outline="#cbd5e1" if item.get("isOther") else color)
+            marker_size = 24 if item.get("isOther") else 28
+            marker_top = top - marker_size + 4
+            draw.rectangle(
+                (self.legend_x, marker_top, self.legend_x + marker_size, marker_top + marker_size),
+                fill=color,
+                outline="#cbd5e1" if item.get("isOther") else color,
+            )
             label = "Прочее" if item.get("isOther") else f"#{index + 1} {item['categoryName']}"
-            draw.text((600, top - 4), self._ellipsize(draw, label, 300, self.label_font if not item.get("isOther") else self.small_font), font=self.label_font if not item.get("isOther") else self.small_font, fill="#0f172a")
+            label_font = self.label_font if not item.get("isOther") else self.small_font
+            draw.text(
+                (self.legend_x + 42, top - 4),
+                self._ellipsize(draw, label, self.legend_width, label_font),
+                font=label_font,
+                fill="#0f172a",
+            )
             amount_text = self._format_money(item["amount"], breakdown["currency"])
             percent_text = f"{(item['share'] * 100):.1f}%"
-            draw.text((900, top - 4), amount_text, font=self.small_font, fill="#334155")
-            draw.text((1080, top - 4), percent_text, font=self.small_font, fill="#64748b" if item.get("isOther") else "#475569")
+            draw.text((self.amount_x, top - 4), amount_text, font=self.small_font, fill="#334155")
+            draw.text((self.percent_x, top - 4), percent_text, font=self.small_font, fill="#64748b" if item.get("isOther") else "#475569")
 
         return self._to_png_bytes(image)
 
@@ -77,7 +106,7 @@ class TelegramStatsRenderer:
         formatted = f"{value:,.2f}".replace(",", " ").replace(".", ",")
         return f"{formatted} {currency}"
 
-    def _load_font(self, size: int, *, bold: bool = False) -> ImageFont.ImageFont:
+    def _resolve_font_path(self, *, bold: bool = False) -> str | None:
         candidates = [
             "C:/Windows/Fonts/arialbd.ttf" if bold else "C:/Windows/Fonts/arial.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -85,7 +114,19 @@ class TelegramStatsRenderer:
         ]
         for candidate in candidates:
             if Path(candidate).exists():
-                return ImageFont.truetype(candidate, size=size)
+                return candidate
+        return None
+
+    def _load_font(self, size: int, *, bold: bool = False) -> ImageFont.ImageFont:
+        font_path = self._resolve_font_path(bold=bold)
+        if font_path:
+            return ImageFont.truetype(font_path, size=size)
+        logger.warn(
+            "telegram",
+            "stats_font_fallback",
+            "Telegram stats renderer fell back to default font",
+            {"bold": bold, "size": size},
+        )
         return ImageFont.load_default()
 
     def _ellipsize(self, draw: ImageDraw.ImageDraw, text: str, max_width: int, font: ImageFont.ImageFont) -> str:
@@ -95,3 +136,17 @@ class TelegramStatsRenderer:
         while len(value) > 1 and draw.textlength(f"{value}...", font=font) > max_width:
             value = value[:-1]
         return f"{value}..."
+
+    def _draw_centered_text(
+        self,
+        draw: ImageDraw.ImageDraw,
+        center_x: int,
+        center_y: int,
+        text: str,
+        font: ImageFont.ImageFont,
+        fill: str,
+    ) -> None:
+        bbox = draw.textbbox((0, 0), text, font=font)
+        width = bbox[2] - bbox[0]
+        height = bbox[3] - bbox[1]
+        draw.text((center_x - width / 2, center_y - height / 2), text, font=font, fill=fill)
