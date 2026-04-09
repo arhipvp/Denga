@@ -20,6 +20,7 @@ from app.models import Category, SourceMessage, SourceMessageStatus, SourceMessa
 from app.schemas import TransactionCreateRequest, TransactionUpdateRequest
 from app.services_core import bootstrap_household_id, get_settings_payload, map_category_type, require_entity
 from app.summary import SummaryTransaction, calculate_transaction_summary
+from app.workflows import enqueue_notification_job
 
 PG_DUMP_ALLOWED_QUERY_PARAMS = {
     "application_name", "channel_binding", "client_encoding", "connect_timeout", "gssencmode",
@@ -270,6 +271,7 @@ def create_transaction(db: Session, payload: TransactionCreateRequest, author_id
     )
     db.add(transaction)
     db.commit()
+    enqueue_notification_job(db, transaction.id, "created")
     transaction = db.execute(_transaction_query().where(Transaction.id == transaction.id)).unique().scalar_one()
     return _serialize_transaction(transaction)
 
@@ -303,6 +305,7 @@ def cancel_transaction(db: Session, transaction_id: str) -> dict[str, bool]:
     transaction = require_entity(db.execute(select(Transaction).where(Transaction.id == transaction_id)).scalar_one_or_none(), "Transaction not found")
     transaction.status = TransactionStatus.CANCELLED
     db.commit()
+    enqueue_notification_job(db, transaction.id, "deleted")
     return {"success": True}
 
 

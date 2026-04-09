@@ -89,6 +89,8 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column("updatedAt", DateTime(timezone=False), default=_utcnow, onupdate=_utcnow)
 
     telegram_accounts: Mapped[list[TelegramAccount]] = relationship("TelegramAccount", back_populates="user")
+    review_drafts: Mapped[list[PendingOperationReview]] = relationship("PendingOperationReview", back_populates="author")
+    source_messages: Mapped[list[SourceMessage]] = relationship("SourceMessage", back_populates="author")
 
 
 class TelegramAccount(Base):
@@ -141,6 +143,7 @@ class SourceMessage(Base):
     parse_attempts: Mapped[list[AiParseAttempt]] = relationship("AiParseAttempt", back_populates="source_message")
     clarification_session: Mapped[ClarificationSession | None] = relationship("ClarificationSession", back_populates="source_message", uselist=False)
     review_draft: Mapped[PendingOperationReview | None] = relationship("PendingOperationReview", back_populates="source_message", uselist=False)
+    author: Mapped[User | None] = relationship("User", back_populates="source_messages")
 
 
 class Attachment(Base):
@@ -207,6 +210,7 @@ class PendingOperationReview(Base):
     updated_at: Mapped[datetime] = mapped_column("updatedAt", DateTime(timezone=False), default=_utcnow, onupdate=_utcnow)
 
     source_message: Mapped[SourceMessage] = relationship("SourceMessage", back_populates="review_draft")
+    author: Mapped[User | None] = relationship("User", back_populates="review_drafts")
 
 
 class Transaction(Base):

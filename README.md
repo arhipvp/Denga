@@ -121,6 +121,7 @@ docker compose up --build -d
 - отдельный worker entrypoint
 - additive `Job`-таблица для DB-backed background execution
 - отдельный compose-файл [`docker-compose.python.yml`](/C:/Dev/Denga/docker-compose.python.yml) для проверки Python API/worker без замены текущего Node runtime по умолчанию
+- worker-parity для основного Telegram pipeline: webhook/polling update routing, draft creation, clarification reparse, category picker callbacks, confirm/cancel draft, transaction notification jobs и scheduled backup job
 
 Быстрый запуск Python-контура:
 
@@ -140,8 +141,9 @@ apps/python_backend/.venv/Scripts/python -m uvicorn app.main:app --app-dir apps/
 Текущий статус:
 
 - admin/API слой в Python уже заскелечен поверх существующей PostgreSQL-схемы
-- worker уже умеет забирать задачи из таблицы `Job`
-- Telegram/AI workflow handlers в Python пока оставлены как переходные заглушки и требуют дальнейшего переноса логики из NestJS
+- worker исполняет `telegram_update`, `parse_source_message`, `clarification_reparse`, `send_transaction_notifications` и `scheduled_backup`
+- AI parsing использует тот же OpenAI-compatible `Polza AI` endpoint через HTTP API и fallback heuristics, если парсинг не удался
+- Telegram stats callback пока оставлен как временный placeholder-ответ и еще не перенесен в Python worker
 
 ## Основные env
 
