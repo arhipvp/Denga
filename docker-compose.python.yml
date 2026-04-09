@@ -1,0 +1,67 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: denga
+      POSTGRES_USER: denga
+      POSTGRES_PASSWORD: denga
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  python-api:
+    build:
+      context: .
+      dockerfile: apps/python_backend/Dockerfile
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3001"]
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://denga:denga@postgres:5432/denga?schema=public
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./logs:/app/apps/python_backend/logs
+      - ./backups:/app/apps/python_backend/backups
+      - ./uploads:/app/apps/python_backend/uploads
+
+  python-worker:
+    build:
+      context: .
+      dockerfile: apps/python_backend/Dockerfile
+    command: ["python", "-m", "app.worker"]
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - python-api
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://denga:denga@postgres:5432/denga?schema=public
+      WORKER_ID: python-worker
+    volumes:
+      - ./logs:/app/apps/python_backend/logs
+      - ./backups:/app/apps/python_backend/backups
+      - ./uploads:/app/apps/python_backend/uploads
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    restart: unless-stopped
+    depends_on:
+      - python-api
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data:

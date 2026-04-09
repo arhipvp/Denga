@@ -20,3 +20,7 @@ tmp
 logs
 PROD_ENV_FILE.env
 docs/local/
+.venv
+**/__pycache__/
+.pytest_cache/
+.mypy_cache/

@@ -111,9 +111,41 @@ docker compose up --build -d
 - Веб: [http://localhost:3000](http://localhost:3000)
 - API: [http://localhost:3001/api](http://localhost:3001/api)
 
+## Python backend
+
+В репозитории добавлен новый backend-контур на `FastAPI + worker` в каталоге [`apps/python_backend`](/C:/Dev/Denga/apps/python_backend).
+
+Что уже есть в Python-контуре:
+
+- совместимый `/api` HTTP-слой для `auth`, `health`, `transactions`, `categories`, `users`, `settings`, `backups`, `logs`, `telegram status`
+- отдельный worker entrypoint
+- additive `Job`-таблица для DB-backed background execution
+- отдельный compose-файл [`docker-compose.python.yml`](/C:/Dev/Denga/docker-compose.python.yml) для проверки Python API/worker без замены текущего Node runtime по умолчанию
+
+Быстрый запуск Python-контура:
+
+```bash
+docker compose -f docker-compose.python.yml up --build
+```
+
+Локальная проверка Python-контура без Docker:
+
+```bash
+python -m venv apps/python_backend/.venv
+apps/python_backend/.venv/Scripts/python -m pip install -e "apps/python_backend[dev]"
+apps/python_backend/.venv/Scripts/python -m pytest apps/python_backend/tests -q
+apps/python_backend/.venv/Scripts/python -m uvicorn app.main:app --app-dir apps/python_backend --host 0.0.0.0 --port 3001
+```
+
+Текущий статус:
+
+- admin/API слой в Python уже заскелечен поверх существующей PostgreSQL-схемы
+- worker уже умеет забирать задачи из таблицы `Job`
+- Telegram/AI workflow handlers в Python пока оставлены как переходные заглушки и требуют дальнейшего переноса логики из NestJS
+
 ## Основные env
 
-- `DATABASE_URL`: PostgreSQL connection string
+- `DATABASE_URL`: PostgreSQL connection string; допустим обычный DSN вида `postgresql://...`, Python backend сам нормализует его к драйверу `psycopg3`
 - `POSTGRES_PORT`: публикуемый порт PostgreSQL на хосте, по умолчанию `5433`
 - `JWT_SECRET`: secret for admin auth
 - `ADMIN_EMAIL` / `ADMIN_PASSWORD`: bootstrap-администратор

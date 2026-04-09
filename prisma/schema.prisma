@@ -66,6 +66,7 @@ model Household {
   transactions    Transaction[]
   sourceMessages  SourceMessage[]
   settings        AppSetting[]
+  jobs            Job[]
 }
 
 model User {
@@ -220,4 +221,24 @@ model AppSetting {
   household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
 
   @@unique([householdId, key])
+}
+
+model Job {
+  id          String    @id @default(cuid())
+  householdId String?
+  jobType     String
+  status      String
+  payload     Json
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  lastError   String?
+  notBefore   DateTime?
+  lockedAt    DateTime?
+  lockedBy    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  household   Household? @relation(fields: [householdId], references: [id], onDelete: SetNull)
+
+  @@index([status, notBefore, createdAt])
+  @@index([jobType, status])
 }
