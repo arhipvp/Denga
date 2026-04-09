@@ -1,5 +1,7 @@
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { UnauthorizedError } from '../lib/api';
+import { DashboardDataLoadError } from '../lib/dashboard-loader';
 import { useDashboardController } from './use-dashboard-controller';
 import type { LogListFilters, TransactionListFilters } from '../lib/types';
 
@@ -428,5 +430,62 @@ describe('useDashboardController', () => {
       page: 1,
       pageSize: 10,
     });
+  });
+
+  it('clears session when dashboard reload returns UnauthorizedError', async () => {
+    mockReloadData.mockRejectedValueOnce(new UnauthorizedError());
+
+    await act(async () => {
+      renderer = create(React.createElement(TestHarness, { apiUrl: 'http://localhost:3000' }));
+    });
+
+    expect(mockClearAuth).toHaveBeenCalledTimes(1);
+    expect(mockResetData).toHaveBeenCalledTimes(1);
+    expect(mockSetError).toHaveBeenCalledWith('Сессия истекла, войдите снова');
+  });
+
+  it('clears session when dashboard reload returns wrapped UnauthorizedError', async () => {
+    mockReloadData.mockRejectedValueOnce(
+      new DashboardDataLoadError(
+        'операции',
+        '/transactions?status=confirmed&sortBy=occurredAt&sortDir=desc&page=1&pageSize=10',
+        new UnauthorizedError(),
+      ),
+    );
+
+    await act(async () => {
+      renderer = create(React.createElement(TestHarness, { apiUrl: 'http://localhost:3000' }));
+    });
+
+    expect(mockClearAuth).toHaveBeenCalledTimes(1);
+    expect(mockResetData).toHaveBeenCalledTimes(1);
+    expect(mockSetError).toHaveBeenCalledWith(
+      'Сессия истекла после обновления приложения. Войдите снова.',
+    );
+  });
+
+  it('clears session when logs reload returns wrapped UnauthorizedError', async () => {
+    await act(async () => {
+      renderer = create(React.createElement(TestHarness, { apiUrl: 'http://localhost:3000' }));
+    });
+
+    mockReloadLogs.mockRejectedValueOnce(
+      new DashboardDataLoadError(
+        'логи',
+        '/logs?sortBy=timestamp&sortDir=desc&page=1&pageSize=10',
+        new UnauthorizedError(),
+      ),
+    );
+
+    await act(async () => {
+      latestController?.setSection('logs');
+    });
+
+    expect(mockClearAuth).toHaveBeenCalledTimes(1);
+    expect(mockResetData).toHaveBeenCalledTimes(1);
+    expect(mockSetLogsError).not.toHaveBeenCalled();
+    expect(mockSetError).toHaveBeenCalledWith(
+      'Сессия истекла после обновления приложения. Войдите снова.',
+    );
   });
 });

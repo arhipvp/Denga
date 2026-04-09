@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { UnauthorizedError } from '../lib/api';
+import { isUnauthorizedLike } from '../lib/dashboard-loader';
 import {
   changePasswordAction,
   createBackupAction,
@@ -92,8 +93,12 @@ export function useDashboardController(apiUrl: string | null) {
 
   const handleApiError = useCallback(
     (candidate: unknown, fallbackMessage: string) => {
-      if (candidate instanceof UnauthorizedError) {
-        clearSession(candidate.message);
+      if (isUnauthorizedLike(candidate)) {
+        const message =
+          candidate instanceof UnauthorizedError
+            ? candidate.message
+            : 'Сессия истекла после обновления приложения. Войдите снова.';
+        clearSession(message);
         return true;
       }
 
@@ -105,8 +110,12 @@ export function useDashboardController(apiUrl: string | null) {
 
   const handleCategoryApiError = useCallback(
     (candidate: unknown) => {
-      if (candidate instanceof UnauthorizedError) {
-        clearSession(candidate.message);
+      if (isUnauthorizedLike(candidate)) {
+        const message =
+          candidate instanceof UnauthorizedError
+            ? candidate.message
+            : 'Сессия истекла после обновления приложения. Войдите снова.';
+        clearSession(message);
         return true;
       }
 

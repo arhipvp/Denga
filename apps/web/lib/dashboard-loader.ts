@@ -1,3 +1,4 @@
+import { UnauthorizedError } from './api';
 import type {
   BackupInfo,
   Category,
@@ -31,6 +32,28 @@ export class DashboardDataLoadError extends Error {
     this.name = 'DashboardDataLoadError';
     this.cause = cause;
   }
+}
+
+export function isUnauthorizedLike(error: unknown): boolean {
+  let current = error;
+  const visited = new Set<unknown>();
+
+  while (current && !visited.has(current)) {
+    if (current instanceof UnauthorizedError) {
+      return true;
+    }
+
+    visited.add(current);
+
+    if (current instanceof Error && 'cause' in current) {
+      current = current.cause;
+      continue;
+    }
+
+    break;
+  }
+
+  return false;
 }
 
 function buildTransactionPath(filters: TransactionListFilters) {

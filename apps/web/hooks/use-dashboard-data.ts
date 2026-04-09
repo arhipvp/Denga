@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { createApiClient } from '../lib/api';
 import { createAsyncState } from '../lib/async-state';
 import { createDashboardFeatureApi, DashboardDataLoadError } from '../lib/dashboard-api';
+import { isUnauthorizedLike } from '../lib/dashboard-loader';
 import type {
   BackupInfo,
   Category,
@@ -109,7 +110,11 @@ export function useDashboardData(apiUrl: string | null) {
         setMainState({ status: 'success', error: null });
       } catch (error) {
         if (error instanceof DashboardDataLoadError) {
-          throw new Error(`${error.message}: ${error.path}`);
+          if (isUnauthorizedLike(error)) {
+            throw error.cause ?? error;
+          }
+
+          throw new Error(`${error.message}: ${error.path}`, { cause: error });
         }
 
         throw error;
@@ -131,7 +136,11 @@ export function useDashboardData(apiUrl: string | null) {
         setLogsState({ status: 'success', error: null });
       } catch (error) {
         if (error instanceof DashboardDataLoadError) {
-          throw new Error(`${error.message}: ${error.path}`);
+          if (isUnauthorizedLike(error)) {
+            throw error.cause ?? error;
+          }
+
+          throw new Error(`${error.message}: ${error.path}`, { cause: error });
         }
 
         throw error;

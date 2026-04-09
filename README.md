@@ -215,6 +215,7 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 - выполняет `docker compose up --build -d`
 - проверяет доступность API и web после выката прямо на сервере по SSH
 - при неуспешной проверке печатает `docker compose ps` и последние логи `api`/`web`
+- если вкладка админки была открыта во время деплоя, браузер может сохранить старый Next.js bundle; в таком случае сделайте hard refresh и при необходимости войдите заново
 
 ## Обязательные GitHub Secrets
 

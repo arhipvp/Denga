@@ -1,5 +1,7 @@
+import { UnauthorizedError } from './api';
 import {
   DashboardDataLoadError,
+  isUnauthorizedLike,
   loadDashboardDataset,
   loadLogsDataset,
 } from './dashboard-loader';
@@ -144,5 +146,27 @@ describe('dashboard loader', () => {
       resource: 'логи',
       path: '/logs?sortBy=timestamp&sortDir=desc&page=1&pageSize=20',
     } satisfies Partial<DashboardDataLoadError>);
+  });
+
+  it('recognizes UnauthorizedError nested inside dashboard loader errors', () => {
+    const error = new DashboardDataLoadError(
+      'операции',
+      '/transactions?sortBy=occurredAt&sortDir=desc&page=1&pageSize=20',
+      new Error('outer wrapper', {
+        cause: new UnauthorizedError(),
+      }),
+    );
+
+    expect(isUnauthorizedLike(error)).toBe(true);
+  });
+
+  it('does not treat non-auth loader errors as unauthorized', () => {
+    const error = new DashboardDataLoadError(
+      'операции',
+      '/transactions?sortBy=occurredAt&sortDir=desc&page=1&pageSize=20',
+      new Error('network failed'),
+    );
+
+    expect(isUnauthorizedLike(error)).toBe(false);
   });
 });
