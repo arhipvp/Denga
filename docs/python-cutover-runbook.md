@@ -9,8 +9,8 @@
 - Prisma-миграции и bootstrap seed запускаются отдельным helper compose-файлом [`docker-compose.migrate.yml`](/C:/Dev/Denga/docker-compose.migrate.yml)
 - contract smoke запускается через [`apps/python_backend/scripts/verify_contract.py`](/C:/Dev/Denga/apps/python_backend/scripts/verify_contract.py)
 - data invariants snapshot/compare запускается через [`apps/python_backend/scripts/verify_invariants.py`](/C:/Dev/Denga/apps/python_backend/scripts/verify_invariants.py)
-- серверный orchestration script для cutover лежит в [`scripts/production-cutover.sh`](/C:/Dev/Denga/scripts/production-cutover.sh)
-- явный rollback helper лежит в [`scripts/production-rollback.sh`](/C:/Dev/Denga/scripts/production-rollback.sh)
+- основной orchestration идёт через GitHub Actions workflow [`deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy.yml)
+- [`scripts/production-cutover.sh`](/C:/Dev/Denga/scripts/production-cutover.sh) и [`scripts/production-rollback.sh`](/C:/Dev/Denga/scripts/production-rollback.sh) остаются только как ручной аварийный fallback
 
 ## 2. Rehearsal на staging или restore-копии production
 
@@ -56,14 +56,10 @@ apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_inva
 
 1. Перед релизом зафиксировать maintenance window и write freeze.
 2. Убедиться, что в production `.env` заданы `ADMIN_EMAIL` и `ADMIN_PASSWORD`; `VERIFY_MEMBER_EMAIL` / `VERIFY_MEMBER_PASSWORD` опциональны.
-3. Запустить deploy workflow или вручную выполнить на сервере:
+3. Запустить deploy workflow.
+4. Workflow сам:
 
-```bash
-APP_URL='<app_url>' sh ./scripts/production-cutover.sh
-```
-
-4. Скрипт сам:
-
+- билдит `python-api`, `python-worker`, `web`, `prisma-bootstrap` до write freeze
 - снимает свежий backup БД
 - пишет baseline invariants snapshot
 - останавливает legacy runtime
@@ -93,7 +89,7 @@ docker compose logs --tail=100 web
 
 ## 4. Rollback
 
-Если post-start smoke не проходит после зелёных automated gates, либо нужен ручной возврат на Node runtime:
+Если post-start smoke не проходит после зелёных automated gates, либо нужен ручной возврат на Node runtime после уже завершившегося workflow:
 
 1. Остановить Python runtime:
 

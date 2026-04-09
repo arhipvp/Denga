@@ -95,21 +95,55 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
-          APP_URL: ${{ secrets.APP_URL }}
         run: |
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
             set -e
             cd '$REMOTE_APP_DIR'
-            APP_URL='$APP_URL' sh ./scripts/production-cutover.sh
+
+            if docker compose version >/dev/null 2>&1; then
+              COMPOSE_CMD='docker compose'
+            elif command -v docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD='docker-compose'
+            else
+              echo 'Neither docker compose nor docker-compose is available on the server' >&2
+              exit 1
+            fi
+
+            mkdir -p backups
+            timestamp=\$(date -u +%Y%m%dT%H%M%SZ)
+            backup_file=\"backups/cutover-pre-\${timestamp}.dump\"
+            baseline_snapshot=\"backups/cutover-baseline-\${timestamp}.json\"
+
+            echo 'Building release images before write freeze'
+            \$COMPOSE_CMD build python-api python-worker web
+            \$COMPOSE_CMD -f docker-compose.yml -f docker-compose.migrate.yml build prisma-bootstrap
+
+            echo \"Creating fresh production backup at \$backup_file\"
+            \$COMPOSE_CMD up -d postgres
+            \$COMPOSE_CMD exec -T postgres sh -lc 'PGPASSWORD=\"\$POSTGRES_PASSWORD\" pg_dump -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -Fc' > \"\$backup_file\"
+
+            echo \"Writing baseline invariants snapshot to \$baseline_snapshot\"
+            \$COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --write \"\$baseline_snapshot\"
+
+            echo 'Stopping legacy runtime to enforce write freeze'
+            \$COMPOSE_CMD -f docker-compose.node.yml stop web api >/dev/null 2>&1 || true
+
+            echo 'Running Prisma migrations and bootstrap seed'
+            \$COMPOSE_CMD -f docker-compose.yml -f docker-compose.migrate.yml run --rm prisma-bootstrap
+
+            echo 'Starting python-api and python-worker'
+            \$COMPOSE_CMD up -d --remove-orphans python-api python-worker
+
+            echo \"CUTOVER_BACKUP_FILE=\$backup_file\" > .cutover-state
+            echo \"CUTOVER_BASELINE_SNAPSHOT=\$baseline_snapshot\" >> .cutover-state
           "
 
-      - name: Verify services on server
+      - name: Verify python-api readiness
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
-          APP_URL: ${{ secrets.APP_URL }}
         run: |
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
             set -e
@@ -156,6 +190,149 @@ jobs:
             }
 
             verify_running_service 'python-worker'
+            verify_running_service 'python-api'
             verify_url 'API' 'http://127.0.0.1:3001/api/health/ready'
+          "
+
+      - name: Run contract verification on server
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+        run: |
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
+            set -e
+            cd '$REMOTE_APP_DIR'
+
+            if docker compose version >/dev/null 2>&1; then
+              COMPOSE_CMD='docker compose'
+            elif command -v docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD='docker-compose'
+            else
+              echo 'Neither docker compose nor docker-compose is available on the server' >&2
+              exit 1
+            fi
+
+            VERIFY_API_BASE_URL=\$(\$COMPOSE_CMD run --rm --no-deps python-api python -c \"import os; print(os.getenv('NEXT_PUBLIC_API_URL', 'http://localhost:3001/api'))\" | tr -d '\r')
+            VERIFY_ADMIN_EMAIL=\$(\$COMPOSE_CMD run --rm --no-deps python-api python -c \"import os; print(os.getenv('ADMIN_EMAIL', ''))\" | tr -d '\r')
+            VERIFY_ADMIN_PASSWORD=\$(\$COMPOSE_CMD run --rm --no-deps python-api python -c \"import os; print(os.getenv('ADMIN_PASSWORD', ''))\" | tr -d '\r')
+            VERIFY_MEMBER_EMAIL=\$(\$COMPOSE_CMD run --rm --no-deps python-api python -c \"import os; print(os.getenv('VERIFY_MEMBER_EMAIL', ''))\" | tr -d '\r')
+            VERIFY_MEMBER_PASSWORD=\$(\$COMPOSE_CMD run --rm --no-deps python-api python -c \"import os; print(os.getenv('VERIFY_MEMBER_PASSWORD', ''))\" | tr -d '\r')
+
+            if [ -z \"\$VERIFY_ADMIN_EMAIL\" ] || [ -z \"\$VERIFY_ADMIN_PASSWORD\" ]; then
+              echo 'ADMIN_EMAIL and ADMIN_PASSWORD must be set in .env for contract verification' >&2
+              exit 1
+            fi
+
+            VERIFY_API_BASE_URL=\"\$VERIFY_API_BASE_URL\" \
+            VERIFY_ADMIN_EMAIL=\"\$VERIFY_ADMIN_EMAIL\" \
+            VERIFY_ADMIN_PASSWORD=\"\$VERIFY_ADMIN_PASSWORD\" \
+            VERIFY_MEMBER_EMAIL=\"\$VERIFY_MEMBER_EMAIL\" \
+            VERIFY_MEMBER_PASSWORD=\"\$VERIFY_MEMBER_PASSWORD\" \
+            \$COMPOSE_CMD run --rm python-api python scripts/verify_contract.py
+          "
+
+      - name: Compare post-start invariants on server
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+        run: |
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
+            set -e
+            cd '$REMOTE_APP_DIR'
+            . ./.cutover-state
+
+            if docker compose version >/dev/null 2>&1; then
+              COMPOSE_CMD='docker compose'
+            elif command -v docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD='docker-compose'
+            else
+              echo 'Neither docker compose nor docker-compose is available on the server' >&2
+              exit 1
+            fi
+
+            \$COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --compare \"\$CUTOVER_BASELINE_SNAPSHOT\"
+          "
+
+      - name: Start web after automated gates
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+        run: |
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
+            set -e
+            cd '$REMOTE_APP_DIR'
+
+            if docker compose version >/dev/null 2>&1; then
+              COMPOSE_CMD='docker compose'
+            elif command -v docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD='docker-compose'
+            else
+              echo 'Neither docker compose nor docker-compose is available on the server' >&2
+              exit 1
+            fi
+
+            \$COMPOSE_CMD up -d web
+          "
+
+      - name: Verify web on server
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
+            set -e
+            cd '$REMOTE_APP_DIR'
+
+            verify_url() {
+              name=\"\$1\"
+              url=\"\$2\"
+
+              for attempt in \$(seq 1 18); do
+                if curl --fail --show-error --silent \"\$url\" >/dev/null; then
+                  echo \"\$name is ready\"
+                  return 0
+                fi
+                echo \"\$name is not ready yet (attempt \$attempt/18), waiting 5s...\"
+                sleep 5
+              done
+
+              echo \"\$name did not become ready in time\" >&2
+              return 1
+            }
+
             verify_url 'Web' '$APP_URL'
+          "
+
+      - name: Roll back to legacy runtime on failure
+        if: ${{ failure() }}
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+        run: |
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
+            set -e
+            cd '$REMOTE_APP_DIR'
+
+            if docker compose version >/dev/null 2>&1; then
+              COMPOSE_CMD='docker compose'
+            elif command -v docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD='docker-compose'
+            else
+              echo 'Neither docker compose nor docker-compose is available on the server' >&2
+              exit 1
+            fi
+
+            \$COMPOSE_CMD stop web python-worker python-api >/dev/null 2>&1 || true
+            \$COMPOSE_CMD -f docker-compose.node.yml up --build -d --remove-orphans postgres api web
           "

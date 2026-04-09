@@ -143,7 +143,7 @@ apps/python_backend/.venv/Scripts/python -m uvicorn app.main:app --app-dir apps/
 ```
 
 Runbook для rehearsal, production cutover и rollback лежит в [`docs/python-cutover-runbook.md`](/C:/Dev/Denga/docs/python-cutover-runbook.md).
-Для самого server-side orchestration используйте [`scripts/production-cutover.sh`](/C:/Dev/Denga/scripts/production-cutover.sh) и [`scripts/production-rollback.sh`](/C:/Dev/Denga/scripts/production-rollback.sh).
+[`scripts/production-cutover.sh`](/C:/Dev/Denga/scripts/production-cutover.sh) и [`scripts/production-rollback.sh`](/C:/Dev/Denga/scripts/production-rollback.sh) остаются только как ручной аварийный fallback, но не как основной production path.
 
 ## Основные env
 
@@ -246,9 +246,9 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 - проверяет наличие обязательных secrets
 - копирует репозиторий на сервер через `rsync`
 - проверяет, что серверный `.env` уже существует
-- поднимает `postgres`, затем запускает helper `prisma-bootstrap` через [`docker-compose.migrate.yml`](/C:/Dev/Denga/docker-compose.migrate.yml)
-- запускает [`scripts/production-cutover.sh`](/C:/Dev/Denga/scripts/production-cutover.sh), который сам делает fresh DB backup, baseline invariants snapshot, write-freeze switch, contract verification и post-start invariant compare
+- выполняет явные server-side `docker compose` шаги прямо в GitHub Actions: build, fresh DB backup, baseline invariants snapshot, write-freeze switch, `prisma-bootstrap`, старт `python-api/python-worker`, contract verification и invariant compare
 - поднимает `web` только после зелёных automated gates
+- при падении любого automated gate workflow сам откатывает runtime на [`docker-compose.node.yml`](/C:/Dev/Denga/docker-compose.node.yml)
 - проверяет, что `python-worker` находится в состоянии `running`
 - проверяет доступность API и web после выката прямо на сервере по SSH
 - при неуспешной проверке печатает `docker compose ps` и последние логи `python-api`/`python-worker`/`web`
