@@ -1,28 +1,29 @@
-# Python Production Cutover Runbook
+# Python Production Deploy Runbook
 
-Этот runbook нужен для первого production-переключения с legacy `NestJS api` на `python-api + python-worker`, а также для rehearsal на staging или на restore-копии production БД.
+Этот runbook описывает обычный production deploy для `python-api + python-worker`, проверку автоматических gate'ов и ручное восстановление через повторный deploy или restore из pre-deploy backup.
 
 ## 1. Что должно быть готово до выката
 
-- `docker-compose.yml` уже Python-first: поднимаются `postgres`, `python-api`, `python-worker`, `web`
-- rollback-контур сохранен в [`docker-compose.node.yml`](/C:/Dev/Denga/docker-compose.node.yml)
-- Prisma-миграции и bootstrap seed запускаются отдельным helper compose-файлом [`docker-compose.migrate.yml`](/C:/Dev/Denga/docker-compose.migrate.yml)
+- `docker-compose.yml` поднимает `postgres`, `python-api`, `python-worker`, `web`
+- Prisma-миграции и bootstrap seed запускаются helper compose-файлом [`docker-compose.migrate.yml`](/C:/Dev/Denga/docker-compose.migrate.yml)
 - contract smoke запускается через [`apps/python_backend/scripts/verify_contract.py`](/C:/Dev/Denga/apps/python_backend/scripts/verify_contract.py)
 - data invariants snapshot/compare запускается через [`apps/python_backend/scripts/verify_invariants.py`](/C:/Dev/Denga/apps/python_backend/scripts/verify_invariants.py)
+- bootstrap-данные и настройки создаются через [`apps/python_backend/scripts/bootstrap_seed.py`](/C:/Dev/Denga/apps/python_backend/scripts/bootstrap_seed.py)
 - основной orchestration идёт через GitHub Actions workflow [`deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy.yml)
-- [`scripts/production-cutover.sh`](/C:/Dev/Denga/scripts/production-cutover.sh) и [`scripts/production-rollback.sh`](/C:/Dev/Denga/scripts/production-rollback.sh) остаются только как ручной аварийный fallback
 
 ## 2. Rehearsal на staging или restore-копии production
 
 1. Зафиксировать baseline инвариантов:
 
 ```bash
-apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_invariants.py --write docs/local/cutover-before.json
+apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_invariants.py --write docs/local/deploy-before.json
 ```
 
-2. Поднять Python runtime:
+2. Применить миграции и bootstrap seed:
 
 ```bash
+docker compose up -d postgres
+docker compose -f docker-compose.yml -f docker-compose.migrate.yml run --rm prisma-bootstrap
 docker compose up --build -d --remove-orphans
 ```
 
@@ -40,7 +41,7 @@ apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_cont
 4. Сравнить post-start инварианты:
 
 ```bash
-apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_invariants.py --compare docs/local/cutover-before.json
+apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_invariants.py --compare docs/local/deploy-before.json
 ```
 
 5. Выполнить ручной smoke:
@@ -52,31 +53,29 @@ apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_inva
 - один Telegram text flow
 - один callback `Расходы за этот месяц`
 
-## 3. Production cutover
+## 3. Production deploy
 
-1. Перед релизом зафиксировать maintenance window и write freeze.
-2. Убедиться, что в production `.env` заданы `ADMIN_EMAIL` и `ADMIN_PASSWORD`; `VERIFY_MEMBER_EMAIL` / `VERIFY_MEMBER_PASSWORD` опциональны.
-3. Запустить deploy workflow.
-4. Workflow сам:
+1. Убедиться, что в production `.env` заданы `ADMIN_EMAIL` и `ADMIN_PASSWORD`; `VERIFY_MEMBER_EMAIL` / `VERIFY_MEMBER_PASSWORD` опциональны.
+2. Запустить deploy workflow.
+3. Workflow сам:
 
-- билдит `python-api`, `python-worker`, `web`, `prisma-bootstrap` до write freeze
+- билдит `python-api`, `python-worker`, `web`, `prisma-bootstrap`
 - снимает свежий backup БД
 - пишет baseline invariants snapshot
-- останавливает legacy runtime
 - запускает `prisma-bootstrap`
 - поднимает `python-api` и `python-worker`
 - прогоняет `verify_contract.py`
 - прогоняет invariant compare
 - поднимает `web` только после зелёных automated gates
-- при любом сбое автоматически откатывается на `docker-compose.node.yml`
+- при сбое завершает job ошибкой и печатает диагностику без автоматического rollback на альтернативный runtime
 
-5. После выката проверить:
+4. После выката проверить:
 
 - `python-worker` в `docker compose ps` находится в состоянии `running`
 - `http://127.0.0.1:3001/api/health/ready` отвечает `200`
 - `APP_URL` отвечает `200`
 - contract smoke проходит на боевом адресе
-- инварианты по `Transaction` и `Category` совпадают с pre-cutover snapshot
+- инварианты по `Transaction` и `Category` совпадают с pre-deploy snapshot
 
 Команды для ручной post-start проверки:
 
@@ -87,20 +86,23 @@ docker compose logs --tail=200 python-worker
 docker compose logs --tail=100 web
 ```
 
-## 4. Rollback
+## 4. Recovery
 
-Если post-start smoke не проходит после зелёных automated gates, либо нужен ручной возврат на Node runtime после уже завершившегося workflow:
+Если deploy завершился ошибкой или после выката не проходит ручной smoke:
 
-1. Остановить Python runtime:
+1. Просмотреть backup, сохранённый deploy workflow, и причины падения в логах GitHub Actions.
+2. Исправить конфигурацию или код и повторить deploy.
+3. Если проблема вызвана миграцией или данными, восстановить БД из pre-deploy backup:
 
 ```bash
-sh ./scripts/production-rollback.sh
+pg_restore --clean --if-exists --no-owner --host localhost --port 5433 --username denga --dbname denga ./backups/<backup-file>.dump
 ```
 
-Проверить:
+4. После restore повторно выполнить:
 
-- web доступен
-- old `api` отвечает на healthcheck
-- Telegram updates снова обрабатывает только Node runtime
+```bash
+docker compose -f docker-compose.yml -f docker-compose.migrate.yml run --rm prisma-bootstrap
+docker compose up --build -d --remove-orphans
+```
 
-Rollback в этом сценарии не требует restore БД, пока после cutover не применялись несовместимые schema changes.
+В этой схеме отдельного legacy runtime больше нет; восстановление выполняется через backup и повторный Python-first deploy.

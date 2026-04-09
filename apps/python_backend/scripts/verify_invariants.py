@@ -136,7 +136,7 @@ def _compare_values(left: Any, right: Any, *, path: str) -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build or compare cutover safety snapshots for Transaction/Category data.")
+    parser = argparse.ArgumentParser(description="Build or compare deploy safety snapshots for Transaction/Category data.")
     parser.add_argument("--write", type=Path, help="Write the current snapshot to this JSON file.")
     parser.add_argument("--compare", type=Path, help="Compare the current snapshot with this JSON baseline.")
     args = parser.parse_args()

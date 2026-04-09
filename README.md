@@ -7,7 +7,6 @@
 - `FastAPI + worker` backend для production runtime
 - `Next.js` админ-панель
 - `Prisma + PostgreSQL`
-- legacy `NestJS` runtime сохранен как rollback-контур
 - `Polza AI` через OpenAI-compatible API
 - `Pillow` для генерации PNG-отчетов Telegram в Python worker
 - `Docker Compose` для локального и серверного запуска
@@ -49,10 +48,11 @@ docker compose up -d postgres
 npm ci
 npm run prisma:generate
 npm run prisma:migrate:deploy
-npm run prisma:seed
+python -m pip install -e "apps/python_backend[dev]"
+python apps/python_backend/scripts/bootstrap_seed.py
 ```
 
-`npm run prisma:seed` больше не создает и не синхронизирует категории. Категории хранятся только в БД и управляются вручную через админку.
+`bootstrap_seed.py` не создает и не синхронизирует категории. Категории хранятся только в БД и управляются вручную через админку.
 
 Для локальной разработки все следующие изменения схемы оформляйте через Prisma-миграции:
 
@@ -102,7 +102,7 @@ docker compose up --build -d --remove-orphans
 Что делает контейнерный запуск:
 
 - поднимает PostgreSQL
-- выполняет helper `prisma-bootstrap` для `prisma migrate deploy` и `npm run prisma:seed`
+- выполняет helper `prisma-bootstrap` для `prisma migrate deploy` и `python apps/python_backend/scripts/bootstrap_seed.py`
 - если база уже существовала до ввода Prisma-истории миграций, helper автоматически помечает baseline `20260407110000_init` как примененный и повторяет deploy
 - helper выполняет seed только для bootstrap-данных и настроек, но не трогает категории
 - затем запускаются `python-api`, `python-worker` и frontend
@@ -123,7 +123,6 @@ docker compose up --build -d --remove-orphans
 - отдельный worker entrypoint
 - additive `Job`-таблица для DB-backed background execution
 - основной [`docker-compose.yml`](/C:/Dev/Denga/docker-compose.yml) теперь поднимает `python-api + python-worker`
-- отдельный rollback compose-файл [`docker-compose.node.yml`](/C:/Dev/Denga/docker-compose.node.yml) сохраняет legacy Node runtime
 - helper compose-файл [`docker-compose.migrate.yml`](/C:/Dev/Denga/docker-compose.migrate.yml) запускает Prisma migrations и bootstrap seed перед Python runtime
 - worker-parity для основного Telegram pipeline: webhook/polling update routing, draft creation, clarification reparse, category picker callbacks, confirm/cancel draft, transaction notification jobs, scheduled backup job и monthly stats reports
 
@@ -142,8 +141,7 @@ apps/python_backend/.venv/Scripts/python -m pytest apps/python_backend/tests -q
 apps/python_backend/.venv/Scripts/python -m uvicorn app.main:app --app-dir apps/python_backend --host 0.0.0.0 --port 3001
 ```
 
-Runbook для rehearsal, production cutover и rollback лежит в [`docs/python-cutover-runbook.md`](/C:/Dev/Denga/docs/python-cutover-runbook.md).
-[`scripts/production-cutover.sh`](/C:/Dev/Denga/scripts/production-cutover.sh) и [`scripts/production-rollback.sh`](/C:/Dev/Denga/scripts/production-rollback.sh) остаются только как ручной аварийный fallback, но не как основной production path.
+Runbook для production deploy, smoke-проверок и восстановления лежит в [`docs/python-cutover-runbook.md`](/C:/Dev/Denga/docs/python-cutover-runbook.md).
 
 ## Основные env
 
@@ -248,15 +246,15 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 - проверяет наличие обязательных secrets
 - копирует репозиторий на сервер через `rsync`
 - проверяет, что серверный `.env` уже существует
-- выполняет явные server-side `docker compose` шаги прямо в GitHub Actions: build, fresh DB backup, baseline invariants snapshot, write-freeze switch, `prisma-bootstrap`, старт `python-api/python-worker`, contract verification и invariant compare
+- выполняет явные server-side `docker compose` шаги прямо в GitHub Actions: build, fresh DB backup, baseline invariants snapshot, `prisma-bootstrap`, старт `python-api/python-worker`, contract verification и invariant compare
 - поднимает `web` только после зелёных automated gates
-- при падении любого automated gate workflow сам откатывает runtime на [`docker-compose.node.yml`](/C:/Dev/Denga/docker-compose.node.yml)
+- при падении automated gate workflow завершается ошибкой и оставляет диагностику в логах GitHub Actions
 - проверяет, что `python-worker` находится в состоянии `running`
 - проверяет доступность API и web после выката прямо на сервере по SSH
 - при неуспешной проверке печатает `docker compose ps` и последние логи `python-api`/`python-worker`/`web`
 - если вкладка админки была открыта во время деплоя, браузер может сохранить старый Next.js bundle; в таком случае сделайте hard refresh и при необходимости войдите заново
 
-Перед production cutover прогоняйте rehearsal и invariants compare по [`docs/python-cutover-runbook.md`](/C:/Dev/Denga/docs/python-cutover-runbook.md).
+Перед production deploy прогоняйте rehearsal и invariants compare по [`docs/python-cutover-runbook.md`](/C:/Dev/Denga/docs/python-cutover-runbook.md).
 
 ## Обязательные GitHub Secrets
 
@@ -357,7 +355,7 @@ docker compose down
 
 ## Generated artifacts
 
-- Каталоги `apps/api/dist`, `packages/shared/dist`, `apps/web/.next`, `coverage` и `tmp` считаются локальными generated artifacts.
+- Каталоги `packages/shared/dist`, `apps/web/.next`, `coverage` и `tmp` считаются локальными generated artifacts.
 - Они не должны попадать в коммиты и при необходимости очищаются командой `npm run clean`.
 - Для локального поиска по репозиторию используется файл `.ignore`, чтобы служебные каталоги не засоряли результаты навигации.
 - `apps/python_backend/*.egg-info` считается generated packaging metadata и не должен коммититься.

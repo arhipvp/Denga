@@ -2,7 +2,6 @@ node_modules
 .next
 apps/web/.next
 dist
-apps/api/dist
 coverage
 .env
 .env.local
@@ -11,8 +10,6 @@ coverage
 .env.test
 uploads
 backups
-apps/api/uploads
-apps/api/backups
 *.log
 tmp-*.log
 tmp

@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://denga:denga@localhost:5433/denga?schema=public"
     jwt_secret: str = "change-me"
     jwt_expires_days: int = 7
+    household_name: str = "Моя семья"
+    default_currency: str = "EUR"
+    admin_email: str = "admin@example.com"
+    admin_password: str = "change-me-now"
+    admin_telegram_id: str | None = None
+    second_user_telegram_id: str | None = None
     upload_dir: str = "uploads"
     backup_dir: str = "backups"
     backup_keep_count: int = 10
@@ -31,6 +37,7 @@ class Settings(BaseSettings):
     telegram_mode: str = "polling"
     telegram_webhook_url: str | None = None
     bootstrap_household_id: str = "bootstrap-household"
+    clarification_timeout_minutes: int = 30
     worker_poll_interval_seconds: float = 2.0
     worker_id: str = "python-worker"
 

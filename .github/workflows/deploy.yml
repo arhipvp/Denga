@@ -111,10 +111,10 @@ jobs:
 
             mkdir -p backups
             timestamp=\$(date -u +%Y%m%dT%H%M%SZ)
-            backup_file=\"backups/cutover-pre-\${timestamp}.dump\"
-            baseline_snapshot=\"backups/cutover-baseline-\${timestamp}.json\"
+            backup_file=\"backups/deploy-pre-\${timestamp}.dump\"
+            baseline_snapshot=\"backups/deploy-baseline-\${timestamp}.json\"
 
-            echo 'Building release images before write freeze'
+            echo 'Building release images'
             \$COMPOSE_CMD build python-api python-worker web
             \$COMPOSE_CMD -f docker-compose.yml -f docker-compose.migrate.yml build prisma-bootstrap
 
@@ -125,17 +125,14 @@ jobs:
             echo \"Writing baseline invariants snapshot to \$baseline_snapshot\"
             \$COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --write \"\$baseline_snapshot\"
 
-            echo 'Stopping legacy runtime to enforce write freeze'
-            \$COMPOSE_CMD -f docker-compose.node.yml stop web api >/dev/null 2>&1 || true
-
             echo 'Running Prisma migrations and bootstrap seed'
             \$COMPOSE_CMD -f docker-compose.yml -f docker-compose.migrate.yml run --rm prisma-bootstrap
 
             echo 'Starting python-api and python-worker'
             \$COMPOSE_CMD up -d --remove-orphans python-api python-worker
 
-            echo \"CUTOVER_BACKUP_FILE=\$backup_file\" > .cutover-state
-            echo \"CUTOVER_BASELINE_SNAPSHOT=\$baseline_snapshot\" >> .cutover-state
+            echo \"DEPLOY_BACKUP_FILE=\$backup_file\" > .deploy-state
+            echo \"DEPLOY_BASELINE_SNAPSHOT=\$baseline_snapshot\" >> .deploy-state
           "
 
       - name: Verify python-api readiness
@@ -244,7 +241,7 @@ jobs:
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
             set -e
             cd '$REMOTE_APP_DIR'
-            . ./.cutover-state
+            . ./.deploy-state
 
             if docker compose version >/dev/null 2>&1; then
               COMPOSE_CMD='docker compose'
@@ -255,7 +252,7 @@ jobs:
               exit 1
             fi
 
-            \$COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --compare \"\$CUTOVER_BASELINE_SNAPSHOT\"
+            \$COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --compare \"\$DEPLOY_BASELINE_SNAPSHOT\"
           "
 
       - name: Start web after automated gates
@@ -311,29 +308,4 @@ jobs:
             }
 
             verify_url 'Web' '$APP_URL'
-          "
-
-      - name: Roll back to legacy runtime on failure
-        if: ${{ failure() }}
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
-        run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
-            set -e
-            cd '$REMOTE_APP_DIR'
-
-            if docker compose version >/dev/null 2>&1; then
-              COMPOSE_CMD='docker compose'
-            elif command -v docker-compose >/dev/null 2>&1; then
-              COMPOSE_CMD='docker-compose'
-            else
-              echo 'Neither docker compose nor docker-compose is available on the server' >&2
-              exit 1
-            fi
-
-            \$COMPOSE_CMD stop web python-worker python-api >/dev/null 2>&1 || true
-            \$COMPOSE_CMD -f docker-compose.node.yml up --build -d --remove-orphans postgres api web
           "

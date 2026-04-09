@@ -42,7 +42,7 @@
 
 ## Growth Rules
 
-- Бизнес-правила и вычисления должны жить в чистых utility/domain-модулях без прямой зависимости от NestJS, Prisma или React, если логику можно проверить без I/O.
+- Бизнес-правила и вычисления должны жить в чистых utility/domain-модулях без прямой зависимости от HTTP-фреймворка, Prisma или React, если логику можно проверить без I/O.
 - `PrismaService` допустим только в orchestration- и repository-слое. UI helpers, summary calculators и draft transition helpers не должны читать базу напрямую.
 - Новый Telegram flow добавляется через отдельный coordinator, transition helper или renderer, а не через разрастание одного lifecycle-файла.
 - Новая dashboard section должна иметь собственный hook/controller или action-module. `Dashboard` остаётся composition root.

@@ -2,7 +2,7 @@ services:
   prisma-bootstrap:
     build:
       context: .
-      dockerfile: apps/api/Dockerfile
+      dockerfile: prisma/Dockerfile.bootstrap
     depends_on:
       - postgres
     env_file:
@@ -28,4 +28,4 @@ services:
             exit 1
           fi
         fi
-        npm run prisma:seed
+        python3 apps/python_backend/scripts/bootstrap_seed.py

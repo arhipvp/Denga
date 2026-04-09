@@ -2,7 +2,6 @@ import { rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const targets = [
-  'apps/api/dist',
   'apps/web/.next',
   'packages/shared/dist',
   'coverage',
