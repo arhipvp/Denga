@@ -385,9 +385,11 @@ def cancel_draft(db: Session, review: PendingOperationReview, chat_id: str | Non
     return {"accepted": True, "status": "cancelled"}
 
 
-def apply_manual_edit(db: Session, draft_id: str, field: str, value: str, chat_id: str, telegram: TelegramAdapter) -> dict[str, Any]:
+def apply_manual_edit(db: Session, draft_id: str, field: str, value: str, chat_id: str, telegram: TelegramAdapter, user_message_id: str | None = None) -> dict[str, Any]:
     review = db.execute(select(PendingOperationReview).where(PendingOperationReview.id == draft_id)).scalar_one()
     draft = ReviewDraft.from_dict(review.draft)
+    active_picker_id = review.active_picker_message_id
+    last_bot_message_id = review.last_bot_message_id
     if field == "amount":
         import re
         match = re.search(r"\d+(?:\.\d+)?", value.replace(",", "."))
@@ -398,8 +400,20 @@ def apply_manual_edit(db: Session, draft_id: str, field: str, value: str, chat_i
         draft.comment = value
     review.draft = draft.to_dict()
     review.pending_field = None
+    review.active_picker_message_id = None
     db.commit()
-    render_or_send_draft_card(db, draft_id, chat_id, telegram)
+    clear_active_picker_message(chat_id, active_picker_id, telegram)
+    if user_message_id:
+        try:
+            telegram.delete_message(chat_id, int(user_message_id))
+        except (TypeError, ValueError):
+            pass
+    if last_bot_message_id:
+        clear_active_picker_message(chat_id, last_bot_message_id, telegram)
+    text_value = render_draft_text(draft, confirmed=False)
+    sent = telegram.send_message(chat_id, text_value, create_draft_keyboard())
+    review.last_bot_message_id = str(sent.get("message_id") or 0)
+    db.commit()
     return {"accepted": True, "status": "pending_review"}
 
 
@@ -427,8 +441,12 @@ def begin_field_edit(db: Session, draft_id: str, field: str, chat_id: str, teleg
         return show_category_page(db, draft_id, chat_id, None, 0, telegram, parent_id=None, parent_page=0)
     prompts = {"amount": "Введите новую сумму.", "date": 'Введите новую дату. Можно написать "сегодня" или "2026-03-31".', "comment": "Введите новый комментарий."}
     draft.pending_field = field
+    draft.active_picker_message_id = None
     db.commit()
-    telegram.send_message(chat_id, prompts.get(field, "Введите новое значение."))
+    clear_active_picker_message(chat_id, active_picker_id, telegram)
+    result = telegram.send_message(chat_id, prompts.get(field, "Введите новое значение."))
+    draft.active_picker_message_id = str(result.get("message_id") or 0)
+    db.commit()
     return {"accepted": True, "status": "awaiting_edit"}
 
 
@@ -532,7 +550,7 @@ def handle_message_update(db: Session, message: dict[str, Any], raw_update: dict
                 telegram.send_message(chat_id, "Черновик отменен. Можете отправить новую операцию.")
                 return {"accepted": True, "status": "cancelled"}
             if existing_draft.pending_field:
-                return apply_manual_edit(db, existing_draft.id, existing_draft.pending_field, text_value, chat_id, telegram)
+                return apply_manual_edit(db, existing_draft.id, existing_draft.pending_field, text_value, chat_id, telegram, str(message.get("message_id") or ""))
             enqueue_job(
                 db,
                 job_type=JOB_TYPE_CLARIFICATION_REPARSE,
