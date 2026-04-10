@@ -219,13 +219,13 @@ def render_draft_text(draft: ReviewDraft, confirmed: bool) -> str:
         except ValueError:
             date_label = draft.occurred_at
     lines = [
-        "Операция сохранена" if confirmed else ("Нужно уточнить операцию" if missing else "Проверьте операцию перед сохранением"),
+        "✅ Операция сохранена" if confirmed else ("❓ Нужно уточнить операцию" if missing else "🔎 Проверьте операцию перед сохранением"),
         "",
-        f"Тип: {type_label}",
-        f"Сумма: {draft.amount if draft.amount is not None else 'Не определено'} {draft.currency or ''}".strip(),
-        f"Дата: {date_label}",
-        f"Категория: {draft.category_name or 'Не определено'}",
-        f"Комментарий: {draft.comment or 'Не определено'}",
+        f"📌 Тип: {type_label}",
+        f"💶 Сумма: {draft.amount if draft.amount is not None else 'Не определено'} {draft.currency or ''}".strip(),
+        f"📅 Дата: {date_label}",
+        f"🏷️ Категория: {draft.category_name or 'Не определено'}",
+        f"💬 Комментарий: {draft.comment or 'Не определено'}",
     ]
     if not confirmed and missing:
         lines.extend([
@@ -239,10 +239,10 @@ def render_draft_text(draft: ReviewDraft, confirmed: bool) -> str:
 def create_draft_keyboard() -> dict:
     return {
         "inline_keyboard": [
-            [{"text": "Подтвердить", "callback_data": "draft:confirm"}, {"text": "Отменить", "callback_data": "draft:cancel"}],
-            [{"text": "Изменить тип", "callback_data": "draft:edit:type"}, {"text": "Изменить сумму", "callback_data": "draft:edit:amount"}],
-            [{"text": "Изменить дату", "callback_data": "draft:edit:date"}, {"text": "Изменить категорию", "callback_data": "draft:edit:category"}],
-            [{"text": "Изменить комментарий", "callback_data": "draft:edit:comment"}],
+            [{"text": "✅ Подтвердить", "callback_data": "draft:confirm"}, {"text": "❌ Отменить", "callback_data": "draft:cancel"}],
+            [{"text": "🔁 Изменить тип", "callback_data": "draft:edit:type"}, {"text": "💶 Изменить сумму", "callback_data": "draft:edit:amount"}],
+            [{"text": "📅 Изменить дату", "callback_data": "draft:edit:date"}, {"text": "🏷️ Изменить категорию", "callback_data": "draft:edit:category"}],
+            [{"text": "💬 Изменить комментарий", "callback_data": "draft:edit:comment"}],
         ]
     }
 

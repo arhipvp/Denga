@@ -2,6 +2,7 @@ from app.models import CategoryType
 from app.telegram_helpers import (
     apply_heuristics,
     build_category_picker_page,
+    create_draft_keyboard,
     create_draft_payload,
     get_missing_draft_fields,
     normalize_date,
@@ -90,8 +91,20 @@ def test_create_draft_payload_and_render_text() -> None:
     )
     text = render_draft_text(draft, confirmed=False)
     assert draft.category_id == "cat-1"
-    assert "Проверьте операцию перед сохранением" in text
+    assert "🔎 Проверьте операцию перед сохранением" in text
     assert "Транспорт / Такси" in text
+
+    confirmed_text = render_draft_text(draft, confirmed=True)
+    assert "✅ Операция сохранена" in confirmed_text
+
+    keyboard = create_draft_keyboard()
+    assert keyboard["inline_keyboard"][0][0] == {"text": "✅ Подтвердить", "callback_data": "draft:confirm"}
+    assert keyboard["inline_keyboard"][0][1] == {"text": "❌ Отменить", "callback_data": "draft:cancel"}
+    assert keyboard["inline_keyboard"][1][0]["callback_data"] == "draft:edit:type"
+    assert keyboard["inline_keyboard"][1][1]["callback_data"] == "draft:edit:amount"
+    assert keyboard["inline_keyboard"][2][0]["callback_data"] == "draft:edit:date"
+    assert keyboard["inline_keyboard"][2][1]["callback_data"] == "draft:edit:category"
+    assert keyboard["inline_keyboard"][3][0]["callback_data"] == "draft:edit:comment"
 
 
 def test_missing_fields_and_category_picker_page() -> None:

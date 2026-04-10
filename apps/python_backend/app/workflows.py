@@ -493,6 +493,7 @@ def confirm_draft(db: Session, draft_id: str, chat_id: str, message_id: str, tel
     db.commit()
     text_value = render_draft_text(draft, confirmed=True)
     if not telegram.edit_message(chat_id, int(message_id), text_value):
+        telegram.clear_inline_keyboard(chat_id, int(message_id))
         telegram.send_message(chat_id, text_value)
     exclude = [item.telegram_id for item in (review.author.telegram_accounts if review.author else []) if item.is_active]
     enqueue_notification_job(db, transaction.id, "created", exclude)
