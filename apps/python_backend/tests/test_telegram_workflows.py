@@ -20,15 +20,16 @@ from app.services_core import bootstrap_household_id
 
 
 class FakeTelegram:
-    def __init__(self) -> None:
+    def __init__(self, *, edit_result: bool = False) -> None:
         self.edits: list[tuple[str, int, str, dict | None]] = []
         self.cleared_keyboards: list[tuple[str, int]] = []
         self.deleted_messages: list[tuple[str, int]] = []
         self.sent_messages: list[tuple[str, str, dict | None]] = []
+        self.edit_result = edit_result
 
     def edit_message(self, chat_id: str, message_id: int, text: str, reply_markup: dict | None = None) -> bool:
         self.edits.append((chat_id, message_id, text, reply_markup))
-        return False
+        return self.edit_result
 
     def clear_inline_keyboard(self, chat_id: str, message_id: int) -> bool:
         self.cleared_keyboards.append((chat_id, message_id))
@@ -115,7 +116,7 @@ def test_confirm_draft_clears_old_keyboard_when_final_edit_fails(monkeypatch) ->
         db.commit()
 
         monkeypatch.setattr(workflows, "enqueue_notification_job", lambda *args, **kwargs: None)
-        telegram = FakeTelegram()
+        telegram = FakeTelegram(edit_result=False)
 
         result = workflows.confirm_draft(db, review.id, "42", "100", telegram)
 
@@ -133,6 +134,88 @@ def test_confirm_draft_clears_old_keyboard_when_final_edit_fails(monkeypatch) ->
     assert "✅ Операция сохранена" in sent_text
     assert "🔎 Проверьте операцию перед сохранением" not in sent_text
     assert sent_reply_markup is None
+
+
+def test_confirm_draft_updates_existing_message_without_duplicate_on_success(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+
+    with SessionLocal() as db:
+        household_id = bootstrap_household_id()
+        db.add(Household(id=household_id, name="Дом", default_currency="EUR"))
+        user = User(
+            id="user-1",
+            household_id=household_id,
+            email=None,
+            password_hash=None,
+            display_name="User",
+            role=UserRole.MEMBER,
+        )
+        db.add(user)
+        db.add(TelegramAccount(user_id=user.id, telegram_id="42", username=None, first_name=None, last_name=None, is_active=True))
+        parent = Category(
+            id="parent-1",
+            household_id=household_id,
+            parent_id=None,
+            name="Еда",
+            type=CategoryType.EXPENSE,
+            is_active=True,
+        )
+        category = Category(
+            id="cat-1",
+            household_id=household_id,
+            parent_id=parent.id,
+            name="Супермаркеты",
+            type=CategoryType.EXPENSE,
+            is_active=True,
+        )
+        db.add_all([parent, category])
+        source = SourceMessage(
+            id="source-1",
+            household_id=household_id,
+            author_id=user.id,
+            telegram_message_id="10",
+            telegram_chat_id="42",
+            type=SourceMessageType.TELEGRAM_TEXT,
+            status=SourceMessageStatus.PENDING_REVIEW,
+            text="Лидл 130 EUR",
+            raw_payload={},
+        )
+        review = PendingOperationReview(
+            id="draft-1",
+            source_message_id=source.id,
+            author_id=user.id,
+            status=SourceMessageStatus.PENDING_REVIEW,
+            draft={
+                "type": "expense",
+                "amount": 130.0,
+                "occurredAt": "2026-04-11",
+                "categoryId": category.id,
+                "categoryName": "Еда / Супермаркеты",
+                "comment": "Траты в Лидл",
+                "currency": "EUR",
+                "confidence": 1,
+                "ambiguities": [],
+                "followUpQuestion": None,
+                "sourceText": "Лидл 130 EUR",
+            },
+            pending_field=None,
+            last_bot_message_id="347",
+            active_picker_message_id=None,
+        )
+        db.add_all([source, review])
+        db.commit()
+
+        monkeypatch.setattr(workflows, "enqueue_notification_job", lambda *args, **kwargs: None)
+        telegram = FakeTelegram(edit_result=True)
+
+        result = workflows.confirm_draft(db, review.id, "42", "347", telegram)
+
+    assert result["status"] == "confirmed"
+    assert len(telegram.edits) == 1
+    assert telegram.sent_messages == []
+    assert telegram.cleared_keyboards == []
 
 
 def test_manual_comment_edit_removes_transient_messages_and_sends_fresh_card() -> None:

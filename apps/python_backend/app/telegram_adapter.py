@@ -56,15 +56,31 @@ class TelegramAdapter:
     def edit_message(self, chat_id: str, message_id: int, text: str, reply_markup: dict | None = None) -> bool:
         if not self.settings.telegram_bot_token:
             return False
+        payload: dict[str, Any] = {"chat_id": chat_id, "message_id": message_id, "text": text, "parse_mode": "HTML"}
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
         try:
             self._request(
                 "editMessageText",
                 method="POST",
-                json={"chat_id": chat_id, "message_id": message_id, "text": text, "parse_mode": "HTML", "reply_markup": reply_markup},
+                json=payload,
             )
             return True
+        except httpx.HTTPStatusError as exc:
+            logger.warn(
+                "telegram",
+                "edit_message_failed",
+                "Telegram editMessageText failed",
+                self._build_http_error_context(chat_id, message_id, "editMessageText", exc),
+            )
+            return False
         except httpx.HTTPError as exc:
-            logger.warn("telegram", "edit_message_failed", "Telegram editMessageText failed", {"chatId": chat_id, "messageId": message_id, "error": exc})
+            logger.warn(
+                "telegram",
+                "edit_message_failed",
+                "Telegram editMessageText failed",
+                {"chatId": chat_id, "messageId": message_id, "telegramMethod": "editMessageText", "error": exc},
+            )
             return False
 
     def delete_message(self, chat_id: str, message_id: int) -> bool:
@@ -142,3 +158,18 @@ class TelegramAdapter:
         if normalized.endswith(".pdf"):
             return "application/pdf"
         return "image/jpeg"
+
+    def _build_http_error_context(self, chat_id: str, message_id: int, method_name: str, exc: httpx.HTTPStatusError) -> dict[str, Any]:
+        response_body = ""
+        try:
+            response_body = exc.response.text
+        except Exception:
+            response_body = ""
+        return {
+            "chatId": chat_id,
+            "messageId": message_id,
+            "telegramMethod": method_name,
+            "statusCode": exc.response.status_code,
+            "responseBody": response_body[:500],
+            "errorType": exc.__class__.__name__,
+        }
