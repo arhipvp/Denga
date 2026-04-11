@@ -189,11 +189,23 @@ jobs:
             $COMPOSE_CMD exec -T postgres sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup_file"
 
             echo "Writing baseline invariants snapshot to $baseline_snapshot"
-            $COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py > "$baseline_snapshot"
+            $COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --write "$baseline_snapshot_container"
             if [ ! -s "$baseline_snapshot" ]; then
               echo "Baseline invariants snapshot was not created at $baseline_snapshot" >&2
+              pwd >&2 || true
+              ls -lah backups >&2 || true
+              $COMPOSE_CMD config --services >&2 || true
+              $COMPOSE_CMD run --rm python-api pwd >&2 || true
               exit 1
             fi
+            $COMPOSE_CMD run --rm python-api python -c "from pathlib import Path; p = Path(r'$baseline_snapshot_container'); raise SystemExit(0 if p.is_file() and p.stat().st_size > 0 else 1)" || {
+              echo "Baseline invariants snapshot is not visible inside python-api at $baseline_snapshot_container" >&2
+              pwd >&2 || true
+              ls -lah backups >&2 || true
+              $COMPOSE_CMD config --services >&2 || true
+              $COMPOSE_CMD run --rm python-api pwd >&2 || true
+              exit 1
+            }
 
             echo 'Running Prisma migrations and bootstrap seed'
             $COMPOSE_CMD -f docker-compose.yml -f docker-compose.migrate.yml run --rm prisma-bootstrap
@@ -338,6 +350,12 @@ jobs:
               echo 'Neither docker compose nor docker-compose is available on the server' >&2
               exit 1
             fi
+
+            $COMPOSE_CMD run --rm python-api python -c "from pathlib import Path; p = Path(r'$DEPLOY_BASELINE_SNAPSHOT_CONTAINER'); raise SystemExit(0 if p.is_file() and p.stat().st_size > 0 else 1)" || {
+              echo "Baseline snapshot missing before compare step: $DEPLOY_BASELINE_SNAPSHOT_CONTAINER" >&2
+              ls -lah backups >&2 || true
+              exit 1
+            }
 
             $COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --compare "$DEPLOY_BASELINE_SNAPSHOT_CONTAINER"
           REMOTE
