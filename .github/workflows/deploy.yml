@@ -144,14 +144,23 @@ jobs:
             }
           REMOTE
 
+      - name: Prepare deploy artifact paths
+        run: |
+          timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          echo "DEPLOY_TIMESTAMP=$timestamp" >> "$GITHUB_ENV"
+          echo "DEPLOY_BACKUP_FILE=backups/deploy-pre-${timestamp}.dump" >> "$GITHUB_ENV"
+          echo "DEPLOY_BASELINE_SNAPSHOT=backups/deploy-baseline-${timestamp}.json" >> "$GITHUB_ENV"
+
       - name: Deploy with Docker Compose
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+          DEPLOY_BACKUP_FILE: ${{ env.DEPLOY_BACKUP_FILE }}
+          DEPLOY_BASELINE_SNAPSHOT: ${{ env.DEPLOY_BASELINE_SNAPSHOT }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' bash -se" <<'REMOTE'
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' DEPLOY_BACKUP_FILE='$DEPLOY_BACKUP_FILE' DEPLOY_BASELINE_SNAPSHOT='$DEPLOY_BASELINE_SNAPSHOT' bash -se" <<'REMOTE'
             set -e
             cd "$REMOTE_APP_DIR"
 
@@ -165,9 +174,8 @@ jobs:
             fi
 
             mkdir -p backups
-            timestamp=$(date -u +%Y%m%dT%H%M%SZ)
-            backup_file="backups/deploy-pre-${timestamp}.dump"
-            baseline_snapshot="backups/deploy-baseline-${timestamp}.json"
+            backup_file="$DEPLOY_BACKUP_FILE"
+            baseline_snapshot="$DEPLOY_BASELINE_SNAPSHOT"
 
             echo 'Building release images'
             $COMPOSE_CMD build python-api python-worker web
@@ -185,9 +193,6 @@ jobs:
 
             echo 'Starting python-api and python-worker'
             $COMPOSE_CMD up -d --remove-orphans python-api python-worker
-
-            echo "DEPLOY_BACKUP_FILE=$backup_file" > .deploy-state
-            echo "DEPLOY_BASELINE_SNAPSHOT=$baseline_snapshot" >> .deploy-state
           REMOTE
 
       - name: Verify python-api readiness
@@ -312,11 +317,11 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+          DEPLOY_BASELINE_SNAPSHOT: ${{ env.DEPLOY_BASELINE_SNAPSHOT }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' bash -se" <<'REMOTE'
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' DEPLOY_BASELINE_SNAPSHOT='$DEPLOY_BASELINE_SNAPSHOT' bash -se" <<'REMOTE'
             set -e
             cd "$REMOTE_APP_DIR"
-            . ./.deploy-state
 
             if docker compose version >/dev/null 2>&1; then
               COMPOSE_CMD='docker compose'
