@@ -242,22 +242,7 @@ jobs:
             verify_url 'API' 'http://127.0.0.1:3001/api/health/ready'
 
             readiness_json=$(curl --fail --show-error --silent 'http://127.0.0.1:3001/api/health/ready')
-            python3 - <<'PY' "$readiness_json"
-import json
-import sys
-
-payload = json.loads(sys.argv[1])
-checks = payload.get("checks", {})
-queue = checks.get("jobQueue", {})
-features = checks.get("features", {})
-
-assert checks.get("databaseReady") is True, "database readiness failed"
-assert checks.get("storageReady") is True, "storage readiness failed"
-assert isinstance(queue, dict) and "deadLetterCount" in queue, f"missing queue diagnostics: {checks}"
-assert queue.get("deadLetterCount", 0) == 0, f"dead-letter jobs detected: {queue}"
-assert queue.get("runningCount", 0) < 50, f"runaway running jobs detected: {queue}"
-assert all(isinstance(value, bool) for value in features.values()), f"invalid feature flag payload: {features}"
-PY
+            READINESS_JSON="$readiness_json" python3 -c "import json, os; payload=json.loads(os.environ['READINESS_JSON']); checks=payload.get('checks', {}); queue=checks.get('jobQueue', {}); features=checks.get('features', {}); assert checks.get('databaseReady') is True, 'database readiness failed'; assert checks.get('storageReady') is True, 'storage readiness failed'; assert isinstance(queue, dict) and 'deadLetterCount' in queue, f'missing queue diagnostics: {checks}'; assert queue.get('deadLetterCount', 0) == 0, f'dead-letter jobs detected: {queue}'; assert queue.get('runningCount', 0) < 50, f'runaway running jobs detected: {queue}'; assert all(isinstance(value, bool) for value in features.values()), f'invalid feature flag payload: {features}'"
 
             metrics_status=$(curl --show-error --silent --output /tmp/metrics.json --write-out '%{http_code}' 'http://127.0.0.1:3001/api/metrics')
             if [ "$metrics_status" != '200' ]; then
