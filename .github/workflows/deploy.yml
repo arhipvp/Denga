@@ -245,22 +245,22 @@ jobs:
             verify_running_service 'python-api'
             verify_url 'API' 'http://127.0.0.1:3001/api/health/ready'
 
-            readiness_json=$(curl --fail --show-error --silent 'http://127.0.0.1:3001/api/health/ready')
-            READINESS_JSON="$readiness_json" python3 -c "import json, os; payload=json.loads(os.environ['READINESS_JSON']); checks=payload.get('checks', {}); queue=checks.get('jobQueue', {}); features=checks.get('features', {}); assert checks.get('databaseReady') is True, 'database readiness failed'; assert checks.get('storageReady') is True, 'storage readiness failed'; assert isinstance(queue, dict) and 'deadLetterCount' in queue, f'missing queue diagnostics: {checks}'; assert queue.get('deadLetterCount', 0) == 0, f'dead-letter jobs detected: {queue}'; assert queue.get('runningCount', 0) < 50, f'runaway running jobs detected: {queue}'; assert all(isinstance(value, bool) for value in features.values()), f'invalid feature flag payload: {features}'"
+            readiness_json=\$(curl --fail --show-error --silent 'http://127.0.0.1:3001/api/health/ready')
+            READINESS_JSON="\$readiness_json" python3 -c "import json, os; payload=json.loads(os.environ['READINESS_JSON']); checks=payload.get('checks', {}); queue=checks.get('jobQueue', {}); features=checks.get('features', {}); assert checks.get('databaseReady') is True, 'database readiness failed'; assert checks.get('storageReady') is True, 'storage readiness failed'; assert isinstance(queue, dict) and 'deadLetterCount' in queue, f'missing queue diagnostics: {checks}'; assert queue.get('deadLetterCount', 0) == 0, f'dead-letter jobs detected: {queue}'; assert queue.get('runningCount', 0) < 50, f'runaway running jobs detected: {queue}'; assert all(isinstance(value, bool) for value in features.values()), f'invalid feature flag payload: {features}'"
 
-            metrics_status=$(curl --show-error --silent --output /tmp/metrics.json --write-out '%{http_code}' 'http://127.0.0.1:3001/api/metrics')
-            if [ "$metrics_status" != '200' ]; then
-              echo "Expected /api/metrics to return 200, got $metrics_status" >&2
+            metrics_status=\$(curl --show-error --silent --output /tmp/metrics.json --write-out '%{http_code}' 'http://127.0.0.1:3001/api/metrics')
+            if [ "\$metrics_status" != '200' ]; then
+              echo "Expected /api/metrics to return 200, got \$metrics_status" >&2
               cat /tmp/metrics.json >&2 || true
               exit 1
             fi
 
-            headers=$(curl --show-error --silent --dump-header - --output /dev/null 'http://127.0.0.1:3001/api/health')
-            echo "$headers" | grep -i '^X-Request-Id:' >/dev/null || {
+            headers=\$(curl --show-error --silent --dump-header - --output /dev/null 'http://127.0.0.1:3001/api/health')
+            echo "\$headers" | grep -i '^X-Request-Id:' >/dev/null || {
               echo 'Missing X-Request-Id header from API response' >&2
               exit 1
             }
-            echo "$headers" | grep -i '^X-Correlation-Id:' >/dev/null || {
+            echo "\$headers" | grep -i '^X-Correlation-Id:' >/dev/null || {
               echo 'Missing X-Correlation-Id header from API response' >&2
               exit 1
             }
