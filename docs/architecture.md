@@ -52,6 +52,7 @@
   - `app/domain` для чистых state machine и policy helpers
   - `app/repositories` для SQLAlchemy-backed persistence
   - `app/use_cases` для application orchestration поверх repositories
+- `app/workflows.py` сохранен только как compatibility facade для worker/tests; новая логика должна идти в `app/use_cases/*`, а не возвращаться в facade.
 - Архитектурные правила:
   - `domain` не импортирует `sqlalchemy`, `fastapi` и transport adapters
   - `use_cases` не импортируют `fastapi`

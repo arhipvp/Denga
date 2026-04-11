@@ -100,12 +100,12 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
-            if [ ! -f '$REMOTE_APP_DIR/.env' ]; then
-              echo 'Missing server env file: $REMOTE_APP_DIR/.env' >&2
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' bash -se" <<'REMOTE'
+            if [ ! -f "$REMOTE_APP_DIR/.env" ]; then
+              echo "Missing server env file: $REMOTE_APP_DIR/.env" >&2
               exit 1
             fi
-          "
+          REMOTE
 
       - name: Verify synced release markers on server
         env:
@@ -114,18 +114,18 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' EXPECTED_SHA='${{ github.event.workflow_run.head_sha }}' bash -se" <<'REMOTE'
             set -e
-            cd '$REMOTE_APP_DIR'
+            cd "$REMOTE_APP_DIR"
 
             if [ ! -f DEPLOYED_SHA ]; then
               echo 'Missing DEPLOYED_SHA on server after rsync' >&2
               exit 1
             fi
 
-            deployed_sha=\$(tr -d '\r\n' < DEPLOYED_SHA)
-            echo \"server_deployed_sha=\$deployed_sha\"
-            if [ \"\$deployed_sha\" != '${{ github.event.workflow_run.head_sha }}' ]; then
+            deployed_sha=$(tr -d '\r\n' < DEPLOYED_SHA)
+            echo "server_deployed_sha=$deployed_sha"
+            if [ "$deployed_sha" != "$EXPECTED_SHA" ]; then
               echo 'Server DEPLOYED_SHA does not match triggering workflow commit' >&2
               exit 1
             fi
@@ -142,7 +142,7 @@ jobs:
               echo 'Expected jobQueue marker not found in synced services_runtime.py' >&2
               exit 1
             }
-          "
+          REMOTE
 
       - name: Deploy with Docker Compose
         env:
@@ -151,9 +151,9 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' bash -se" <<'REMOTE'
             set -e
-            cd '$REMOTE_APP_DIR'
+            cd "$REMOTE_APP_DIR"
 
             if docker compose version >/dev/null 2>&1; then
               COMPOSE_CMD='docker compose'
@@ -165,30 +165,30 @@ jobs:
             fi
 
             mkdir -p backups
-            timestamp=\$(date -u +%Y%m%dT%H%M%SZ)
-            backup_file=\"backups/deploy-pre-\${timestamp}.dump\"
-            baseline_snapshot=\"backups/deploy-baseline-\${timestamp}.json\"
+            timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+            backup_file="backups/deploy-pre-${timestamp}.dump"
+            baseline_snapshot="backups/deploy-baseline-${timestamp}.json"
 
             echo 'Building release images'
-            \$COMPOSE_CMD build python-api python-worker web
-            \$COMPOSE_CMD -f docker-compose.yml -f docker-compose.migrate.yml build prisma-bootstrap
+            $COMPOSE_CMD build python-api python-worker web
+            $COMPOSE_CMD -f docker-compose.yml -f docker-compose.migrate.yml build prisma-bootstrap
 
-            echo \"Creating fresh production backup at \$backup_file\"
-            \$COMPOSE_CMD up -d postgres
-            \$COMPOSE_CMD exec -T postgres sh -lc 'PGPASSWORD=\"\$POSTGRES_PASSWORD\" pg_dump -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -Fc' > \"\$backup_file\"
+            echo "Creating fresh production backup at $backup_file"
+            $COMPOSE_CMD up -d postgres
+            $COMPOSE_CMD exec -T postgres sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup_file"
 
-            echo \"Writing baseline invariants snapshot to \$baseline_snapshot\"
-            \$COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --write \"\$baseline_snapshot\"
+            echo "Writing baseline invariants snapshot to $baseline_snapshot"
+            $COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --write "$baseline_snapshot"
 
             echo 'Running Prisma migrations and bootstrap seed'
-            \$COMPOSE_CMD -f docker-compose.yml -f docker-compose.migrate.yml run --rm prisma-bootstrap
+            $COMPOSE_CMD -f docker-compose.yml -f docker-compose.migrate.yml run --rm prisma-bootstrap
 
             echo 'Starting python-api and python-worker'
-            \$COMPOSE_CMD up -d --remove-orphans python-api python-worker
+            $COMPOSE_CMD up -d --remove-orphans python-api python-worker
 
-            echo \"DEPLOY_BACKUP_FILE=\$backup_file\" > .deploy-state
-            echo \"DEPLOY_BASELINE_SNAPSHOT=\$baseline_snapshot\" >> .deploy-state
-          "
+            echo "DEPLOY_BACKUP_FILE=$backup_file" > .deploy-state
+            echo "DEPLOY_BASELINE_SNAPSHOT=$baseline_snapshot" >> .deploy-state
+          REMOTE
 
       - name: Verify python-api readiness
         env:
@@ -273,9 +273,9 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' bash -se" <<'REMOTE'
             set -e
-            cd '$REMOTE_APP_DIR'
+            cd "$REMOTE_APP_DIR"
 
             if docker compose version >/dev/null 2>&1; then
               COMPOSE_CMD='docker compose'
@@ -287,24 +287,24 @@ jobs:
             fi
 
             VERIFY_API_BASE_URL='http://python-api:3001/api'
-            VERIFY_ADMIN_EMAIL=\$(\$COMPOSE_CMD run --rm --no-deps python-api python -c \"import os; print(os.getenv('ADMIN_EMAIL', ''))\" | tr -d '\r')
-            VERIFY_ADMIN_PASSWORD=\$(\$COMPOSE_CMD run --rm --no-deps python-api python -c \"import os; print(os.getenv('ADMIN_PASSWORD', ''))\" | tr -d '\r')
-            VERIFY_MEMBER_EMAIL=\$(\$COMPOSE_CMD run --rm --no-deps python-api python -c \"import os; print(os.getenv('VERIFY_MEMBER_EMAIL', ''))\" | tr -d '\r')
-            VERIFY_MEMBER_PASSWORD=\$(\$COMPOSE_CMD run --rm --no-deps python-api python -c \"import os; print(os.getenv('VERIFY_MEMBER_PASSWORD', ''))\" | tr -d '\r')
+            VERIFY_ADMIN_EMAIL=$($COMPOSE_CMD run --rm --no-deps python-api python -c "import os; print(os.getenv('ADMIN_EMAIL', ''))" | tr -d '\r')
+            VERIFY_ADMIN_PASSWORD=$($COMPOSE_CMD run --rm --no-deps python-api python -c "import os; print(os.getenv('ADMIN_PASSWORD', ''))" | tr -d '\r')
+            VERIFY_MEMBER_EMAIL=$($COMPOSE_CMD run --rm --no-deps python-api python -c "import os; print(os.getenv('VERIFY_MEMBER_EMAIL', ''))" | tr -d '\r')
+            VERIFY_MEMBER_PASSWORD=$($COMPOSE_CMD run --rm --no-deps python-api python -c "import os; print(os.getenv('VERIFY_MEMBER_PASSWORD', ''))" | tr -d '\r')
 
-            if [ -z \"\$VERIFY_ADMIN_EMAIL\" ] || [ -z \"\$VERIFY_ADMIN_PASSWORD\" ]; then
+            if [ -z "$VERIFY_ADMIN_EMAIL" ] || [ -z "$VERIFY_ADMIN_PASSWORD" ]; then
               echo 'ADMIN_EMAIL and ADMIN_PASSWORD must be set in .env for contract verification' >&2
               exit 1
             fi
 
-            \$COMPOSE_CMD run --rm \
-              -e VERIFY_API_BASE_URL=\"\$VERIFY_API_BASE_URL\" \
-              -e VERIFY_ADMIN_EMAIL=\"\$VERIFY_ADMIN_EMAIL\" \
-              -e VERIFY_ADMIN_PASSWORD=\"\$VERIFY_ADMIN_PASSWORD\" \
-              -e VERIFY_MEMBER_EMAIL=\"\$VERIFY_MEMBER_EMAIL\" \
-              -e VERIFY_MEMBER_PASSWORD=\"\$VERIFY_MEMBER_PASSWORD\" \
+            $COMPOSE_CMD run --rm \
+              -e VERIFY_API_BASE_URL="$VERIFY_API_BASE_URL" \
+              -e VERIFY_ADMIN_EMAIL="$VERIFY_ADMIN_EMAIL" \
+              -e VERIFY_ADMIN_PASSWORD="$VERIFY_ADMIN_PASSWORD" \
+              -e VERIFY_MEMBER_EMAIL="$VERIFY_MEMBER_EMAIL" \
+              -e VERIFY_MEMBER_PASSWORD="$VERIFY_MEMBER_PASSWORD" \
               python-api python scripts/verify_contract.py
-          "
+          REMOTE
 
       - name: Compare post-start invariants on server
         env:
@@ -313,9 +313,9 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' bash -se" <<'REMOTE'
             set -e
-            cd '$REMOTE_APP_DIR'
+            cd "$REMOTE_APP_DIR"
             . ./.deploy-state
 
             if docker compose version >/dev/null 2>&1; then
@@ -327,8 +327,8 @@ jobs:
               exit 1
             fi
 
-            \$COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --compare \"\$DEPLOY_BASELINE_SNAPSHOT\"
-          "
+            $COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --compare "$DEPLOY_BASELINE_SNAPSHOT"
+          REMOTE
 
       - name: Start web after automated gates
         env:
@@ -337,9 +337,9 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' bash -se" <<'REMOTE'
             set -e
-            cd '$REMOTE_APP_DIR'
+            cd "$REMOTE_APP_DIR"
 
             if docker compose version >/dev/null 2>&1; then
               COMPOSE_CMD='docker compose'
@@ -350,8 +350,8 @@ jobs:
               exit 1
             fi
 
-            \$COMPOSE_CMD up -d web
-          "
+            $COMPOSE_CMD up -d web
+          REMOTE
 
       - name: Verify web on server
         env:
@@ -361,26 +361,26 @@ jobs:
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
           APP_URL: ${{ secrets.APP_URL }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' APP_URL='$APP_URL' bash -se" <<'REMOTE'
             set -e
-            cd '$REMOTE_APP_DIR'
+            cd "$REMOTE_APP_DIR"
 
             verify_url() {
-              name=\"\$1\"
-              url=\"\$2\"
+              name="$1"
+              url="$2"
 
-              for attempt in \$(seq 1 18); do
-                if curl --fail --show-error --silent \"\$url\" >/dev/null; then
-                  echo \"\$name is ready\"
+              for attempt in $(seq 1 18); do
+                if curl --fail --show-error --silent "$url" >/dev/null; then
+                  echo "$name is ready"
                   return 0
                 fi
-                echo \"\$name is not ready yet (attempt \$attempt/18), waiting 5s...\"
+                echo "$name is not ready yet (attempt $attempt/18), waiting 5s..."
                 sleep 5
               done
 
-              echo \"\$name did not become ready in time\" >&2
+              echo "$name did not become ready in time" >&2
               return 1
             }
 
-            verify_url 'Web' '$APP_URL'
-          "
+            verify_url 'Web' "$APP_URL"
+          REMOTE

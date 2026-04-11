@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import Select, or_, select
@@ -56,7 +56,7 @@ class JobRepository:
         return job
 
     def claim_next(self) -> Job | None:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         lease_timeout = timedelta(seconds=get_settings().job_lease_seconds)
         claim_query: Select[tuple[Job]] = (
             select(Job)
@@ -129,7 +129,7 @@ class JobRepository:
         self._db.commit()
 
     def queue_metrics(self) -> dict[str, Any]:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         pending_jobs = list(
             self._db.execute(select(Job).where(Job.status == JobStatus.PENDING.value).order_by(Job.created_at.asc())).scalars()
         )

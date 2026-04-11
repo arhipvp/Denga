@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -57,7 +57,7 @@ def test_transition_review_syncs_source_and_clarification_statuses() -> None:
             question="Уточните категорию",
             answer=None,
             conversation=[],
-            expires_at=datetime.utcnow() + timedelta(minutes=30),
+            expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=30),
             resolved_at=None,
         )
         db.add_all([source, review, clarification])

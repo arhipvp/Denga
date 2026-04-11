@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from sqlalchemy import create_engine
@@ -35,7 +35,7 @@ def test_claim_reclaims_expired_running_job() -> None:
             payload={"sourceMessageId": "source-1"},
             attempts=0,
             max_attempts=3,
-            lease_expires_at=datetime.utcnow() - timedelta(seconds=1),
+            lease_expires_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=1),
         )
         db.add(job)
         db.commit()

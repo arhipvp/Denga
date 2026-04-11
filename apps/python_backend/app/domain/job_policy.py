@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from typing import Any
 
@@ -21,7 +21,7 @@ DEFAULT_RETRY_BASE_SECONDS = 15
 
 def compute_retry_not_before(attempts: int, *, base_seconds: int = DEFAULT_RETRY_BASE_SECONDS) -> datetime:
     delay_seconds = max(base_seconds, base_seconds * (2 ** max(attempts - 1, 0)))
-    return datetime.utcnow() + timedelta(seconds=delay_seconds)
+    return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=delay_seconds)
 
 
 def build_job_dedupe_key(job_type: str, payload: dict[str, Any]) -> str | None:

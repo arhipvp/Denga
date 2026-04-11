@@ -10,21 +10,20 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from fastapi import HTTPException
-from sqlalchemy import func, or_, select, text
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.domain.job_policy import build_job_dedupe_key
 from app.jobs import enqueue_job
 from app.logging_utils import logger
-from app.models import Category, SourceMessage, SourceMessageStatus, SourceMessageType, Transaction, TransactionStatus, TransactionType, User
+from app.models import User
 from app.observability import increment_metric, set_gauge
 from app.repositories.job_repository import JobRepository
 from app.schemas import TransactionCreateRequest, TransactionUpdateRequest
-from app.services_core import bootstrap_household_id, get_settings_payload, map_category_type, require_entity
-from app.summary import SummaryTransaction, calculate_transaction_summary
+from app.services_core import bootstrap_household_id
 from app.use_cases import transactions as transaction_use_cases
-from app.workflows import enqueue_notification_job
+from app.use_cases.notifications import enqueue_notification_job
 
 PG_DUMP_ALLOWED_QUERY_PARAMS = {
     "application_name", "channel_binding", "client_encoding", "connect_timeout", "gssencmode",
@@ -42,135 +41,6 @@ BACKUP_TABLES = [
     'public."Transaction"',
     'public."AppSetting"',
 ]
-
-
-def _map_status(value: str | None) -> TransactionStatus | None:
-    if value == "confirmed":
-        return TransactionStatus.CONFIRMED
-    if value == "needs_clarification":
-        return TransactionStatus.NEEDS_CLARIFICATION
-    if value == "cancelled":
-        return TransactionStatus.CANCELLED
-    return None
-
-
-def _map_type(value: str | None) -> TransactionType | None:
-    if value == "income":
-        return TransactionType.INCOME
-    if value == "expense":
-        return TransactionType.EXPENSE
-    return None
-
-
-def _ensure_category_type(db: Session, category_id: str, transaction_type: str) -> Category:
-    category = db.execute(select(Category).where(Category.id == category_id)).scalar_one_or_none()
-    if not category or category.household_id != bootstrap_household_id():
-        raise HTTPException(status_code=404, detail="Category not found")
-    if category.type != map_category_type(transaction_type):
-        raise HTTPException(status_code=400, detail="Category type must match transaction type")
-    return category
-
-
-def _transaction_query() -> Any:
-    return (
-        select(Transaction)
-        .options(
-            joinedload(Transaction.category).joinedload(Category.parent),
-            joinedload(Transaction.author),
-            joinedload(Transaction.source_message).joinedload(SourceMessage.clarification_session),
-            joinedload(Transaction.source_message).joinedload(SourceMessage.review_draft),
-        )
-    )
-
-
-def _category_display(category: Category | None) -> dict[str, Any] | None:
-    if not category:
-        return None
-    parent = None
-    if category.parent:
-        parent = {
-            "id": category.parent.id,
-            "parentId": category.parent.parent_id,
-            "name": category.parent.name,
-            "type": category.parent.type.value,
-            "isActive": category.parent.is_active,
-            "displayPath": category.parent.name,
-            "isLeaf": False,
-            "children": [],
-        }
-    return {
-        "id": category.id,
-        "parentId": category.parent_id,
-        "name": category.name,
-        "type": category.type.value,
-        "isActive": category.is_active,
-        "isLeaf": category.parent_id is not None,
-        "displayPath": f"{category.parent.name} / {category.name}" if category.parent else category.name,
-        "children": [],
-        "parent": parent,
-        "createdAt": category.created_at.isoformat(),
-        "updatedAt": category.updated_at.isoformat(),
-    }
-
-
-def _serialize_source_message(message: SourceMessage | None) -> dict[str, Any] | None:
-    if not message:
-        return None
-    attachments = [{"id": item.id, "localPath": item.local_path} for item in getattr(message, "attachments", [])]
-    parse_attempts = [
-        {
-            "id": item.id,
-            "attemptType": item.attempt_type.value,
-            "model": item.model,
-            "responsePayload": item.response_payload,
-        }
-        for item in getattr(message, "parse_attempts", [])
-    ]
-    clarification = message.clarification_session
-    review_draft = message.review_draft
-    return {
-        "type": message.type.value,
-        "text": message.text,
-        "attachments": attachments,
-        "parseAttempts": parse_attempts,
-        "clarificationSession": (
-            {
-                "question": clarification.question,
-                "status": clarification.status.value,
-                "conversation": clarification.conversation,
-            }
-            if clarification
-            else None
-        ),
-        "reviewDraft": (
-            {
-                "status": review_draft.status.value,
-                "pendingField": review_draft.pending_field,
-                "draft": review_draft.draft,
-            }
-            if review_draft
-            else None
-        ),
-    }
-
-
-def _serialize_transaction(item: Transaction) -> dict[str, Any]:
-    return {
-        "id": item.id,
-        "type": item.type.value,
-        "amount": f"{float(item.amount):.2f}",
-        "currency": item.currency,
-        "occurredAt": item.occurred_at.isoformat(),
-        "comment": item.comment,
-        "status": item.status.value,
-        "category": _category_display(item.category),
-        "author": {"displayName": item.author.display_name} if item.author else None,
-        "sourceMessage": _serialize_source_message(item.source_message),
-        "createdAt": item.created_at.isoformat(),
-        "updatedAt": item.updated_at.isoformat(),
-        "categoryId": item.category_id,
-    }
-
 
 def list_transactions(
     db: Session,

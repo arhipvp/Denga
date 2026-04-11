@@ -14,7 +14,7 @@ from app.repositories.transaction_repository import TransactionRepository
 from app.schemas import TransactionCreateRequest, TransactionUpdateRequest
 from app.services_core import bootstrap_household_id, map_category_type, require_entity
 from app.summary import SummaryTransaction, calculate_transaction_summary
-from app.workflows import enqueue_notification_job
+from app.use_cases.notifications import enqueue_notification_job
 
 
 def map_status(value: str | None) -> TransactionStatus | None:
