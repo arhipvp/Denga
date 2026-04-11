@@ -150,6 +150,7 @@ jobs:
           echo "DEPLOY_TIMESTAMP=$timestamp" >> "$GITHUB_ENV"
           echo "DEPLOY_BACKUP_FILE=backups/deploy-pre-${timestamp}.dump" >> "$GITHUB_ENV"
           echo "DEPLOY_BASELINE_SNAPSHOT=backups/deploy-baseline-${timestamp}.json" >> "$GITHUB_ENV"
+          echo "DEPLOY_BASELINE_SNAPSHOT_CONTAINER=/app/apps/python_backend/backups/deploy-baseline-${timestamp}.json" >> "$GITHUB_ENV"
 
       - name: Deploy with Docker Compose
         env:
@@ -159,8 +160,9 @@ jobs:
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
           DEPLOY_BACKUP_FILE: ${{ env.DEPLOY_BACKUP_FILE }}
           DEPLOY_BASELINE_SNAPSHOT: ${{ env.DEPLOY_BASELINE_SNAPSHOT }}
+          DEPLOY_BASELINE_SNAPSHOT_CONTAINER: ${{ env.DEPLOY_BASELINE_SNAPSHOT_CONTAINER }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' DEPLOY_BACKUP_FILE='$DEPLOY_BACKUP_FILE' DEPLOY_BASELINE_SNAPSHOT='$DEPLOY_BASELINE_SNAPSHOT' bash -se" <<'REMOTE'
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' DEPLOY_BACKUP_FILE='$DEPLOY_BACKUP_FILE' DEPLOY_BASELINE_SNAPSHOT='$DEPLOY_BASELINE_SNAPSHOT' DEPLOY_BASELINE_SNAPSHOT_CONTAINER='$DEPLOY_BASELINE_SNAPSHOT_CONTAINER' bash -se" <<'REMOTE'
             set -e
             cd "$REMOTE_APP_DIR"
 
@@ -176,6 +178,7 @@ jobs:
             mkdir -p backups
             backup_file="$DEPLOY_BACKUP_FILE"
             baseline_snapshot="$DEPLOY_BASELINE_SNAPSHOT"
+            baseline_snapshot_container="$DEPLOY_BASELINE_SNAPSHOT_CONTAINER"
 
             echo 'Building release images'
             $COMPOSE_CMD build python-api python-worker web
@@ -186,7 +189,7 @@ jobs:
             $COMPOSE_CMD exec -T postgres sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup_file"
 
             echo "Writing baseline invariants snapshot to $baseline_snapshot"
-            $COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --write "$baseline_snapshot"
+            $COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --write "$baseline_snapshot_container"
 
             echo 'Running Prisma migrations and bootstrap seed'
             $COMPOSE_CMD -f docker-compose.yml -f docker-compose.migrate.yml run --rm prisma-bootstrap
@@ -317,9 +320,9 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
-          DEPLOY_BASELINE_SNAPSHOT: ${{ env.DEPLOY_BASELINE_SNAPSHOT }}
+          DEPLOY_BASELINE_SNAPSHOT_CONTAINER: ${{ env.DEPLOY_BASELINE_SNAPSHOT_CONTAINER }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' DEPLOY_BASELINE_SNAPSHOT='$DEPLOY_BASELINE_SNAPSHOT' bash -se" <<'REMOTE'
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' DEPLOY_BASELINE_SNAPSHOT_CONTAINER='$DEPLOY_BASELINE_SNAPSHOT_CONTAINER' bash -se" <<'REMOTE'
             set -e
             cd "$REMOTE_APP_DIR"
 
@@ -332,7 +335,7 @@ jobs:
               exit 1
             fi
 
-            $COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --compare "$DEPLOY_BASELINE_SNAPSHOT"
+            $COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --compare "$DEPLOY_BASELINE_SNAPSHOT_CONTAINER"
           REMOTE
 
       - name: Start web after automated gates
