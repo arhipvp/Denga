@@ -189,7 +189,11 @@ jobs:
             $COMPOSE_CMD exec -T postgres sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup_file"
 
             echo "Writing baseline invariants snapshot to $baseline_snapshot"
-            $COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --write "$baseline_snapshot_container"
+            $COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py > "$baseline_snapshot"
+            if [ ! -s "$baseline_snapshot" ]; then
+              echo "Baseline invariants snapshot was not created at $baseline_snapshot" >&2
+              exit 1
+            fi
 
             echo 'Running Prisma migrations and bootstrap seed'
             $COMPOSE_CMD -f docker-compose.yml -f docker-compose.migrate.yml run --rm prisma-bootstrap
