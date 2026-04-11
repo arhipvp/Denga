@@ -41,10 +41,41 @@ _ALLOWED_TRANSITIONS: dict[DraftLifecycleState, set[DraftLifecycleState]] = {
     DraftLifecycleState.EXPIRED: set(),
 }
 
+REVIEW_STATUS_BY_LIFECYCLE: dict[DraftLifecycleState, str] = {
+    DraftLifecycleState.RECEIVED: "RECEIVED",
+    DraftLifecycleState.PARSED: "PARSED",
+    DraftLifecycleState.PENDING_REVIEW: "PENDING_REVIEW",
+    DraftLifecycleState.NEEDS_CLARIFICATION: "NEEDS_CLARIFICATION",
+    DraftLifecycleState.CLARIFICATION_ENQUEUED: "NEEDS_CLARIFICATION",
+    DraftLifecycleState.CONFIRMED: "PARSED",
+    DraftLifecycleState.CANCELLED: "CANCELLED",
+    DraftLifecycleState.EXPIRED: "CANCELLED",
+}
 
-def transition_draft_state(current: DraftLifecycleState, next_state: DraftLifecycleState) -> DraftLifecycleState:
+SOURCE_STATUS_BY_LIFECYCLE: dict[DraftLifecycleState, str] = REVIEW_STATUS_BY_LIFECYCLE.copy()
+
+CLARIFICATION_STATUS_BY_LIFECYCLE: dict[DraftLifecycleState, str | None] = {
+    DraftLifecycleState.RECEIVED: None,
+    DraftLifecycleState.PARSED: None,
+    DraftLifecycleState.PENDING_REVIEW: None,
+    DraftLifecycleState.NEEDS_CLARIFICATION: "OPEN",
+    DraftLifecycleState.CLARIFICATION_ENQUEUED: "OPEN",
+    DraftLifecycleState.CONFIRMED: "RESOLVED",
+    DraftLifecycleState.CANCELLED: "CANCELLED",
+    DraftLifecycleState.EXPIRED: "EXPIRED",
+}
+
+
+def transition_draft_state(
+    current: DraftLifecycleState,
+    next_state: DraftLifecycleState,
+    *,
+    strict: bool = True,
+) -> DraftLifecycleState:
     if next_state == current:
         return current
     if next_state not in _ALLOWED_TRANSITIONS[current]:
+        if not strict:
+            return next_state
         raise ValueError(f"Invalid draft transition: {current} -> {next_state}")
     return next_state

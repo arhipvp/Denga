@@ -13,3 +13,14 @@ def test_allows_known_transition() -> None:
 def test_rejects_invalid_transition() -> None:
     with pytest.raises(ValueError):
         transition_draft_state(DraftLifecycleState.CONFIRMED, DraftLifecycleState.PENDING_REVIEW)
+
+
+def test_non_strict_mode_allows_invalid_transition_for_compatibility() -> None:
+    assert (
+        transition_draft_state(
+            DraftLifecycleState.CONFIRMED,
+            DraftLifecycleState.PENDING_REVIEW,
+            strict=False,
+        )
+        == DraftLifecycleState.PENDING_REVIEW
+    )

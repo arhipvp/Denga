@@ -61,11 +61,15 @@
 ## Draft Lifecycle
 
 - Canonical draft lifecycle формализован через state machine в `app/domain/draft_state.py`.
+- Canonical owner состояния теперь `PendingOperationReview`; `SourceMessage.status` и `ClarificationSession.status` синхронизируются как derived state через `DraftRepository.transition_review(...)`.
 - Ключевые переходы:
   - `received -> parsed -> pending_review`
   - `pending_review -> needs_clarification | clarification_enqueued | confirmed | cancelled | expired`
   - `clarification_enqueued -> pending_review | needs_clarification | cancelled | expired`
 - Новые сценарии должны менять draft state только через transition helpers, а не ad hoc присваиваниями.
+- Feature flags:
+  - `feature_strict_draft_state_enabled` включает жесткую валидацию invalid transitions
+  - `feature_job_dedupe_enabled` и `feature_dead_letter_jobs_enabled` управляют risky queue behavior без смены публичного API
 
 ## Web Admin
 

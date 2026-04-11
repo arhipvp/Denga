@@ -73,7 +73,10 @@ def create_app() -> FastAPI:
             request.headers.get("x-correlation-id"),
         )
         increment_metric("api.requests.total")
-        with bind_log_context(request_method=request.method, request_path=request.url.path, **request_context):
+        log_context = request_context
+        if settings.feature_enhanced_observability_enabled:
+            log_context = {**request_context, "request_method": request.method, "request_path": request.url.path}
+        with bind_log_context(**log_context):
             response = await call_next(request)
         duration_ms = (perf_counter() - started_at) * 1000
         set_gauge("api.last_request_duration_ms", duration_ms)

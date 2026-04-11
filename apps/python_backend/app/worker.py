@@ -98,12 +98,16 @@ def main() -> None:
                     logger.warn("worker", "unknown_job_type", "Unknown job type received", {"jobId": job.id, "jobType": job.job_type})
                     mark_job_completed(db, job)
                     continue
-                with bind_log_context(
-                    job_id=job.id,
-                    job_type=job.job_type,
-                    worker_id=settings.worker_id,
-                    correlation_id=job.correlation_id or job.id,
-                ):
+                log_context = {
+                    "job_id": job.id,
+                    "job_type": job.job_type,
+                    "worker_id": settings.worker_id,
+                    "correlation_id": job.correlation_id or job.id,
+                }
+                if settings.feature_enhanced_observability_enabled:
+                    log_context["job_attempt"] = job.attempts + 1
+                    log_context["household_id"] = job.household_id
+                with bind_log_context(**log_context):
                     handler(job, telegram, db)
                 mark_job_completed(db, job)
                 increment_metric("jobs.completed")

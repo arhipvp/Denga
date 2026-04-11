@@ -27,8 +27,9 @@ class JobRepository:
         dedupe_key: str | None = None,
         correlation_id: str | None = None,
     ) -> Job:
-        dedupe_key = dedupe_key or build_job_dedupe_key(job_type, payload)
-        if dedupe_key:
+        settings = get_settings()
+        dedupe_key = dedupe_key or (build_job_dedupe_key(job_type, payload) if settings.feature_job_dedupe_enabled else None)
+        if settings.feature_job_dedupe_enabled and dedupe_key:
             existing = self._db.execute(
                 select(Job).where(
                     Job.job_type == job_type,
@@ -114,13 +115,14 @@ class JobRepository:
         self._db.commit()
 
     def mark_failed(self, job: Job, error: Exception) -> None:
+        settings = get_settings()
         job.attempts += 1
         job.last_error = str(error)
         job.locked_at = None
         job.locked_by = None
         job.lease_expires_at = None
         if job.attempts >= job.max_attempts:
-            job.status = JobStatus.DEAD_LETTER.value
+            job.status = JobStatus.DEAD_LETTER.value if settings.feature_dead_letter_jobs_enabled else JobStatus.FAILED.value
         else:
             job.status = JobStatus.PENDING.value
             job.not_before = compute_retry_not_before(job.attempts)

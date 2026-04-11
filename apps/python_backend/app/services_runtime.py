@@ -23,6 +23,7 @@ from app.repositories.job_repository import JobRepository
 from app.schemas import TransactionCreateRequest, TransactionUpdateRequest
 from app.services_core import bootstrap_household_id, get_settings_payload, map_category_type, require_entity
 from app.summary import SummaryTransaction, calculate_transaction_summary
+from app.use_cases import transactions as transaction_use_cases
 from app.workflows import enqueue_notification_job
 
 PG_DUMP_ALLOWED_QUERY_PARAMS = {
@@ -182,134 +183,42 @@ def list_transactions(
     page: int | None,
     page_size: int | None,
 ) -> dict[str, Any]:
-    page = 1 if not page or page < 1 else math.floor(page)
-    page_size = 20 if not page_size or page_size < 1 else min(math.floor(page_size), 100)
-    query = _transaction_query().where(Transaction.household_id == bootstrap_household_id())
-    count_query = select(func.count()).select_from(Transaction).where(Transaction.household_id == bootstrap_household_id())
-    mapped_status = _map_status(status)
-    mapped_type = _map_type(type_)
-    if mapped_status:
-        query = query.where(Transaction.status == mapped_status)
-        count_query = count_query.where(Transaction.status == mapped_status)
-    if mapped_type:
-        query = query.where(Transaction.type == mapped_type)
-        count_query = count_query.where(Transaction.type == mapped_type)
-    if search and search.strip():
-        term = f"%{search.strip().lower()}%"
-        search_clause = or_(
-            func.lower(func.coalesce(Transaction.comment, "")).like(term),
-            Transaction.category.has(func.lower(Category.name).like(term)),
-            Transaction.author.has(func.lower(User.display_name).like(term)),
-            Transaction.source_message.has(func.lower(func.coalesce(SourceMessage.text, "")).like(term)),
-        )
-        query = query.where(search_clause)
-        count_query = count_query.where(search_clause)
-
-    direction = "asc" if sort_dir == "asc" else "desc"
-    if sort_by == "amount":
-        query = query.order_by(text(f'"amount" {direction}'), Transaction.occurred_at.desc())
-    elif sort_by == "type":
-        query = query.order_by(text(f'"type" {direction}'), Transaction.occurred_at.desc())
-    elif sort_by == "status":
-        query = query.order_by(text(f'"status" {direction}'), Transaction.occurred_at.desc())
-    elif sort_by == "createdAt":
-        query = query.order_by(text(f'"createdAt" {direction}'), Transaction.occurred_at.desc())
-    else:
-        query = query.order_by(Transaction.occurred_at.desc())
-
-    total = db.execute(count_query).scalar_one()
-    items = db.execute(query.offset((page - 1) * page_size).limit(page_size)).unique().scalars()
-    return {"items": [_serialize_transaction(item) for item in items], "total": total, "page": page, "pageSize": page_size}
+    return transaction_use_cases.list_transactions(
+        db,
+        status=status,
+        type_=type_,
+        search=search,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        page=page,
+        page_size=page_size,
+    )
 
 
 def transaction_summary(db: Session) -> dict[str, Any]:
-    transactions = list(
-        db.execute(
-            _transaction_query().where(Transaction.household_id == bootstrap_household_id()).order_by(Transaction.occurred_at.asc())
-        ).unique().scalars()
-    )
-    recent = sorted(transactions, key=lambda item: item.occurred_at, reverse=True)[:8]
-    summary_transactions = [
-        SummaryTransaction(
-            id=item.id,
-            type=item.type.value,
-            status=item.status.value,
-            amount=float(item.amount),
-            occurred_at=item.occurred_at.replace(tzinfo=timezone.utc),
-            category_id=item.category_id,
-            category_name=item.category.name if item.category else None,
-            parent_category_id=item.category.parent.id if item.category and item.category.parent else None,
-            parent_category_name=item.category.parent.name if item.category and item.category.parent else None,
-        )
-        for item in transactions
-    ]
-    payload = calculate_transaction_summary(summary_transactions)
-    payload["recent"] = [_serialize_transaction(item) for item in recent]
-    return payload
+    return transaction_use_cases.transaction_summary(db)
 
 
 def create_transaction(db: Session, payload: TransactionCreateRequest, author_id: str | None) -> dict[str, Any]:
-    _ensure_category_type(db, payload.categoryId, payload.type)
-    settings_payload = get_settings_payload(db)
-    source_message = SourceMessage(
-        household_id=bootstrap_household_id(),
-        author_id=author_id,
-        type=SourceMessageType.ADMIN_MANUAL,
-        status=SourceMessageStatus.PARSED,
-        raw_payload={},
-    )
-    db.add(source_message)
-    db.flush()
-    transaction = Transaction(
-        household_id=bootstrap_household_id(),
-        author_id=author_id,
-        source_message_id=source_message.id,
-        type=_map_type(payload.type) or TransactionType.EXPENSE,
-        amount=payload.amount,
-        currency=settings_payload["defaultCurrency"],
-        occurred_at=payload.occurredAt.replace(tzinfo=None),
-        comment=payload.comment,
-        category_id=payload.categoryId,
-        status=TransactionStatus.CONFIRMED,
-    )
-    db.add(transaction)
-    db.commit()
-    enqueue_notification_job(db, transaction.id, "created")
-    transaction = db.execute(_transaction_query().where(Transaction.id == transaction.id)).unique().scalar_one()
-    return _serialize_transaction(transaction)
+    try:
+        return transaction_use_cases.create_transaction(db, payload, author_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def update_transaction(db: Session, transaction_id: str, payload: TransactionUpdateRequest) -> dict[str, Any]:
-    transaction = require_entity(db.execute(select(Transaction).where(Transaction.id == transaction_id)).scalar_one_or_none(), "Transaction not found")
-    final_type = payload.type or ("income" if transaction.type == TransactionType.INCOME else "expense")
-    final_category_id = payload.categoryId or transaction.category_id
-    if final_category_id:
-        _ensure_category_type(db, final_category_id, final_type)
-    if payload.type is not None:
-        transaction.type = _map_type(payload.type) or transaction.type
-    if payload.amount is not None:
-        transaction.amount = payload.amount
-    if payload.occurredAt is not None:
-        transaction.occurred_at = payload.occurredAt.replace(tzinfo=None)
-    if payload.categoryId is not None:
-        transaction.category_id = payload.categoryId
-    if payload.comment is not None:
-        transaction.comment = payload.comment
-    if payload.status is not None:
-        mapped_status = _map_status(payload.status)
-        if mapped_status:
-            transaction.status = mapped_status
-    db.commit()
-    transaction = db.execute(_transaction_query().where(Transaction.id == transaction_id)).unique().scalar_one()
-    return _serialize_transaction(transaction)
+    try:
+        return transaction_use_cases.update_transaction(db, transaction_id, payload)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def cancel_transaction(db: Session, transaction_id: str) -> dict[str, bool]:
-    transaction = require_entity(db.execute(select(Transaction).where(Transaction.id == transaction_id)).scalar_one_or_none(), "Transaction not found")
-    transaction.status = TransactionStatus.CANCELLED
-    db.commit()
-    enqueue_notification_job(db, transaction.id, "deleted")
-    return {"success": True}
+    return transaction_use_cases.cancel_transaction(db, transaction_id)
 
 
 def get_telegram_status(settings: Settings | None = None) -> dict[str, Any]:

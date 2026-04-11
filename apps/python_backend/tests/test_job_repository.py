@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -57,3 +58,42 @@ def test_failed_job_moves_to_dead_letter_after_max_attempts() -> None:
         repo.mark_failed(claimed, RuntimeError("boom"))
 
         assert claimed.status == "dead_letter"
+
+
+def test_enqueue_skips_dedupe_when_feature_flag_disabled(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.repositories.job_repository.get_settings",
+        lambda: SimpleNamespace(
+            job_lease_seconds=120,
+            feature_job_dedupe_enabled=False,
+            feature_dead_letter_jobs_enabled=True,
+            worker_id="test-worker",
+        ),
+    )
+    with _make_session() as db:
+        repo = JobRepository(db)
+        first = repo.enqueue(job_type="telegram_update", payload={"update_id": 1}, household_id="house", dedupe_key="telegram-update:1")
+        second = repo.enqueue(job_type="telegram_update", payload={"update_id": 1}, household_id="house", dedupe_key="telegram-update:1")
+
+        assert first.id != second.id
+
+
+def test_failed_job_uses_failed_status_when_dead_letter_feature_disabled(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.repositories.job_repository.get_settings",
+        lambda: SimpleNamespace(
+            job_lease_seconds=120,
+            feature_job_dedupe_enabled=True,
+            feature_dead_letter_jobs_enabled=False,
+            worker_id="test-worker",
+        ),
+    )
+    with _make_session() as db:
+        repo = JobRepository(db)
+        job = repo.enqueue(job_type="parse_source_message", payload={"sourceMessageId": "source-1"}, household_id="house", max_attempts=1)
+        claimed = repo.claim_next()
+        assert claimed is not None
+
+        repo.mark_failed(claimed, RuntimeError("boom"))
+
+        assert claimed.status == "failed"

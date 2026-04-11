@@ -32,7 +32,11 @@ from app.models import (
     UserRole,
 )
 from app.observability import increment_metric, set_gauge
+from app.repositories.category_repository import CategoryRepository
 from app.repositories.draft_repository import DraftRepository
+from app.repositories.settings_repository import SettingsRepository
+from app.repositories.source_message_repository import SourceMessageRepository
+from app.repositories.transaction_repository import TransactionRepository
 from app.services_core import bootstrap_household_id, get_settings_payload
 from app.telegram_adapter import TelegramAdapter
 from app.telegram_helpers import (
@@ -58,6 +62,12 @@ from app.telegram_helpers import (
 from app.telegram_stats import send_current_month_report
 from app.telegram_types import ActiveCategory, ParsedTransaction, ReviewDraft, extract_message_text
 from app.use_cases.jobs import enqueue_use_case_job
+from app.use_cases.notifications import enqueue_notification_job as enqueue_notification_use_case
+from app.use_cases.notifications import notify_transaction_event as notify_transaction_event_use_case
+from app.use_cases.scheduled_backup import (
+    maybe_enqueue_scheduled_backup as maybe_enqueue_scheduled_backup_use_case,
+)
+from app.use_cases.scheduled_backup import process_scheduled_backup as process_scheduled_backup_use_case
 
 
 JOB_TYPE_TELEGRAM_UPDATE = "telegram_update"
@@ -69,92 +79,19 @@ SCHEDULED_BACKUP_SCHEDULE = "0 0 12 */3 * *"
 
 
 def load_active_categories(db: Session, type_: str | None = None) -> list[ActiveCategory]:
-    query = (
-        select(Category)
-        .where(
-            Category.household_id == bootstrap_household_id(),
-            Category.is_active.is_(True),
-            Category.parent_id.is_not(None),
-        )
-        .options(selectinload(Category.parent))
-        .order_by(Category.name.asc())
-    )
-    if type_:
-        query = query.where(Category.type == (CategoryType.INCOME if type_ == "income" else CategoryType.EXPENSE))
-    rows = list(db.execute(query).scalars())
-    result: list[ActiveCategory] = []
-    for item in rows:
-        if not item.parent or not item.parent.is_active:
-            continue
-        result.append(
-            ActiveCategory(
-                id=item.id,
-                name=item.name,
-                type=item.type,
-                parent_id=item.parent_id or "",
-                parent_name=item.parent.name,
-                display_path=f"{item.parent.name} / {item.name}",
-            )
-        )
-    result.sort(key=lambda item: item.display_path.lower())
-    return result
+    return CategoryRepository(db).list_active(type_)
 
 
 def upsert_telegram_user(db: Session, message: dict[str, Any]) -> User:
-    from_data = message.get("from") or {}
-    telegram_id = str(from_data.get("id") or f"chat-{message.get('chat', {}).get('id')}")
-    account = db.execute(
-        select(TelegramAccount).where(TelegramAccount.telegram_id == telegram_id).options(joinedload(TelegramAccount.user))
-    ).scalar_one_or_none()
-    if account and account.user:
-        account.username = from_data.get("username")
-        account.first_name = from_data.get("first_name")
-        account.last_name = from_data.get("last_name")
-        account.is_active = True
-        db.commit()
-        return account.user
-    user = User(
-        household_id=bootstrap_household_id(),
-        display_name=" ".join(item for item in (from_data.get("first_name"), from_data.get("last_name")) if item)
-        or from_data.get("username")
-        or f"Telegram {telegram_id}",
-        role=UserRole.MEMBER,
-    )
-    db.add(user)
-    db.flush()
-    account = TelegramAccount(
-        user_id=user.id,
-        telegram_id=telegram_id,
-        username=from_data.get("username"),
-        first_name=from_data.get("first_name"),
-        last_name=from_data.get("last_name"),
-        is_active=True,
-    )
-    db.add(account)
-    db.commit()
-    db.refresh(user)
-    return user
+    return SourceMessageRepository(db).upsert_telegram_user(message)
 
 
 def persist_attachments(db: Session, message: dict[str, Any], source_message_id: str, telegram: TelegramAdapter) -> list[Attachment]:
-    document = message.get("document") or {}
-    photos = message.get("photo") or []
-    file_id = document.get("file_id") or (photos[-1].get("file_id") if photos else None)
-    if not file_id:
-        return []
-    file_meta = telegram.get_file_metadata(file_id)
-    attachment = Attachment(
+    return SourceMessageRepository(db).persist_attachments(
+        message=message,
         source_message_id=source_message_id,
-        telegram_file_id=file_id,
-        telegram_file_path=file_meta.get("file_path"),
-        mime_type=document.get("mime_type"),
-        original_name=document.get("file_name"),
-        local_path=None,
+        get_file_metadata=telegram.get_file_metadata,
     )
-    db.add(attachment)
-    db.commit()
-    db.refresh(attachment)
-    return [attachment]
 
 
 def record_parse_attempt(
@@ -166,18 +103,14 @@ def record_parse_attempt(
     response_payload: dict[str, Any],
     success: bool = True,
 ) -> None:
-    db.add(
-        AiParseAttempt(
-            source_message_id=source_message_id,
-            attempt_type=attempt_type,
-            provider="polza.ai",
-            model=model,
-            prompt=__import__("json").dumps(prompt, ensure_ascii=False),
-            response_payload=response_payload,
-            success=success,
-        )
+    SourceMessageRepository(db).record_parse_attempt(
+        source_message_id=source_message_id,
+        attempt_type=attempt_type,
+        model=model,
+        prompt=prompt,
+        response_payload=response_payload,
+        success=success,
     )
-    db.commit()
 
 
 def safe_parse_message(
@@ -300,43 +233,20 @@ def render_or_send_draft_card(db: Session, draft_id: str, chat_id: str, telegram
 
 
 def upsert_clarification_session(db: Session, source_message_id: str, draft: ReviewDraft) -> None:
-    session = db.execute(select(ClarificationSession).where(ClarificationSession.source_message_id == source_message_id)).scalar_one_or_none()
     question = draft.follow_up_question or "Пожалуйста, уточните недостающие поля операции."
-    expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=int(get_settings_payload(db)["clarificationTimeoutMinutes"]))
-    if session:
-        session.status = ClarificationStatus.OPEN
-        session.question = question
-        session.expires_at = expires_at
-    else:
-        db.add(
-            ClarificationSession(
-                source_message_id=source_message_id,
-                status=ClarificationStatus.OPEN,
-                question=question,
-                answer=None,
-                conversation=[],
-                expires_at=expires_at,
-                resolved_at=None,
-            )
-        )
-    db.commit()
+    DraftRepository(db).upsert_clarification_session(
+        source_message_id=source_message_id,
+        question=question,
+        timeout_minutes=int(SettingsRepository(db).get_payload()["clarificationTimeoutMinutes"]),
+    )
 
 
 def resolve_clarification_session(db: Session, source_message_id: str, answer: str) -> None:
-    session = db.execute(select(ClarificationSession).where(ClarificationSession.source_message_id == source_message_id)).scalar_one_or_none()
-    if not session:
-        return
-    conversation = list(session.conversation or [])
-    conversation.append({"role": "user", "text": answer, "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")})
-    session.status = ClarificationStatus.RESOLVED
-    session.answer = answer
-    session.resolved_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    session.conversation = conversation
-    db.commit()
+    DraftRepository(db).resolve_clarification_session(source_message_id=source_message_id, answer=answer)
 
 
 def create_transaction_from_draft(db: Session, review: PendingOperationReview, draft: ReviewDraft) -> Transaction:
-    category = db.execute(select(Category).where(Category.id == draft.category_id).options(joinedload(Category.parent))).scalar_one_or_none()
+    category = CategoryRepository(db).get_by_id(draft.category_id or "")
     if not category or category.household_id != bootstrap_household_id():
         raise RuntimeError("Category not found")
     if category.parent_id is None:
@@ -344,7 +254,7 @@ def create_transaction_from_draft(db: Session, review: PendingOperationReview, d
     expected = CategoryType.INCOME if draft.type == "income" else CategoryType.EXPENSE
     if category.type != expected:
         raise RuntimeError("Category type does not match transaction type")
-    settings = get_settings_payload(db)
+    settings = SettingsRepository(db).get_payload()
     transaction = Transaction(
         household_id=bootstrap_household_id(),
         author_id=review.author_id,
@@ -357,11 +267,13 @@ def create_transaction_from_draft(db: Session, review: PendingOperationReview, d
         comment=draft.comment,
         status=TransactionStatus.CONFIRMED,
     )
-    db.add(transaction)
-    source_message = db.execute(select(SourceMessage).where(SourceMessage.id == review.source_message_id)).scalar_one()
-    transition_draft_state(DraftLifecycleState.PENDING_REVIEW, DraftLifecycleState.CONFIRMED)
-    source_message.status = SourceMessageStatus.PARSED
-    review.status = SourceMessageStatus.PARSED
+    TransactionRepository(db).create(transaction)
+    review = DraftRepository(db).get_by_id(review.id) or review
+    DraftRepository(db).transition_review(
+        review,
+        current_state=DraftLifecycleState.PENDING_REVIEW,
+        next_state=DraftLifecycleState.CONFIRMED,
+    )
     review.pending_field = None
     review.active_picker_message_id = None
     db.commit()
@@ -370,24 +282,18 @@ def create_transaction_from_draft(db: Session, review: PendingOperationReview, d
 
 
 def enqueue_notification_job(db: Session, transaction_id: str, event: str, exclude_telegram_ids: list[str] | None = None) -> None:
-    payload = {"transactionId": transaction_id, "event": event, "excludeTelegramIds": exclude_telegram_ids or []}
-    enqueue_use_case_job(
-        db,
-        job_type=JOB_TYPE_SEND_TRANSACTION_NOTIFICATIONS,
-        payload=payload,
-        household_id=bootstrap_household_id(),
-        dedupe_key=build_job_dedupe_key(JOB_TYPE_SEND_TRANSACTION_NOTIFICATIONS, payload),
-    )
+    enqueue_notification_use_case(db, transaction_id, event, exclude_telegram_ids)
 
 
 def cancel_draft(db: Session, review: PendingOperationReview, chat_id: str | None, telegram: TelegramAdapter) -> dict[str, Any]:
     active_picker_id = review.active_picker_message_id
-    transition_draft_state(DraftLifecycleState.PENDING_REVIEW, DraftLifecycleState.CANCELLED)
-    review.status = SourceMessageStatus.CANCELLED
+    DraftRepository(db).transition_review(
+        review,
+        current_state=DraftLifecycleState.PENDING_REVIEW,
+        next_state=DraftLifecycleState.CANCELLED,
+    )
     review.active_picker_message_id = None
     review.pending_field = None
-    source_message = db.execute(select(SourceMessage).where(SourceMessage.id == review.source_message_id)).scalar_one()
-    source_message.status = SourceMessageStatus.CANCELLED
     db.commit()
     clear_active_picker_message(chat_id, active_picker_id, telegram)
     return {"accepted": True, "status": "cancelled"}
@@ -554,7 +460,11 @@ def handle_message_update(db: Session, message: dict[str, Any], raw_update: dict
                 return {"accepted": True, "status": "cancelled"}
             if existing_draft.pending_field:
                 return apply_manual_edit(db, existing_draft.id, existing_draft.pending_field, text_value, chat_id, telegram, str(message.get("message_id") or ""))
-            transition_draft_state(DraftLifecycleState.PENDING_REVIEW, DraftLifecycleState.CLARIFICATION_ENQUEUED)
+            DraftRepository(db).transition_review(
+                existing_draft,
+                current_state=DraftLifecycleState.PENDING_REVIEW,
+                next_state=DraftLifecycleState.CLARIFICATION_ENQUEUED,
+            )
             clarification_payload = {"draftId": existing_draft.id, "userText": text_value, "chatId": chat_id}
             enqueue_use_case_job(
                 db,
@@ -567,25 +477,21 @@ def handle_message_update(db: Session, message: dict[str, Any], raw_update: dict
             return {"accepted": True, "status": "clarification_enqueued"}
 
     telegram_message_id = str(message.get("message_id"))
-    source_message = db.execute(select(SourceMessage).where(SourceMessage.telegram_message_id == telegram_message_id)).scalar_one_or_none()
+    source_message_repo = SourceMessageRepository(db)
+    source_message = source_message_repo.get_by_telegram_message_id(telegram_message_id)
     if source_message:
         source_message.raw_payload = raw_update
         db.commit()
         return {"accepted": True, "status": "duplicate"}
 
-    source_message = SourceMessage(
-        household_id=bootstrap_household_id(),
+    source_message = source_message_repo.create_received(
         author_id=author.id,
         telegram_message_id=telegram_message_id,
         telegram_chat_id=chat_id,
-        type=SourceMessageType.TELEGRAM_RECEIPT if has_attachment else SourceMessageType.TELEGRAM_TEXT,
-        status=SourceMessageStatus.RECEIVED,
+        type_=SourceMessageType.TELEGRAM_RECEIPT if has_attachment else SourceMessageType.TELEGRAM_TEXT,
         text=text_value or None,
         raw_payload=raw_update,
     )
-    db.add(source_message)
-    db.commit()
-    db.refresh(source_message)
     attachments = persist_attachments(db, message, source_message.id, telegram)
     logger.info("telegram", "message_received", "Telegram message received", {"sourceMessageId": source_message.id, "telegramMessageId": source_message.telegram_message_id, "authorId": author.id, "hasAttachment": has_attachment})
     parse_payload = {"sourceMessageId": source_message.id, "authorId": author.id, "chatId": chat_id, "inputText": text_value, "attachmentIds": [item.id for item in attachments]}
@@ -600,7 +506,9 @@ def handle_message_update(db: Session, message: dict[str, Any], raw_update: dict
 
 
 def process_parse_source_message(db: Session, payload: dict[str, Any], telegram: TelegramAdapter) -> dict[str, Any]:
-    source_message = db.execute(select(SourceMessage).where(SourceMessage.id == payload["sourceMessageId"]).options(selectinload(SourceMessage.attachments))).scalar_one()
+    source_message = SourceMessageRepository(db).get_by_id(payload["sourceMessageId"])
+    if not source_message:
+        raise RuntimeError("Source message not found")
     first_attachment = source_message.attachments[0] if source_message.attachments else None
     image_data_url = (
         telegram.build_attachment_data_url(first_attachment.telegram_file_id, first_attachment.telegram_file_path, first_attachment.mime_type)
@@ -616,18 +524,29 @@ def process_parse_source_message(db: Session, payload: dict[str, Any], telegram:
         conversation_context=[],
     )
     categories = load_active_categories(db, parsed.type)
-    draft = create_draft_payload(parsed, payload.get("inputText") or source_message.text or "", get_settings_payload(db)["defaultCurrency"], categories)
-    review = PendingOperationReview(
+    draft = create_draft_payload(
+        parsed,
+        payload.get("inputText") or source_message.text or "",
+        SettingsRepository(db).get_payload()["defaultCurrency"],
+        categories,
+    )
+    review = DraftRepository(db).create_review(
         source_message_id=source_message.id,
         author_id=payload.get("authorId"),
-        status=SourceMessageStatus.PENDING_REVIEW,
-        draft=draft.to_dict(),
+        draft_payload=draft.to_dict(),
     )
-    db.add(review)
-    source_message.status = SourceMessageStatus.PENDING_REVIEW
-    db.commit()
+    review = DraftRepository(db).get_by_id(review.id) or review
+    DraftRepository(db).transition_review(
+        review,
+        current_state=DraftLifecycleState.PARSED,
+        next_state=DraftLifecycleState.PENDING_REVIEW,
+    )
     if get_missing_draft_fields(draft):
-        transition_draft_state(DraftLifecycleState.PARSED, DraftLifecycleState.NEEDS_CLARIFICATION)
+        DraftRepository(db).transition_review(
+            review,
+            current_state=DraftLifecycleState.PENDING_REVIEW,
+            next_state=DraftLifecycleState.NEEDS_CLARIFICATION,
+        )
         increment_metric("clarification.entered")
         upsert_clarification_session(db, source_message.id, draft)
     render_or_send_draft_card(db, review.id, payload["chatId"], telegram)
@@ -635,11 +554,9 @@ def process_parse_source_message(db: Session, payload: dict[str, Any], telegram:
 
 
 def reparse_draft_with_clarification(db: Session, payload: dict[str, Any], telegram: TelegramAdapter) -> dict[str, Any]:
-    review = db.execute(
-        select(PendingOperationReview)
-        .where(PendingOperationReview.id == payload["draftId"])
-        .options(joinedload(PendingOperationReview.source_message).selectinload(SourceMessage.attachments))
-    ).scalar_one()
+    review = DraftRepository(db).get_by_id(payload["draftId"])
+    if not review:
+        raise RuntimeError("Draft not found")
     current_draft = ReviewDraft.from_dict(review.draft)
     first_attachment = review.source_message.attachments[0] if review.source_message and review.source_message.attachments else None
     image_data_url = (
@@ -659,15 +576,31 @@ def reparse_draft_with_clarification(db: Session, payload: dict[str, Any], teleg
         ],
     )
     categories = load_active_categories(db, parsed.type)
-    next_draft = merge_draft_with_parsed(current_draft, parsed, payload["userText"], get_settings_payload(db)["defaultCurrency"], categories)
+    next_draft = merge_draft_with_parsed(
+        current_draft,
+        parsed,
+        payload["userText"],
+        SettingsRepository(db).get_payload()["defaultCurrency"],
+        categories,
+    )
     review.draft = next_draft.to_dict()
     review.pending_field = None
     review.active_picker_message_id = None
     db.commit()
     if get_missing_draft_fields(next_draft):
+        DraftRepository(db).transition_review(
+            review,
+            current_state=DraftLifecycleState.CLARIFICATION_ENQUEUED,
+            next_state=DraftLifecycleState.NEEDS_CLARIFICATION,
+        )
         increment_metric("clarification.entered")
         upsert_clarification_session(db, review.source_message_id, next_draft)
     else:
+        DraftRepository(db).transition_review(
+            review,
+            current_state=DraftLifecycleState.CLARIFICATION_ENQUEUED,
+            next_state=DraftLifecycleState.PENDING_REVIEW,
+        )
         increment_metric("clarification.resolved")
         resolve_clarification_session(db, review.source_message_id, payload["userText"])
     render_or_send_draft_card(db, review.id, payload["chatId"], telegram)
@@ -781,53 +714,7 @@ def handle_callback_query(db: Session, callback: dict[str, Any], telegram: Teleg
 
 
 def notify_transaction_event(db: Session, payload: dict[str, Any], telegram: TelegramAdapter) -> dict[str, Any]:
-    transaction = db.execute(
-        select(Transaction)
-        .where(Transaction.id == payload["transactionId"], Transaction.household_id == bootstrap_household_id())
-        .options(joinedload(Transaction.author), joinedload(Transaction.category).joinedload(Category.parent))
-    ).scalar_one_or_none()
-    if not transaction:
-        return {"recipients": 0, "delivered": 0, "failed": 0}
-    excluded = {item.strip() for item in payload.get("excludeTelegramIds") or [] if str(item).strip()}
-    recipients = list(
-        db.execute(
-            select(TelegramAccount)
-            .join(User, TelegramAccount.user_id == User.id)
-            .where(TelegramAccount.is_active.is_(True), User.household_id == bootstrap_household_id())
-            .order_by(TelegramAccount.created_at.asc())
-        ).scalars()
-    )
-    recipient_ids: list[str] = []
-    for item in recipients:
-        telegram_id = (item.telegram_id or "").strip()
-        if telegram_id and telegram_id not in excluded and telegram_id not in recipient_ids:
-            recipient_ids.append(telegram_id)
-    if not recipient_ids:
-        return {"recipients": 0, "delivered": 0, "failed": 0}
-    event = payload.get("event") or "created"
-    type_label = "Доход" if transaction.type == TransactionType.INCOME else "Расход"
-    category_name = f"{transaction.category.parent.name} / {transaction.category.name}" if transaction.category and transaction.category.parent else (transaction.category.name if transaction.category else "Не указана")
-    message = "\n".join([
-        "Добавлена новая операция" if event == "created" else "Операция удалена",
-        "",
-        f"Тип: {type_label}",
-        f"Сумма: {float(transaction.amount):.2f} {transaction.currency}",
-        f"Дата: {transaction.occurred_at.strftime('%d.%m.%Y')}",
-        f"Категория: {category_name}",
-        f"Комментарий: {transaction.comment or 'Не указан'}",
-        *( [f"Автор: {transaction.author.display_name}"] if transaction.author else [] ),
-    ])
-    delivered = 0
-    failed = 0
-    for chat_id in recipient_ids:
-        try:
-            telegram.send_message(chat_id, message)
-            delivered += 1
-        except Exception as exc:
-            failed += 1
-            logger.error("telegram", "transaction_notification_failed", "Transaction notification failed", {"transactionId": transaction.id, "chatId": chat_id, "error": exc})
-    increment_metric("notifications.sent")
-    return {"recipients": len(recipient_ids), "delivered": delivered, "failed": failed}
+    return notify_transaction_event_use_case(db, payload, telegram)
 
 
 def route_telegram_update(db: Session, payload: dict[str, Any], telegram: TelegramAdapter) -> dict[str, Any]:
@@ -839,48 +726,8 @@ def route_telegram_update(db: Session, payload: dict[str, Any], telegram: Telegr
 
 
 def maybe_enqueue_scheduled_backup(db: Session, settings: Settings | None = None) -> None:
-    settings = settings or get_settings()
-    now = datetime.now(timezone(timedelta(hours=3)))
-    if not (now.hour == 12 and now.minute == 0 and ((now.day - 1) % 3 == 0)):
-        return
-    window_start = now.replace(second=0, microsecond=0).astimezone(timezone.utc).replace(tzinfo=None)
-    payload = {
-        "scheduled": True,
-        "schedule": SCHEDULED_BACKUP_SCHEDULE,
-        "timeZone": "Europe/Moscow",
-        "slot": window_start.isoformat(),
-        "scheduledFor": window_start.isoformat(),
-    }
-    enqueue_use_case_job(
-        db,
-        job_type=JOB_TYPE_SCHEDULED_BACKUP,
-        payload=payload,
-        household_id=bootstrap_household_id(),
-        dedupe_key=build_job_dedupe_key(JOB_TYPE_SCHEDULED_BACKUP, payload),
-    )
+    maybe_enqueue_scheduled_backup_use_case(db, settings)
 
 
 def process_scheduled_backup(db: Session, telegram: TelegramAdapter) -> dict[str, Any]:
-    from app.services_runtime import create_backup
-
-    admin = db.execute(select(User).where(User.role == UserRole.ADMIN).options(selectinload(User.telegram_accounts)).order_by(User.created_at.asc())).scalars().first()
-    telegram_id = next((item.telegram_id for item in (admin.telegram_accounts if admin else []) if item.is_active), None)
-    if not admin or not telegram_id:
-        logger.warn("backup", "scheduled_backup_skipped", "Scheduled Telegram backup skipped: no admin Telegram recipient found")
-        return {"status": "skipped"}
-    artifact = create_backup({"sub": "system:scheduled-backup", "email": "system@local", "role": "ADMIN"})
-    set_gauge("backup.last_created_at_epoch", datetime.now(timezone.utc).timestamp())
-    file_path = str(get_settings().backup_path / artifact["fileName"])
-    telegram.send_document(
-        chat_id=telegram_id,
-        file_path=file_path,
-        file_name=artifact["fileName"],
-        caption="\n".join([
-            "Автоматический backup Denga",
-            f"Файл: {artifact['fileName']}",
-            f"Размер: {artifact['sizeBytes']} bytes",
-            f"Создан: {artifact['createdAt']}",
-            "Сохраните файл вручную в надежное место.",
-        ]),
-    )
-    return {"status": "sent", "recipientTelegramId": telegram_id, "fileName": artifact["fileName"]}
+    return process_scheduled_backup_use_case(db, telegram)
