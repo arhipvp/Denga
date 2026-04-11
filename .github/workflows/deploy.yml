@@ -130,8 +130,12 @@ jobs:
               exit 1
             fi
 
-            grep -q '/api/metrics' apps/python_backend/app/api.py || {
-              echo 'Expected /api/metrics marker not found in synced api.py' >&2
+            grep -q 'metrics_snapshot' apps/python_backend/app/api.py || {
+              echo 'Expected metrics_snapshot marker not found in synced api.py' >&2
+              exit 1
+            }
+            grep -q 'ensure_request_context' apps/python_backend/app/api.py || {
+              echo 'Expected request context marker not found in synced api.py' >&2
               exit 1
             }
             grep -q 'jobQueue' apps/python_backend/app/services_runtime.py || {
