@@ -23,6 +23,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          repository: ${{ github.event.workflow_run.repository.full_name }}
+
+      - name: Verify checkout matches triggering workflow commit
+        run: |
+          echo "workflow_run.head_sha=${{ github.event.workflow_run.head_sha }}"
+          current_sha="$(git rev-parse HEAD)"
+          echo "checked_out_sha=${current_sha}"
+          if [ "$current_sha" != "${{ github.event.workflow_run.head_sha }}" ]; then
+            echo "Checked out commit does not match triggering workflow commit" >&2
+            exit 1
+          fi
+
+      - name: Write release markers
+        run: |
+          printf '%s\n' "${{ github.event.workflow_run.head_sha }}" > DEPLOYED_SHA
+          date -u +%Y-%m-%dT%H:%M:%SZ > DEPLOYED_AT_UTC
 
       - name: Validate required secrets
         env:
@@ -87,6 +105,39 @@ jobs:
               echo 'Missing server env file: $REMOTE_APP_DIR/.env' >&2
               exit 1
             fi
+          "
+
+      - name: Verify synced release markers on server
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+        run: |
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
+            set -e
+            cd '$REMOTE_APP_DIR'
+
+            if [ ! -f DEPLOYED_SHA ]; then
+              echo 'Missing DEPLOYED_SHA on server after rsync' >&2
+              exit 1
+            fi
+
+            deployed_sha=\$(tr -d '\r\n' < DEPLOYED_SHA)
+            echo \"server_deployed_sha=\$deployed_sha\"
+            if [ \"\$deployed_sha\" != '${{ github.event.workflow_run.head_sha }}' ]; then
+              echo 'Server DEPLOYED_SHA does not match triggering workflow commit' >&2
+              exit 1
+            fi
+
+            grep -q '/api/metrics' apps/python_backend/app/api.py || {
+              echo 'Expected /api/metrics marker not found in synced api.py' >&2
+              exit 1
+            }
+            grep -q 'jobQueue' apps/python_backend/app/services_runtime.py || {
+              echo 'Expected jobQueue marker not found in synced services_runtime.py' >&2
+              exit 1
+            }
           "
 
       - name: Deploy with Docker Compose
@@ -202,10 +253,28 @@ features = checks.get("features", {})
 
 assert checks.get("databaseReady") is True, "database readiness failed"
 assert checks.get("storageReady") is True, "storage readiness failed"
+assert isinstance(queue, dict) and "deadLetterCount" in queue, f"missing queue diagnostics: {checks}"
 assert queue.get("deadLetterCount", 0) == 0, f"dead-letter jobs detected: {queue}"
 assert queue.get("runningCount", 0) < 50, f"runaway running jobs detected: {queue}"
 assert all(isinstance(value, bool) for value in features.values()), f"invalid feature flag payload: {features}"
 PY
+
+            metrics_status=$(curl --show-error --silent --output /tmp/metrics.json --write-out '%{http_code}' 'http://127.0.0.1:3001/api/metrics')
+            if [ "$metrics_status" != '200' ]; then
+              echo "Expected /api/metrics to return 200, got $metrics_status" >&2
+              cat /tmp/metrics.json >&2 || true
+              exit 1
+            fi
+
+            headers=$(curl --show-error --silent --dump-header - --output /dev/null 'http://127.0.0.1:3001/api/health')
+            echo "$headers" | grep -i '^X-Request-Id:' >/dev/null || {
+              echo 'Missing X-Request-Id header from API response' >&2
+              exit 1
+            }
+            echo "$headers" | grep -i '^X-Correlation-Id:' >/dev/null || {
+              echo 'Missing X-Correlation-Id header from API response' >&2
+              exit 1
+            }
           "
 
       - name: Run contract verification on server
