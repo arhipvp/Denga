@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import get_settings
+from app.observability import get_log_context
 
 
 @dataclass(slots=True)
@@ -15,6 +16,8 @@ class LogRecord:
     event: str
     message: str
     context: dict[str, Any] | None = None
+    request_id: str | None = None
+    correlation_id: str | None = None
 
 
 class AppLogger:
@@ -53,7 +56,9 @@ class AppLogger:
             source=source,
             event=event,
             message=message,
-            context=self._sanitize(context),
+            context=self._sanitize({**get_log_context(), **(context or {})}),
+            request_id=get_log_context().get("request_id"),
+            correlation_id=get_log_context().get("correlation_id"),
         )
         line = json.dumps(asdict(record), ensure_ascii=False)
         print(line)
@@ -89,4 +94,3 @@ class AppLogger:
 
 
 logger = AppLogger()
-

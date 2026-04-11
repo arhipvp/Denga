@@ -73,6 +73,8 @@ apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_inva
 
 - `python-worker` в `docker compose ps` находится в состоянии `running`
 - `http://127.0.0.1:3001/api/health/ready` отвечает `200`
+- `GET /api/health/ready` показывает `jobQueue.deadLetterCount = 0`
+- `GET /api/health/ready` не показывает runaway `runningCount`
 - `APP_URL` отвечает `200`
 - contract smoke проходит на боевом адресе
 - инварианты по `Transaction` и `Category` совпадают с pre-deploy snapshot
@@ -84,6 +86,13 @@ docker compose ps
 docker compose logs --tail=200 python-api
 docker compose logs --tail=200 python-worker
 docker compose logs --tail=100 web
+```
+
+Дополнительная проверка observability и queue state:
+
+```bash
+curl http://127.0.0.1:3001/api/health/ready
+curl http://127.0.0.1:3001/api/metrics
 ```
 
 ## 4. Recovery
@@ -106,3 +115,10 @@ docker compose up --build -d --remove-orphans
 ```
 
 В этой схеме отдельного legacy runtime больше нет; восстановление выполняется через backup и повторный Python-first deploy.
+
+Если после выката появились `dead_letter` jobs:
+
+1. Посмотреть `GET /api/health/ready` и `GET /api/metrics`
+2. Найти последние `job_failed` записи в логах `python-worker`
+3. Исправить код или конфигурацию и повторить deploy
+4. Не делать destructive cleanup очереди как часть аварийного восстановления

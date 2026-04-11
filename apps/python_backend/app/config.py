@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     clarification_timeout_minutes: int = 30
     worker_poll_interval_seconds: float = 2.0
     worker_id: str = "python-worker"
+    job_lease_seconds: int = 120
+    feature_job_dedupe_enabled: bool = True
+    feature_strict_draft_state_enabled: bool = True
+    feature_enhanced_observability_enabled: bool = True
+    feature_dead_letter_jobs_enabled: bool = True
 
     @property
     def upload_path(self) -> Path:

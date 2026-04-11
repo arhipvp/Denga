@@ -1,18 +1,19 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
-from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
+from app.domain.job_policy import JobStatus
 from app.models import Job
+from app.repositories.job_repository import JobRepository
 
 
-JOB_STATUS_PENDING = "pending"
-JOB_STATUS_RUNNING = "running"
-JOB_STATUS_COMPLETED = "completed"
-JOB_STATUS_FAILED = "failed"
+JOB_STATUS_PENDING = JobStatus.PENDING.value
+JOB_STATUS_RUNNING = JobStatus.RUNNING.value
+JOB_STATUS_COMPLETED = JobStatus.COMPLETED.value
+JOB_STATUS_FAILED = JobStatus.FAILED.value
+JOB_STATUS_DEAD_LETTER = JobStatus.DEAD_LETTER.value
 
 
 def enqueue_job(
@@ -23,59 +24,27 @@ def enqueue_job(
     household_id: str | None,
     not_before: datetime | None = None,
     max_attempts: int = 3,
+    dedupe_key: str | None = None,
+    correlation_id: str | None = None,
 ) -> Job:
-    job = Job(
-        household_id=household_id,
+    return JobRepository(db).enqueue(
         job_type=job_type,
-        status=JOB_STATUS_PENDING,
         payload=payload,
-        attempts=0,
-        max_attempts=max_attempts,
+        household_id=household_id,
         not_before=not_before,
+        max_attempts=max_attempts,
+        dedupe_key=dedupe_key,
+        correlation_id=correlation_id,
     )
-    db.add(job)
-    db.commit()
-    db.refresh(job)
-    return job
 
 
 def claim_next_job(db: Session) -> Job | None:
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    job = db.execute(
-        select(Job)
-        .where(
-            Job.status == JOB_STATUS_PENDING,
-            Job.attempts < Job.max_attempts,
-            or_(Job.not_before.is_(None), Job.not_before <= now),
-        )
-        .order_by(Job.created_at.asc())
-        .with_for_update(skip_locked=True)
-    ).scalar_one_or_none()
-
-    if not job:
-        db.rollback()
-        return None
-
-    settings = get_settings()
-    job.status = JOB_STATUS_RUNNING
-    job.locked_at = now
-    job.locked_by = settings.worker_id
-    db.commit()
-    db.refresh(job)
-    return job
+    return JobRepository(db).claim_next()
 
 
 def mark_job_completed(db: Session, job: Job) -> None:
-    job.status = JOB_STATUS_COMPLETED
-    job.locked_at = None
-    job.locked_by = None
-    db.commit()
+    JobRepository(db).mark_completed(job)
 
 
 def mark_job_failed(db: Session, job: Job, error: Exception) -> None:
-    job.attempts += 1
-    job.last_error = str(error)
-    job.locked_at = None
-    job.locked_by = None
-    job.status = JOB_STATUS_FAILED if job.attempts >= job.max_attempts else JOB_STATUS_PENDING
-    db.commit()
+    JobRepository(db).mark_failed(job, error)

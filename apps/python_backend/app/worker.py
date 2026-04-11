@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 
 from app.config import get_settings
 from app.database import SessionLocal
 from app.jobs import claim_next_job, enqueue_job, mark_job_completed, mark_job_failed
 from app.logging_utils import logger
+from app.observability import bind_log_context, increment_metric, set_gauge
+from app.repositories.job_repository import JobRepository
 from app.telegram_adapter import TelegramAdapter
 from app.workflows import (
     JOB_TYPE_CLARIFICATION_REPARSE,
@@ -24,33 +27,17 @@ from app.workflows import (
 POLLING_RETRY_DELAY_SECONDS = 30
 
 
-def _handle_job(job, telegram: TelegramAdapter, db) -> None:
-    if job.job_type == JOB_TYPE_TELEGRAM_UPDATE:
-        route_telegram_update(db, job.payload, telegram)
-        return
+JobHandler = Callable[[object, TelegramAdapter, object], None]
 
-    if job.job_type == JOB_TYPE_PARSE_SOURCE_MESSAGE:
-        process_parse_source_message(db, job.payload, telegram)
-        return
 
-    if job.job_type == JOB_TYPE_CLARIFICATION_REPARSE:
-        reparse_draft_with_clarification(db, job.payload, telegram)
-        return
-
-    if job.job_type == JOB_TYPE_SEND_TRANSACTION_NOTIFICATIONS:
-        notify_transaction_event(db, job.payload, telegram)
-        return
-
-    if job.job_type == JOB_TYPE_SCHEDULED_BACKUP:
-        process_scheduled_backup(db, telegram)
-        return
-
-    logger.warn(
-        "worker",
-        "unknown_job_type",
-        "Unknown job type received",
-        {"jobId": job.id, "jobType": job.job_type},
-    )
+def _build_job_registry() -> dict[str, JobHandler]:
+    return {
+        JOB_TYPE_TELEGRAM_UPDATE: lambda job, telegram, db: route_telegram_update(db, job.payload, telegram),
+        JOB_TYPE_PARSE_SOURCE_MESSAGE: lambda job, telegram, db: process_parse_source_message(db, job.payload, telegram),
+        JOB_TYPE_CLARIFICATION_REPARSE: lambda job, telegram, db: reparse_draft_with_clarification(db, job.payload, telegram),
+        JOB_TYPE_SEND_TRANSACTION_NOTIFICATIONS: lambda job, telegram, db: notify_transaction_event(db, job.payload, telegram),
+        JOB_TYPE_SCHEDULED_BACKUP: lambda job, telegram, db: process_scheduled_backup(db, telegram),
+    }
 
 
 def _poll_telegram_updates(db, telegram: TelegramAdapter, offset: int | None) -> int | None:
@@ -66,6 +53,7 @@ def _poll_telegram_updates(db, telegram: TelegramAdapter, offset: int | None) ->
             payload=update,
             household_id=get_settings().bootstrap_household_id,
         )
+        increment_metric("telegram.polling_updates_enqueued")
         if isinstance(update_id, int):
             next_offset = update_id + 1
     return next_offset
@@ -74,6 +62,7 @@ def _poll_telegram_updates(db, telegram: TelegramAdapter, offset: int | None) ->
 def main() -> None:
     settings = get_settings()
     telegram = TelegramAdapter(settings)
+    job_registry = _build_job_registry()
     polling_offset: int | None = None
     polling_backoff_until = 0.0
     logger.info("worker", "worker_started", "Python worker started", {"workerId": settings.worker_id})
@@ -84,6 +73,7 @@ def main() -> None:
                     polling_offset = _poll_telegram_updates(db, telegram, polling_offset)
                 except Exception as exc:
                     polling_backoff_until = time.time() + POLLING_RETRY_DELAY_SECONDS
+                    increment_metric("telegram.polling_failures")
                     logger.error(
                         "telegram",
                         "polling_failed",
@@ -92,14 +82,33 @@ def main() -> None:
                     )
             maybe_enqueue_scheduled_backup(db, settings)
             job = claim_next_job(db)
+            queue_metrics = JobRepository(db).queue_metrics()
+            set_gauge("jobs.pending", queue_metrics["pendingCount"])
+            set_gauge("jobs.running", queue_metrics["runningCount"])
+            set_gauge("jobs.dead_letter", queue_metrics["deadLetterCount"])
+            set_gauge("jobs.oldest_pending_lag_seconds", queue_metrics["oldestPendingLagSeconds"])
             if not job:
                 time.sleep(settings.worker_poll_interval_seconds)
                 continue
 
             try:
-                _handle_job(job, telegram, db)
+                increment_metric("jobs.claimed")
+                handler = job_registry.get(job.job_type)
+                if handler is None:
+                    logger.warn("worker", "unknown_job_type", "Unknown job type received", {"jobId": job.id, "jobType": job.job_type})
+                    mark_job_completed(db, job)
+                    continue
+                with bind_log_context(
+                    job_id=job.id,
+                    job_type=job.job_type,
+                    worker_id=settings.worker_id,
+                    correlation_id=job.correlation_id or job.id,
+                ):
+                    handler(job, telegram, db)
                 mark_job_completed(db, job)
+                increment_metric("jobs.completed")
             except Exception as exc:  # pragma: no cover
+                increment_metric("jobs.failed")
                 logger.error("worker", "job_failed", "Job failed", {"jobId": job.id, "error": exc})
                 mark_job_failed(db, job, exc)
 

@@ -22,6 +22,8 @@ def test_health_endpoint_is_public() -> None:
         response = client.get("/api/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+    assert response.headers["x-request-id"]
+    assert response.headers["x-correlation-id"]
 
 
 def test_transactions_require_authentication() -> None:

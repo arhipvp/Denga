@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from time import perf_counter
+
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.dependencies import AdminUser, CurrentUser, DbSession
+from app.observability import bind_log_context, ensure_request_context, increment_metric, metrics_snapshot, set_gauge
 from app.schemas import (
     CategoryUpdateRequest,
     CategoryWriteRequest,
@@ -62,6 +65,24 @@ def create_app() -> FastAPI:
     settings.upload_path.mkdir(parents=True, exist_ok=True)
     app.mount("/uploads", StaticFiles(directory=settings.upload_path), name="uploads")
 
+    @app.middleware("http")
+    async def request_context_middleware(request: Request, call_next):
+        started_at = perf_counter()
+        request_context = ensure_request_context(
+            request.headers.get("x-request-id"),
+            request.headers.get("x-correlation-id"),
+        )
+        increment_metric("api.requests.total")
+        with bind_log_context(request_method=request.method, request_path=request.url.path, **request_context):
+            response = await call_next(request)
+        duration_ms = (perf_counter() - started_at) * 1000
+        set_gauge("api.last_request_duration_ms", duration_ms)
+        response.headers["X-Request-Id"] = request_context["request_id"]
+        response.headers["X-Correlation-Id"] = request_context["correlation_id"]
+        if response.status_code >= 400:
+            increment_metric("api.requests.error")
+        return response
+
     @app.exception_handler(HTTPException)
     async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
         detail = exc.detail if isinstance(exc.detail, dict) else {"message": exc.detail}
@@ -91,6 +112,10 @@ def create_app() -> FastAPI:
     @app.get(f"{prefix}/health")
     def health() -> dict:
         return get_health()
+
+    @app.get(f"{prefix}/metrics")
+    def metrics() -> dict:
+        return metrics_snapshot()
 
     @app.get(f"{prefix}/health/ready")
     def readiness(db: DbSession) -> dict:

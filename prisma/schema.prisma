@@ -232,13 +232,17 @@ model Job {
   attempts    Int       @default(0)
   maxAttempts Int       @default(3)
   lastError   String?
+  dedupeKey   String?
+  correlationId String?
   notBefore   DateTime?
   lockedAt    DateTime?
   lockedBy    String?
+  leaseExpiresAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   household   Household? @relation(fields: [householdId], references: [id], onDelete: SetNull)
 
   @@index([status, notBefore, createdAt])
   @@index([jobType, status])
+  @@index([jobType, dedupeKey, status])
 }

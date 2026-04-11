@@ -14,9 +14,12 @@ from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import Settings, get_settings
+from app.domain.job_policy import build_job_dedupe_key
 from app.jobs import enqueue_job
 from app.logging_utils import logger
 from app.models import Category, SourceMessage, SourceMessageStatus, SourceMessageType, Transaction, TransactionStatus, TransactionType, User
+from app.observability import increment_metric, set_gauge
+from app.repositories.job_repository import JobRepository
 from app.schemas import TransactionCreateRequest, TransactionUpdateRequest
 from app.services_core import bootstrap_household_id, get_settings_payload, map_category_type, require_entity
 from app.summary import SummaryTransaction, calculate_transaction_summary
@@ -315,7 +318,7 @@ def get_telegram_status(settings: Settings | None = None) -> dict[str, Any]:
 
 
 def get_health() -> dict[str, Any]:
-    return {"status": "ok", "telegram": get_telegram_status()}
+    return {"status": "ok", "telegram": get_telegram_status(), "metrics": {"counters": True, "gauges": True}}
 
 
 def get_readiness(db: Session, settings: Settings | None = None) -> dict[str, Any]:
@@ -335,7 +338,30 @@ def get_readiness(db: Session, settings: Settings | None = None) -> dict[str, An
             storage_ready = False
     if not settings.polza_api_key:
         warnings.append("AI provider is not configured; receipt parsing works in fallback mode only.")
-    return {"status": "ok" if not errors else "degraded", "checks": {"databaseReady": database_ready, "storageReady": storage_ready, "telegramConfigured": bool(settings.telegram_bot_token), "telegramMode": settings.telegram_mode, "aiConfigured": bool(settings.polza_api_key)}, "errors": errors, "warnings": warnings}
+    queue_metrics = JobRepository(db).queue_metrics()
+    if queue_metrics["deadLetterCount"] > 0:
+        warnings.append("Dead-letter jobs detected.")
+    if queue_metrics["oldestPendingLagSeconds"] > settings.job_lease_seconds:
+        warnings.append("Job queue lag is above lease timeout.")
+    return {
+        "status": "ok" if not errors else "degraded",
+        "checks": {
+            "databaseReady": database_ready,
+            "storageReady": storage_ready,
+            "telegramConfigured": bool(settings.telegram_bot_token),
+            "telegramMode": settings.telegram_mode,
+            "aiConfigured": bool(settings.polza_api_key),
+            "jobQueue": queue_metrics,
+            "features": {
+                "jobDedupe": settings.feature_job_dedupe_enabled,
+                "strictDraftState": settings.feature_strict_draft_state_enabled,
+                "enhancedObservability": settings.feature_enhanced_observability_enabled,
+                "deadLetterJobs": settings.feature_dead_letter_jobs_enabled,
+            },
+        },
+        "errors": errors,
+        "warnings": warnings,
+    }
 
 
 def _normalize_pg_dump_database_url(database_url: str) -> str:
@@ -372,11 +398,14 @@ def create_backup(actor: dict[str, str], settings: Settings | None = None) -> di
     try:
         subprocess.run(command, check=True, capture_output=True, text=True)
     except subprocess.CalledProcessError as exc:
+        increment_metric("backup.failed")
         logger.error("backup", "backup_create_failed", "Backup creation failed", {"stderr": exc.stderr})
         raise HTTPException(status_code=500, detail="Backup creation failed") from exc
     for stale in _list_backup_paths(settings)[settings.backup_keep_count:]:
         stale.unlink(missing_ok=True)
     payload = _build_backup_info(file_path)
+    increment_metric("backup.created")
+    set_gauge("backup.last_size_bytes", payload["sizeBytes"])
     logger.info("backup", "backup_created", "Backup created", payload)
     return payload
 
@@ -426,6 +455,14 @@ def read_logs(actor: dict[str, str], *, level: str | None, source: str | None, s
 
 
 def enqueue_telegram_update(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
-    job = enqueue_job(db, job_type="telegram_update", payload=payload, household_id=bootstrap_household_id())
-    logger.info("telegram", "telegram_update_enqueued", "Telegram update enqueued", {"jobId": job.id})
+    dedupe_key = build_job_dedupe_key("telegram_update", payload)
+    job = enqueue_job(
+        db,
+        job_type="telegram_update",
+        payload=payload,
+        household_id=bootstrap_household_id(),
+        dedupe_key=dedupe_key,
+    )
+    increment_metric("telegram.webhook_updates_enqueued")
+    logger.info("telegram", "telegram_update_enqueued", "Telegram update enqueued", {"jobId": job.id, "dedupeKey": dedupe_key})
     return {"accepted": True, "jobId": job.id}

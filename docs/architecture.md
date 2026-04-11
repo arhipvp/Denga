@@ -28,7 +28,44 @@
   - гарантирует наличие рабочих каталогов `uploads`, `backups`, `logs`
 - Health endpoints:
   - `GET /api/health` для liveness
-  - `GET /api/health/ready` для readiness c деталями по database/storage/runtime config
+  - `GET /api/health/ready` для readiness c деталями по database/storage/runtime config, queue lag и dead-letter jobs
+  - `GET /api/metrics` для lightweight process metrics без внешнего monitoring stack
+
+## Queue and Jobs
+
+- DB-backed queue теперь поддерживает:
+  - `dedupeKey` для идемпотентного enqueue
+  - `correlationId` для сквозной observability
+  - `leaseExpiresAt` для reclaim зависших `running` jobs
+- Job statuses:
+  - `pending`
+  - `running`
+  - `completed`
+  - `failed`
+  - `dead_letter`
+- Worker использует registry-based dispatch вместо роста одного `if/elif` chain.
+- Retry path переводит job обратно в `pending` c `notBefore`; после исчерпания попыток job уходит в `dead_letter`.
+
+## Domain Boundaries
+
+- В Python backend добавлены явные слои:
+  - `app/domain` для чистых state machine и policy helpers
+  - `app/repositories` для SQLAlchemy-backed persistence
+  - `app/use_cases` для application orchestration поверх repositories
+- Архитектурные правила:
+  - `domain` не импортирует `sqlalchemy`, `fastapi` и transport adapters
+  - `use_cases` не импортируют `fastapi`
+  - `repositories` не импортируют `api.py`, `worker.py` или Telegram transport
+- Эти правила проверяются архитектурными smoke tests.
+
+## Draft Lifecycle
+
+- Canonical draft lifecycle формализован через state machine в `app/domain/draft_state.py`.
+- Ключевые переходы:
+  - `received -> parsed -> pending_review`
+  - `pending_review -> needs_clarification | clarification_enqueued | confirmed | cancelled | expired`
+  - `clarification_enqueued -> pending_review | needs_clarification | cancelled | expired`
+- Новые сценарии должны менять draft state только через transition helpers, а не ad hoc присваиваниями.
 
 ## Web Admin
 

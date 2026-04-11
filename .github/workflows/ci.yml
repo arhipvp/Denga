@@ -36,6 +36,9 @@ jobs:
       - name: Run lint
         run: npm run lint
 
+      - name: Run architecture checks
+        run: python -m pytest apps/python_backend/tests/test_architecture.py -q
+
       - name: Run JavaScript tests
         run: npm test
 

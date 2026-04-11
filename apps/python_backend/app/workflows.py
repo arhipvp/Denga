@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.ai_adapter import AiAdapter
 from app.config import Settings, get_settings
-from app.jobs import enqueue_job
+from app.domain.draft_state import DraftLifecycleState, transition_draft_state
+from app.domain.job_policy import build_job_dedupe_key
 from app.logging_utils import logger
 from app.models import (
     AiParseAttempt,
@@ -30,6 +31,8 @@ from app.models import (
     User,
     UserRole,
 )
+from app.observability import increment_metric, set_gauge
+from app.repositories.draft_repository import DraftRepository
 from app.services_core import bootstrap_household_id, get_settings_payload
 from app.telegram_adapter import TelegramAdapter
 from app.telegram_helpers import (
@@ -54,6 +57,7 @@ from app.telegram_helpers import (
 )
 from app.telegram_stats import send_current_month_report
 from app.telegram_types import ActiveCategory, ParsedTransaction, ReviewDraft, extract_message_text
+from app.use_cases.jobs import enqueue_use_case_job
 
 
 JOB_TYPE_TELEGRAM_UPDATE = "telegram_update"
@@ -355,6 +359,7 @@ def create_transaction_from_draft(db: Session, review: PendingOperationReview, d
     )
     db.add(transaction)
     source_message = db.execute(select(SourceMessage).where(SourceMessage.id == review.source_message_id)).scalar_one()
+    transition_draft_state(DraftLifecycleState.PENDING_REVIEW, DraftLifecycleState.CONFIRMED)
     source_message.status = SourceMessageStatus.PARSED
     review.status = SourceMessageStatus.PARSED
     review.pending_field = None
@@ -365,16 +370,19 @@ def create_transaction_from_draft(db: Session, review: PendingOperationReview, d
 
 
 def enqueue_notification_job(db: Session, transaction_id: str, event: str, exclude_telegram_ids: list[str] | None = None) -> None:
-    enqueue_job(
+    payload = {"transactionId": transaction_id, "event": event, "excludeTelegramIds": exclude_telegram_ids or []}
+    enqueue_use_case_job(
         db,
         job_type=JOB_TYPE_SEND_TRANSACTION_NOTIFICATIONS,
-        payload={"transactionId": transaction_id, "event": event, "excludeTelegramIds": exclude_telegram_ids or []},
+        payload=payload,
         household_id=bootstrap_household_id(),
+        dedupe_key=build_job_dedupe_key(JOB_TYPE_SEND_TRANSACTION_NOTIFICATIONS, payload),
     )
 
 
 def cancel_draft(db: Session, review: PendingOperationReview, chat_id: str | None, telegram: TelegramAdapter) -> dict[str, Any]:
     active_picker_id = review.active_picker_message_id
+    transition_draft_state(DraftLifecycleState.PENDING_REVIEW, DraftLifecycleState.CANCELLED)
     review.status = SourceMessageStatus.CANCELLED
     review.active_picker_message_id = None
     review.pending_field = None
@@ -534,12 +542,7 @@ def handle_message_update(db: Session, message: dict[str, Any], raw_update: dict
         telegram.send_message(chat_id, "Выберите отчет:", create_stats_submenu_reply_markup())
         return {"accepted": True, "status": "stats_menu_shown", "authorId": author.id}
 
-    existing_draft = db.execute(
-        select(PendingOperationReview)
-        .where(PendingOperationReview.author_id == author.id, PendingOperationReview.status == SourceMessageStatus.PENDING_REVIEW)
-        .options(joinedload(PendingOperationReview.source_message).selectinload(SourceMessage.attachments))
-        .order_by(PendingOperationReview.updated_at.desc())
-    ).scalars().first()
+    existing_draft = DraftRepository(db).get_active_for_author(author.id)
     if existing_draft:
         if has_attachment and not existing_draft.pending_field:
             cancel_draft(db, existing_draft, chat_id, telegram)
@@ -551,12 +554,16 @@ def handle_message_update(db: Session, message: dict[str, Any], raw_update: dict
                 return {"accepted": True, "status": "cancelled"}
             if existing_draft.pending_field:
                 return apply_manual_edit(db, existing_draft.id, existing_draft.pending_field, text_value, chat_id, telegram, str(message.get("message_id") or ""))
-            enqueue_job(
+            transition_draft_state(DraftLifecycleState.PENDING_REVIEW, DraftLifecycleState.CLARIFICATION_ENQUEUED)
+            clarification_payload = {"draftId": existing_draft.id, "userText": text_value, "chatId": chat_id}
+            enqueue_use_case_job(
                 db,
                 job_type=JOB_TYPE_CLARIFICATION_REPARSE,
-                payload={"draftId": existing_draft.id, "userText": text_value, "chatId": chat_id},
+                payload=clarification_payload,
                 household_id=bootstrap_household_id(),
+                dedupe_key=build_job_dedupe_key(JOB_TYPE_CLARIFICATION_REPARSE, clarification_payload),
             )
+            increment_metric("clarification.enqueued")
             return {"accepted": True, "status": "clarification_enqueued"}
 
     telegram_message_id = str(message.get("message_id"))
@@ -581,11 +588,13 @@ def handle_message_update(db: Session, message: dict[str, Any], raw_update: dict
     db.refresh(source_message)
     attachments = persist_attachments(db, message, source_message.id, telegram)
     logger.info("telegram", "message_received", "Telegram message received", {"sourceMessageId": source_message.id, "telegramMessageId": source_message.telegram_message_id, "authorId": author.id, "hasAttachment": has_attachment})
-    enqueue_job(
+    parse_payload = {"sourceMessageId": source_message.id, "authorId": author.id, "chatId": chat_id, "inputText": text_value, "attachmentIds": [item.id for item in attachments]}
+    enqueue_use_case_job(
         db,
         job_type=JOB_TYPE_PARSE_SOURCE_MESSAGE,
-        payload={"sourceMessageId": source_message.id, "authorId": author.id, "chatId": chat_id, "inputText": text_value, "attachmentIds": [item.id for item in attachments]},
+        payload=parse_payload,
         household_id=bootstrap_household_id(),
+        dedupe_key=build_job_dedupe_key(JOB_TYPE_PARSE_SOURCE_MESSAGE, parse_payload),
     )
     return {"accepted": True, "status": "parse_enqueued"}
 
@@ -618,6 +627,8 @@ def process_parse_source_message(db: Session, payload: dict[str, Any], telegram:
     source_message.status = SourceMessageStatus.PENDING_REVIEW
     db.commit()
     if get_missing_draft_fields(draft):
+        transition_draft_state(DraftLifecycleState.PARSED, DraftLifecycleState.NEEDS_CLARIFICATION)
+        increment_metric("clarification.entered")
         upsert_clarification_session(db, source_message.id, draft)
     render_or_send_draft_card(db, review.id, payload["chatId"], telegram)
     return {"accepted": True, "status": "pending_review", "draftId": review.id}
@@ -654,8 +665,10 @@ def reparse_draft_with_clarification(db: Session, payload: dict[str, Any], teleg
     review.active_picker_message_id = None
     db.commit()
     if get_missing_draft_fields(next_draft):
+        increment_metric("clarification.entered")
         upsert_clarification_session(db, review.source_message_id, next_draft)
     else:
+        increment_metric("clarification.resolved")
         resolve_clarification_session(db, review.source_message_id, payload["userText"])
     render_or_send_draft_card(db, review.id, payload["chatId"], telegram)
     return {"accepted": True, "status": "pending_review"}
@@ -674,17 +687,9 @@ def handle_callback_query(db: Session, callback: dict[str, Any], telegram: Teleg
             chat_id,
             type_=TransactionType.EXPENSE if data == TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK else TransactionType.INCOME,
         )
-    account = db.execute(select(TelegramAccount).where(TelegramAccount.telegram_id == author_telegram_id).options(joinedload(TelegramAccount.user))).scalar_one_or_none()
-    if not account or not account.user:
-        telegram.answer_callback_query(callback["id"], "Пользователь не найден")
-        return {"accepted": True, "ignored": True}
-    draft = db.execute(
-        select(PendingOperationReview)
-        .where(PendingOperationReview.author_id == account.user.id, PendingOperationReview.status == SourceMessageStatus.PENDING_REVIEW)
-        .order_by(PendingOperationReview.updated_at.desc())
-    ).scalars().first()
+    draft = DraftRepository(db).get_latest_for_telegram_account(author_telegram_id)
     if not draft:
-        telegram.answer_callback_query(callback["id"], "Активный черновик не найден")
+        telegram.answer_callback_query(callback["id"], "Пользователь не найден")
         return {"accepted": True, "ignored": True}
     if data == "draft:confirm":
         telegram.answer_callback_query(callback["id"])
@@ -821,6 +826,7 @@ def notify_transaction_event(db: Session, payload: dict[str, Any], telegram: Tel
         except Exception as exc:
             failed += 1
             logger.error("telegram", "transaction_notification_failed", "Transaction notification failed", {"transactionId": transaction.id, "chatId": chat_id, "error": exc})
+    increment_metric("notifications.sent")
     return {"recipients": len(recipient_ids), "delivered": delivered, "failed": failed}
 
 
@@ -838,10 +844,20 @@ def maybe_enqueue_scheduled_backup(db: Session, settings: Settings | None = None
     if not (now.hour == 12 and now.minute == 0 and ((now.day - 1) % 3 == 0)):
         return
     window_start = now.replace(second=0, microsecond=0).astimezone(timezone.utc).replace(tzinfo=None)
-    existing_job = db.execute(select(Job).where(Job.job_type == JOB_TYPE_SCHEDULED_BACKUP).order_by(Job.created_at.desc())).scalars().first()
-    if existing_job and existing_job.created_at >= window_start:
-        return
-    enqueue_job(db, job_type=JOB_TYPE_SCHEDULED_BACKUP, payload={"scheduled": True, "schedule": SCHEDULED_BACKUP_SCHEDULE, "timeZone": "Europe/Moscow"}, household_id=bootstrap_household_id())
+    payload = {
+        "scheduled": True,
+        "schedule": SCHEDULED_BACKUP_SCHEDULE,
+        "timeZone": "Europe/Moscow",
+        "slot": window_start.isoformat(),
+        "scheduledFor": window_start.isoformat(),
+    }
+    enqueue_use_case_job(
+        db,
+        job_type=JOB_TYPE_SCHEDULED_BACKUP,
+        payload=payload,
+        household_id=bootstrap_household_id(),
+        dedupe_key=build_job_dedupe_key(JOB_TYPE_SCHEDULED_BACKUP, payload),
+    )
 
 
 def process_scheduled_backup(db: Session, telegram: TelegramAdapter) -> dict[str, Any]:
@@ -853,6 +869,7 @@ def process_scheduled_backup(db: Session, telegram: TelegramAdapter) -> dict[str
         logger.warn("backup", "scheduled_backup_skipped", "Scheduled Telegram backup skipped: no admin Telegram recipient found")
         return {"status": "skipped"}
     artifact = create_backup({"sub": "system:scheduled-backup", "email": "system@local", "role": "ADMIN"})
+    set_gauge("backup.last_created_at_epoch", datetime.now(timezone.utc).timestamp())
     file_path = str(get_settings().backup_path / artifact["fileName"])
     telegram.send_document(
         chat_id=telegram_id,

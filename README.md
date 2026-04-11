@@ -167,6 +167,11 @@ Runbook для production deploy, smoke-проверок и восстановл
 - `LOG_DIR`: каталог файловых логов API, по умолчанию `logs`
 - `LOG_LEVEL`: минимальный уровень логирования, по умолчанию `info`
 - `CLARIFICATION_TIMEOUT_MINUTES`: таймаут ожидания уточнения
+- `JOB_LEASE_SECONDS`: lease timeout для worker jobs, по умолчанию `120`
+- `FEATURE_JOB_DEDUPE_ENABLED`: флаг идемпотентного enqueue для jobs
+- `FEATURE_STRICT_DRAFT_STATE_ENABLED`: флаг строгой draft state machine
+- `FEATURE_ENHANCED_OBSERVABILITY_ENABLED`: флаг request/job correlation полей в логах и readiness
+- `FEATURE_DEAD_LETTER_JOBS_ENABLED`: флаг dead-letter поведения вместо бесконечного retry
 
 Локальный `docker compose` поднимает PostgreSQL на `localhost:5433`, чтобы не конфликтовать с локальным Postgres на стандартном `5432`. При необходимости порт можно переопределить через `POSTGRES_PORT`.
 
@@ -196,6 +201,7 @@ Runbook для production deploy, smoke-проверок и восстановл
 - `GET /api/auth/me`
 - `GET /api/health`
 - `GET /api/health/ready`
+- `GET /api/metrics`
 - `GET /api/logs` с query-параметрами `level`, `source`, `search`, `sortBy`, `sortDir`, `page`, `pageSize`
 - `POST /api/backups`
 - `GET /api/backups/latest`
@@ -210,6 +216,20 @@ Runbook для production deploy, smoke-проверок и восстановл
 - `GET/PUT /api/settings`
 - `GET /api/telegram/status`
 - `POST /api/telegram/webhook`
+
+## Observability и queue semantics
+
+- Все HTTP-ответы API теперь возвращают `X-Request-Id` и `X-Correlation-Id`.
+- Worker и API пишут JSON-логи с общим correlation context для запросов и jobs.
+- DB-backed queue теперь использует:
+  - `dedupeKey` для идемпотентного enqueue
+  - `leaseExpiresAt` для reclaim зависших `running` jobs
+  - `dead_letter` после исчерпания `maxAttempts`
+- Readiness дополнительно показывает:
+  - `pendingCount`
+  - `runningCount`
+  - `deadLetterCount`
+  - `oldestPendingLagSeconds`
 
 ## GitHub: первый пуш
 
