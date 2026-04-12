@@ -149,6 +149,8 @@ jobs:
           timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
           echo "DEPLOY_TIMESTAMP=$timestamp" >> "$GITHUB_ENV"
           echo "DEPLOY_BACKUP_FILE=backups/deploy-pre-${timestamp}.dump" >> "$GITHUB_ENV"
+          echo "DEPLOY_BASELINE_LOCAL=$RUNNER_TEMP/deploy-baseline-${timestamp}.json" >> "$GITHUB_ENV"
+          echo "DEPLOY_BASELINE_STDERR_LOCAL=$RUNNER_TEMP/deploy-baseline-${timestamp}.stderr.log" >> "$GITHUB_ENV"
           echo "DEPLOY_BASELINE_SNAPSHOT=backups/deploy-baseline-${timestamp}.json" >> "$GITHUB_ENV"
           echo "DEPLOY_BASELINE_SNAPSHOT_CONTAINER=/app/apps/python_backend/backups/deploy-baseline-${timestamp}.json" >> "$GITHUB_ENV"
 
@@ -159,10 +161,10 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
           DEPLOY_BACKUP_FILE: ${{ env.DEPLOY_BACKUP_FILE }}
-          DEPLOY_BASELINE_SNAPSHOT: ${{ env.DEPLOY_BASELINE_SNAPSHOT }}
-          DEPLOY_BASELINE_SNAPSHOT_CONTAINER: ${{ env.DEPLOY_BASELINE_SNAPSHOT_CONTAINER }}
+          DEPLOY_BASELINE_LOCAL: ${{ env.DEPLOY_BASELINE_LOCAL }}
+          DEPLOY_BASELINE_STDERR_LOCAL: ${{ env.DEPLOY_BASELINE_STDERR_LOCAL }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' DEPLOY_BACKUP_FILE='$DEPLOY_BACKUP_FILE' DEPLOY_BASELINE_SNAPSHOT='$DEPLOY_BASELINE_SNAPSHOT' DEPLOY_BASELINE_SNAPSHOT_CONTAINER='$DEPLOY_BASELINE_SNAPSHOT_CONTAINER' bash -se" <<'REMOTE'
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' DEPLOY_BACKUP_FILE='$DEPLOY_BACKUP_FILE' bash -se" <<'REMOTE'
             set -e
             cd "$REMOTE_APP_DIR"
 
@@ -177,35 +179,60 @@ jobs:
 
             mkdir -p backups
             backup_file="$DEPLOY_BACKUP_FILE"
-            baseline_snapshot="$DEPLOY_BASELINE_SNAPSHOT"
-            baseline_snapshot_container="$DEPLOY_BASELINE_SNAPSHOT_CONTAINER"
 
-            echo 'Building release images'
+            >&2 echo 'Building release images'
             $COMPOSE_CMD build python-api python-worker web
             $COMPOSE_CMD -f docker-compose.yml -f docker-compose.migrate.yml build prisma-bootstrap
 
-            echo "Creating fresh production backup at $backup_file"
+            >&2 echo "Creating fresh production backup at $backup_file"
             $COMPOSE_CMD up -d postgres
             $COMPOSE_CMD exec -T postgres sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup_file"
 
-            echo "Writing baseline invariants snapshot to $baseline_snapshot"
-            $COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --write "$baseline_snapshot_container"
-            if [ ! -s "$baseline_snapshot" ]; then
-              echo "Baseline invariants snapshot was not created at $baseline_snapshot" >&2
-              pwd >&2 || true
-              ls -lah backups >&2 || true
-              $COMPOSE_CMD config --services >&2 || true
-              $COMPOSE_CMD run --rm python-api pwd >&2 || true
+          REMOTE
+
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' bash -se" <<'REMOTE' > "$DEPLOY_BASELINE_LOCAL" 2> "$DEPLOY_BASELINE_STDERR_LOCAL"
+            set -e
+            cd "$REMOTE_APP_DIR"
+
+            if docker compose version >/dev/null 2>&1; then
+              COMPOSE_CMD='docker compose'
+            elif command -v docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD='docker-compose'
+            else
+              echo 'Neither docker compose nor docker-compose is available on the server' >&2
               exit 1
             fi
-            $COMPOSE_CMD run --rm python-api python -c "from pathlib import Path; p = Path(r'$baseline_snapshot_container'); raise SystemExit(0 if p.is_file() and p.stat().st_size > 0 else 1)" || {
-              echo "Baseline invariants snapshot is not visible inside python-api at $baseline_snapshot_container" >&2
-              pwd >&2 || true
-              ls -lah backups >&2 || true
-              $COMPOSE_CMD config --services >&2 || true
-              $COMPOSE_CMD run --rm python-api pwd >&2 || true
+
+            $COMPOSE_CMD run --rm -T python-api python scripts/verify_invariants.py
+          REMOTE
+
+          if [ ! -s "$DEPLOY_BASELINE_LOCAL" ]; then
+            echo "Baseline invariants snapshot was not created at $DEPLOY_BASELINE_LOCAL" >&2
+            cat "$DEPLOY_BASELINE_STDERR_LOCAL" >&2 || true
+            exit 1
+          fi
+
+          python3 -c "import json, pathlib, sys; p = pathlib.Path(sys.argv[1]); payload = json.loads(p.read_text(encoding='utf-8')); required = ('generatedAt', 'transactionCount', 'categoryCount'); missing = [key for key in required if key not in payload]; assert not missing, f'missing snapshot keys: {missing}'" "$DEPLOY_BASELINE_LOCAL" || {
+            echo "Baseline invariants snapshot is not valid JSON: $DEPLOY_BASELINE_LOCAL" >&2
+            echo '--- baseline stdout head ---' >&2
+            sed -n '1,40p' "$DEPLOY_BASELINE_LOCAL" >&2 || true
+            echo '--- baseline stderr ---' >&2
+            cat "$DEPLOY_BASELINE_STDERR_LOCAL" >&2 || true
+            exit 1
+          }
+
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' bash -se" <<'REMOTE'
+            set -e
+            cd "$REMOTE_APP_DIR"
+
+            if docker compose version >/dev/null 2>&1; then
+              COMPOSE_CMD='docker compose'
+            elif command -v docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD='docker-compose'
+            else
+              echo 'Neither docker compose nor docker-compose is available on the server' >&2
               exit 1
-            }
+            fi
 
             echo 'Running Prisma migrations and bootstrap seed'
             $COMPOSE_CMD -f docker-compose.yml -f docker-compose.migrate.yml run --rm prisma-bootstrap
@@ -336,11 +363,17 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+          DEPLOY_BASELINE_LOCAL: ${{ env.DEPLOY_BASELINE_LOCAL }}
+          DEPLOY_BASELINE_SNAPSHOT: ${{ env.DEPLOY_BASELINE_SNAPSHOT }}
           DEPLOY_BASELINE_SNAPSHOT_CONTAINER: ${{ env.DEPLOY_BASELINE_SNAPSHOT_CONTAINER }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' DEPLOY_BASELINE_SNAPSHOT_CONTAINER='$DEPLOY_BASELINE_SNAPSHOT_CONTAINER' bash -se" <<'REMOTE'
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$REMOTE_APP_DIR/backups'"
+          scp -P "$SSH_PORT" "$DEPLOY_BASELINE_LOCAL" "$SSH_USER@$SSH_HOST:$REMOTE_APP_DIR/$DEPLOY_BASELINE_SNAPSHOT"
+
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' DEPLOY_BASELINE_SNAPSHOT='$DEPLOY_BASELINE_SNAPSHOT' DEPLOY_BASELINE_SNAPSHOT_CONTAINER='$DEPLOY_BASELINE_SNAPSHOT_CONTAINER' bash -se" <<'REMOTE'
             set -e
             cd "$REMOTE_APP_DIR"
+            baseline_snapshot="$DEPLOY_BASELINE_SNAPSHOT"
 
             if docker compose version >/dev/null 2>&1; then
               COMPOSE_CMD='docker compose'
@@ -348,6 +381,14 @@ jobs:
               COMPOSE_CMD='docker-compose'
             else
               echo 'Neither docker compose nor docker-compose is available on the server' >&2
+              exit 1
+            fi
+
+            trap 'rm -f "$baseline_snapshot"' EXIT
+
+            if [ ! -s "$baseline_snapshot" ]; then
+              echo "Baseline snapshot upload missing before compare step: $baseline_snapshot" >&2
+              ls -lah backups >&2 || true
               exit 1
             fi
 
