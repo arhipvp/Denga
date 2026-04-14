@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from alembic import command
 from alembic.config import Config
+from sqlalchemy.exc import OperationalError
 from sqlalchemy import inspect
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -43,9 +45,21 @@ def _alembic_version_exists() -> bool:
 
 def upgrade() -> int:
     config = _build_alembic_config()
-    if not _alembic_version_exists() and _database_has_application_tables():
-        command.stamp(config, BASELINE_REVISION)
-    command.upgrade(config, "head")
+    database_url = config.get_main_option("sqlalchemy.url")
+    try:
+        if not _alembic_version_exists() and _database_has_application_tables():
+            command.stamp(config, BASELINE_REVISION)
+        command.upgrade(config, "head")
+    except OperationalError as exc:
+        parts = urlsplit(database_url)
+        host = parts.hostname or "unknown"
+        port = parts.port or "default"
+        print(
+            f"Database connection failed for {host}:{port}. "
+            "Ensure PostgreSQL is running and ready before executing migrations.",
+            file=sys.stderr,
+        )
+        raise
     return 0
 
 

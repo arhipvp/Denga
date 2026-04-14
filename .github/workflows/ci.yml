@@ -33,10 +33,29 @@ jobs:
       - name: Start PostgreSQL for migration smoke test
         run: docker compose up -d postgres
 
+      - name: Wait for PostgreSQL readiness
+        run: |
+          for attempt in $(seq 1 24); do
+            if docker compose exec -T postgres pg_isready -U denga -d denga >/dev/null 2>&1; then
+              echo "PostgreSQL is ready"
+              exit 0
+            fi
+            echo "PostgreSQL is not ready yet (attempt $attempt/24), waiting 5s..."
+            sleep 5
+          done
+          echo "PostgreSQL did not become ready in time" >&2
+          docker compose ps >&2 || true
+          docker compose logs --tail=200 postgres >&2 || true
+          exit 1
+
       - name: Run database migrations
+        env:
+          DATABASE_URL: postgresql://denga:denga@localhost:5433/denga?schema=public
         run: python apps/python_backend/scripts/migrate.py upgrade
 
       - name: Run bootstrap seed
+        env:
+          DATABASE_URL: postgresql://denga:denga@localhost:5433/denga?schema=public
         run: python apps/python_backend/scripts/bootstrap_seed.py
 
       - name: Run lint
