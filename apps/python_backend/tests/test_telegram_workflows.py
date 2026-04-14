@@ -25,6 +25,7 @@ class FakeTelegram:
         self.cleared_keyboards: list[tuple[str, int]] = []
         self.deleted_messages: list[tuple[str, int]] = []
         self.sent_messages: list[tuple[str, str, dict | None]] = []
+        self.callback_answers: list[tuple[str, str | None]] = []
         self.edit_result = edit_result
 
     def edit_message(self, chat_id: str, message_id: int, text: str, reply_markup: dict | None = None) -> bool:
@@ -42,6 +43,9 @@ class FakeTelegram:
     def send_message(self, chat_id: str, text: str, reply_markup: dict | None = None) -> dict:
         self.sent_messages.append((chat_id, text, reply_markup))
         return {"message_id": 200}
+
+    def answer_callback_query(self, callback_query_id: str, text: str | None = None) -> None:
+        self.callback_answers.append((callback_query_id, text))
 
 
 def test_confirm_draft_clears_old_keyboard_when_final_edit_fails(monkeypatch) -> None:
@@ -317,3 +321,274 @@ def test_manual_comment_edit_removes_transient_messages_and_sends_fresh_card() -
     assert updated_review.active_picker_message_id is None
     assert updated_review.last_bot_message_id == "200"
     assert updated_review.draft["comment"] == "VPS, 2 штуки"
+
+
+def test_category_callback_uses_active_needs_clarification_draft() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+
+    with SessionLocal() as db:
+        household_id = bootstrap_household_id()
+        db.add(Household(id=household_id, name="Дом", default_currency="EUR"))
+        user = User(
+            id="user-1",
+            household_id=household_id,
+            email=None,
+            password_hash=None,
+            display_name="User",
+            role=UserRole.MEMBER,
+        )
+        db.add(user)
+        db.add(TelegramAccount(user_id=user.id, telegram_id="42", username=None, first_name=None, last_name=None, is_active=True))
+        parent = Category(
+            id="parent-1",
+            household_id=household_id,
+            parent_id=None,
+            name="Развлечения",
+            type=CategoryType.EXPENSE,
+            is_active=True,
+        )
+        category = Category(
+            id="cat-1",
+            household_id=household_id,
+            parent_id=parent.id,
+            name="Развлечения",
+            type=CategoryType.EXPENSE,
+            is_active=True,
+        )
+        category_id = category.id
+        source = SourceMessage(
+            id="source-1",
+            household_id=household_id,
+            author_id=user.id,
+            telegram_message_id="10",
+            telegram_chat_id="42",
+            type=SourceMessageType.TELEGRAM_TEXT,
+            status=SourceMessageStatus.NEEDS_CLARIFICATION,
+            text="15 евро книга",
+            raw_payload={},
+        )
+        review = PendingOperationReview(
+            id="draft-1",
+            source_message_id=source.id,
+            author_id=user.id,
+            status=SourceMessageStatus.NEEDS_CLARIFICATION,
+            draft={
+                "type": "expense",
+                "amount": 15.0,
+                "occurredAt": "2026-04-11",
+                "categoryId": None,
+                "categoryName": None,
+                "comment": "книга",
+                "currency": "EUR",
+                "confidence": 0.5,
+                "ambiguities": [],
+                "followUpQuestion": "Для какой категории лучше всего подходит эта покупка?",
+                "sourceText": "15 евро книга",
+            },
+            pending_field=None,
+            last_bot_message_id="100",
+            active_picker_message_id="101",
+        )
+        db.add_all([parent, category, source, review])
+        db.commit()
+
+        telegram = FakeTelegram(edit_result=True)
+        result = workflows.handle_callback_query(
+            db,
+            {
+                "id": "cb-1",
+                "data": f"draft:set-category:{category.id}",
+                "from": {"id": 42},
+                "message": {"message_id": 101, "chat": {"id": 42}},
+            },
+            telegram,
+        )
+
+        updated_review = db.execute(select(PendingOperationReview).where(PendingOperationReview.id == review.id)).scalar_one()
+
+    assert result["status"] == "pending_review"
+    assert telegram.callback_answers == [("cb-1", None)]
+    assert updated_review.draft["categoryId"] == category_id
+    assert updated_review.draft["categoryName"] == "Развлечения / Развлечения"
+
+
+def test_confirm_draft_accepts_needs_clarification_state(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+
+    with SessionLocal() as db:
+        household_id = bootstrap_household_id()
+        db.add(Household(id=household_id, name="Дом", default_currency="EUR"))
+        user = User(
+            id="user-1",
+            household_id=household_id,
+            email=None,
+            password_hash=None,
+            display_name="User",
+            role=UserRole.MEMBER,
+        )
+        db.add(user)
+        db.add(TelegramAccount(user_id=user.id, telegram_id="42", username=None, first_name=None, last_name=None, is_active=True))
+        parent = Category(
+            id="parent-1",
+            household_id=household_id,
+            parent_id=None,
+            name="Развлечения",
+            type=CategoryType.EXPENSE,
+            is_active=True,
+        )
+        category = Category(
+            id="cat-1",
+            household_id=household_id,
+            parent_id=parent.id,
+            name="Развлечения",
+            type=CategoryType.EXPENSE,
+            is_active=True,
+        )
+        source = SourceMessage(
+            id="source-1",
+            household_id=household_id,
+            author_id=user.id,
+            telegram_message_id="10",
+            telegram_chat_id="42",
+            type=SourceMessageType.TELEGRAM_TEXT,
+            status=SourceMessageStatus.NEEDS_CLARIFICATION,
+            text="15 евро книга",
+            raw_payload={},
+        )
+        review = PendingOperationReview(
+            id="draft-1",
+            source_message_id=source.id,
+            author_id=user.id,
+            status=SourceMessageStatus.NEEDS_CLARIFICATION,
+            draft={
+                "type": "expense",
+                "amount": 15.0,
+                "occurredAt": "2026-04-11",
+                "categoryId": category.id,
+                "categoryName": "Развлечения / Развлечения",
+                "comment": "книга",
+                "currency": "EUR",
+                "confidence": 1,
+                "ambiguities": [],
+                "followUpQuestion": None,
+                "sourceText": "15 евро книга",
+            },
+            pending_field=None,
+            last_bot_message_id="347",
+            active_picker_message_id=None,
+        )
+        db.add_all([parent, category, source, review])
+        db.commit()
+
+        monkeypatch.setattr(workflows, "enqueue_notification_job", lambda *args, **kwargs: None)
+        telegram = FakeTelegram(edit_result=True)
+        result = workflows.confirm_draft(db, review.id, "42", "347", telegram)
+
+        updated_review = db.execute(select(PendingOperationReview).where(PendingOperationReview.id == review.id)).scalar_one()
+
+    assert result["status"] == "confirmed"
+    assert updated_review.status == SourceMessageStatus.PARSED
+
+
+def test_cancel_draft_accepts_needs_clarification_state() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+
+    with SessionLocal() as db:
+        household_id = bootstrap_household_id()
+        db.add(Household(id=household_id, name="Дом", default_currency="EUR"))
+        user = User(
+            id="user-1",
+            household_id=household_id,
+            email=None,
+            password_hash=None,
+            display_name="User",
+            role=UserRole.MEMBER,
+        )
+        db.add(user)
+        source = SourceMessage(
+            id="source-1",
+            household_id=household_id,
+            author_id=user.id,
+            telegram_message_id="10",
+            telegram_chat_id="42",
+            type=SourceMessageType.TELEGRAM_TEXT,
+            status=SourceMessageStatus.NEEDS_CLARIFICATION,
+            text="15 евро книга",
+            raw_payload={},
+        )
+        review = PendingOperationReview(
+            id="draft-1",
+            source_message_id=source.id,
+            author_id=user.id,
+            status=SourceMessageStatus.NEEDS_CLARIFICATION,
+            draft={},
+            pending_field=None,
+            last_bot_message_id="100",
+            active_picker_message_id="101",
+        )
+        db.add_all([source, review])
+        db.commit()
+
+        telegram = FakeTelegram()
+        result = workflows.cancel_draft(db, review, "42", telegram)
+
+        updated_review = db.execute(select(PendingOperationReview).where(PendingOperationReview.id == review.id)).scalar_one()
+
+    assert result["status"] == "cancelled"
+    assert updated_review.status == SourceMessageStatus.CANCELLED
+
+
+def test_callback_query_distinguishes_missing_draft_from_missing_user() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+
+    with SessionLocal() as db:
+        household_id = bootstrap_household_id()
+        db.add(Household(id=household_id, name="Дом", default_currency="EUR"))
+        user = User(
+            id="user-1",
+            household_id=household_id,
+            email=None,
+            password_hash=None,
+            display_name="User",
+            role=UserRole.MEMBER,
+        )
+        db.add(user)
+        db.add(TelegramAccount(user_id=user.id, telegram_id="42", username=None, first_name=None, last_name=None, is_active=True))
+        db.commit()
+
+        telegram = FakeTelegram()
+        result_existing_user = workflows.handle_callback_query(
+            db,
+            {
+                "id": "cb-1",
+                "data": "draft:confirm",
+                "from": {"id": 42},
+                "message": {"message_id": 101, "chat": {"id": 42}},
+            },
+            telegram,
+        )
+        result_missing_user = workflows.handle_callback_query(
+            db,
+            {
+                "id": "cb-2",
+                "data": "draft:confirm",
+                "from": {"id": 404},
+                "message": {"message_id": 102, "chat": {"id": 404}},
+            },
+            telegram,
+        )
+
+    assert result_existing_user["ignored"] is True
+    assert result_missing_user["ignored"] is True
+    assert telegram.callback_answers == [
+        ("cb-1", "Черновик не найден или уже завершен"),
+        ("cb-2", "Пользователь не найден"),
+    ]

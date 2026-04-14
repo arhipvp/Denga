@@ -15,6 +15,11 @@ from app.domain.draft_state import (
 )
 from app.models import ClarificationSession, ClarificationStatus, PendingOperationReview, SourceMessage, SourceMessageStatus, TelegramAccount, User
 
+ACTIVE_REVIEW_STATUSES = (
+    SourceMessageStatus.PENDING_REVIEW,
+    SourceMessageStatus.NEEDS_CLARIFICATION,
+)
+
 
 class DraftRepository:
     def __init__(self, db: Session) -> None:
@@ -40,14 +45,20 @@ class DraftRepository:
                 select(PendingOperationReview)
                 .where(
                     PendingOperationReview.author_id == author_id,
-                    PendingOperationReview.status == SourceMessageStatus.PENDING_REVIEW,
+                    PendingOperationReview.status.in_(ACTIVE_REVIEW_STATUSES),
                 )
-                .options(joinedload(PendingOperationReview.source_message).selectinload(SourceMessage.attachments))
+                .options(
+                    joinedload(PendingOperationReview.source_message).selectinload(SourceMessage.attachments),
+                    joinedload(PendingOperationReview.author).selectinload(User.telegram_accounts),
+                )
                 .order_by(PendingOperationReview.updated_at.desc())
             )
             .scalars()
             .first()
         )
+
+    def has_telegram_account(self, telegram_id: str) -> bool:
+        return self._db.execute(select(TelegramAccount.id).where(TelegramAccount.telegram_id == telegram_id)).scalar_one_or_none() is not None
 
     def get_latest_for_telegram_account(self, telegram_id: str) -> PendingOperationReview | None:
         account = (
@@ -61,7 +72,11 @@ class DraftRepository:
                 select(PendingOperationReview)
                 .where(
                     PendingOperationReview.author_id == account.user.id,
-                    PendingOperationReview.status == SourceMessageStatus.PENDING_REVIEW,
+                    PendingOperationReview.status.in_(ACTIVE_REVIEW_STATUSES),
+                )
+                .options(
+                    joinedload(PendingOperationReview.source_message).selectinload(SourceMessage.attachments),
+                    joinedload(PendingOperationReview.author).selectinload(User.telegram_accounts),
                 )
                 .order_by(PendingOperationReview.updated_at.desc())
             )

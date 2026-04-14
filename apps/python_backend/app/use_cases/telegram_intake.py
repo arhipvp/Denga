@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.domain.draft_state import DraftLifecycleState
 from app.domain.job_policy import build_job_dedupe_key
 from app.logging_utils import logger
-from app.models import SourceMessageType
+from app.models import SourceMessageStatus, SourceMessageType
 from app.observability import increment_metric
 from app.repositories.draft_repository import DraftRepository
 from app.repositories.source_message_repository import SourceMessageRepository
@@ -62,7 +62,9 @@ def handle_message_update(db: Session, message: dict[str, Any], raw_update: dict
                 )
             DraftRepository(db).transition_review(
                 existing_draft,
-                current_state=DraftLifecycleState.PENDING_REVIEW,
+                current_state=DraftLifecycleState.NEEDS_CLARIFICATION
+                if existing_draft.status == SourceMessageStatus.NEEDS_CLARIFICATION
+                else DraftLifecycleState.PENDING_REVIEW,
                 next_state=DraftLifecycleState.CLARIFICATION_ENQUEUED,
             )
             clarification_payload = {"draftId": existing_draft.id, "userText": text_value, "chatId": chat_id}

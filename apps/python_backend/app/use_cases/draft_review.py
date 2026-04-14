@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.domain.draft_state import DraftLifecycleState
-from app.models import Category, CategoryType, PendingOperationReview, Transaction, TransactionStatus, TransactionType, User
+from app.models import Category, CategoryType, PendingOperationReview, SourceMessageStatus, Transaction, TransactionStatus, TransactionType, User
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.draft_repository import DraftRepository
 from app.repositories.settings_repository import SettingsRepository
@@ -29,6 +29,12 @@ from app.telegram_helpers import (
 from app.telegram_stats import send_current_month_report
 from app.telegram_types import ReviewDraft
 from app.use_cases.notifications import enqueue_notification_job
+
+
+def _current_review_state(review: PendingOperationReview) -> DraftLifecycleState:
+    if review.status == SourceMessageStatus.NEEDS_CLARIFICATION:
+        return DraftLifecycleState.NEEDS_CLARIFICATION
+    return DraftLifecycleState.PENDING_REVIEW
 
 
 def clear_active_picker_message(chat_id: str | None, message_id: str | None, telegram: TelegramAdapter) -> None:
@@ -98,9 +104,16 @@ def create_transaction_from_draft(db: Session, review: PendingOperationReview, d
     )
     TransactionRepository(db).create(transaction)
     review = DraftRepository(db).get_by_id(review.id) or review
+    current_state = _current_review_state(review)
+    if current_state == DraftLifecycleState.NEEDS_CLARIFICATION:
+        current_state = DraftRepository(db).transition_review(
+            review,
+            current_state=DraftLifecycleState.NEEDS_CLARIFICATION,
+            next_state=DraftLifecycleState.PENDING_REVIEW,
+        )
     DraftRepository(db).transition_review(
         review,
-        current_state=DraftLifecycleState.PENDING_REVIEW,
+        current_state=current_state,
         next_state=DraftLifecycleState.CONFIRMED,
     )
     review.pending_field = None
@@ -114,7 +127,7 @@ def cancel_draft(db: Session, review: PendingOperationReview, chat_id: str | Non
     active_picker_id = review.active_picker_message_id
     DraftRepository(db).transition_review(
         review,
-        current_state=DraftLifecycleState.PENDING_REVIEW,
+        current_state=_current_review_state(review),
         next_state=DraftLifecycleState.CANCELLED,
     )
     review.active_picker_message_id = None
@@ -292,7 +305,10 @@ def handle_callback_query(db: Session, callback: dict[str, Any], telegram: Teleg
         )
     draft = DraftRepository(db).get_latest_for_telegram_account(author_telegram_id)
     if not draft:
-        telegram.answer_callback_query(callback["id"], "Пользователь не найден")
+        if DraftRepository(db).has_telegram_account(author_telegram_id):
+            telegram.answer_callback_query(callback["id"], "Черновик не найден или уже завершен")
+        else:
+            telegram.answer_callback_query(callback["id"], "Пользователь не найден")
         return {"accepted": True, "ignored": True}
     if data == "draft:confirm":
         telegram.answer_callback_query(callback["id"])

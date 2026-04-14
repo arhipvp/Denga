@@ -15,8 +15,11 @@ from app.models import (
     SourceMessage,
     SourceMessageStatus,
     SourceMessageType,
+    TelegramAccount,
+    User,
+    UserRole,
 )
-from app.repositories.draft_repository import DraftRepository
+from app.repositories.draft_repository import ACTIVE_REVIEW_STATUSES, DraftRepository
 from app.services_core import bootstrap_household_id
 
 
@@ -120,3 +123,54 @@ def test_transition_review_non_strict_mode_keeps_compatibility() -> None:
         refreshed_review = DraftRepository(db).get_by_id("draft-1")
         assert refreshed_review is not None
         assert refreshed_review.status == SourceMessageStatus.PENDING_REVIEW
+
+
+def test_active_draft_lookup_includes_needs_clarification() -> None:
+    with _make_session() as db:
+        household_id = bootstrap_household_id()
+        db.add(Household(id=household_id, name="Дом", default_currency="EUR"))
+        user = User(
+            id="user-1",
+            household_id=household_id,
+            email=None,
+            password_hash=None,
+            display_name="User",
+            role=UserRole.MEMBER,
+        )
+        db.add(user)
+        db.add(TelegramAccount(user_id=user.id, telegram_id="42", username=None, first_name=None, last_name=None, is_active=True))
+        source = SourceMessage(
+            id="source-1",
+            household_id=household_id,
+            author_id=user.id,
+            telegram_message_id="10",
+            telegram_chat_id="42",
+            type=SourceMessageType.TELEGRAM_TEXT,
+            status=SourceMessageStatus.NEEDS_CLARIFICATION,
+            text="Кофе 5 EUR",
+            raw_payload={},
+        )
+        review = PendingOperationReview(
+            id="draft-1",
+            source_message_id=source.id,
+            author_id=user.id,
+            status=SourceMessageStatus.NEEDS_CLARIFICATION,
+            draft={},
+            pending_field=None,
+            last_bot_message_id=None,
+            active_picker_message_id=None,
+        )
+        db.add_all([source, review])
+        db.commit()
+
+        fetched = DraftRepository(db).get_latest_for_telegram_account("42")
+
+        assert ACTIVE_REVIEW_STATUSES == (
+            SourceMessageStatus.PENDING_REVIEW,
+            SourceMessageStatus.NEEDS_CLARIFICATION,
+        )
+        assert fetched is not None
+        assert fetched.id == review.id
+        assert DraftRepository(db).get_active_for_author(user.id).id == review.id
+        assert DraftRepository(db).has_telegram_account("42") is True
+        assert DraftRepository(db).has_telegram_account("404") is False
