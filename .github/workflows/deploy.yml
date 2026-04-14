@@ -161,17 +161,13 @@ jobs:
               exit 1
             fi
 
-            set -a
-            . ./.env
-            . "$REMOTE_RELEASE_MANIFEST"
-            set +a
-            test -n "${PYTHON_API_IMAGE:-}"
-            test -n "${PYTHON_WORKER_IMAGE:-}"
-            test -n "${WEB_IMAGE:-}"
+            test -n "$(awk -F= '$1 == "PYTHON_API_IMAGE" {print $2}' "$REMOTE_RELEASE_MANIFEST" | tr -d '\r')"
+            test -n "$(awk -F= '$1 == "PYTHON_WORKER_IMAGE" {print $2}' "$REMOTE_RELEASE_MANIFEST" | tr -d '\r')"
+            test -n "$(awk -F= '$1 == "WEB_IMAGE" {print $2}' "$REMOTE_RELEASE_MANIFEST" | tr -d '\r')"
 
             printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY_HOST" -u "$REGISTRY_USERNAME" --password-stdin
-            $COMPOSE_CMD config >/dev/null
-            $COMPOSE_CMD pull python-api python-worker web >/dev/null
+            $COMPOSE_CMD --env-file .env --env-file "$REMOTE_RELEASE_MANIFEST" config >/dev/null
+            $COMPOSE_CMD --env-file .env --env-file "$REMOTE_RELEASE_MANIFEST" pull python-api python-worker web >/dev/null
           REMOTE
 
       - name: Capture pre-deploy queue baseline
@@ -218,11 +214,7 @@ jobs:
               baseline_release="./current-release.env"
             fi
 
-            set -a
-            . ./.env
-            . "$baseline_release"
-            set +a
-            $COMPOSE_CMD run --rm -T python-api python scripts/verify_invariants.py
+            $COMPOSE_CMD --env-file .env --env-file "$baseline_release" run --rm -T python-api python scripts/verify_invariants.py
           REMOTE
           test -s "$DEPLOY_BASELINE_LOCAL"
           python3 -c "import json, pathlib, sys; p = pathlib.Path(sys.argv[1]); payload = json.loads(p.read_text(encoding='utf-8')); required = ('generatedAt', 'transactionCount', 'categoryCount'); missing = [key for key in required if key not in payload]; assert not missing, f'missing snapshot keys: {missing}'" "$DEPLOY_BASELINE_LOCAL"
@@ -259,6 +251,7 @@ jobs:
             else
               COMPOSE_CMD='docker-compose'
             fi
+            COMPOSE_ENV_ARGS="--env-file .env --env-file $REMOTE_RELEASE_MANIFEST"
 
             verify_url() {
               name="$1"
@@ -320,18 +313,15 @@ jobs:
             else
               COMPOSE_CMD='docker-compose'
             fi
-            set -a
-            . ./.env
-            . "$REMOTE_RELEASE_MANIFEST"
-            set +a
+            COMPOSE_ENV_ARGS="--env-file .env --env-file $REMOTE_RELEASE_MANIFEST"
             VERIFY_API_BASE_URL='http://python-api:3001/api'
-            VERIFY_ADMIN_EMAIL="$($COMPOSE_CMD run --rm --no-deps python-api python -c "import os; print(os.getenv('ADMIN_EMAIL', ''))" | tr -d '\r')"
-            VERIFY_ADMIN_PASSWORD="$($COMPOSE_CMD run --rm --no-deps python-api python -c "import os; print(os.getenv('ADMIN_PASSWORD', ''))" | tr -d '\r')"
-            VERIFY_MEMBER_EMAIL="$($COMPOSE_CMD run --rm --no-deps python-api python -c "import os; print(os.getenv('VERIFY_MEMBER_EMAIL', ''))" | tr -d '\r')"
-            VERIFY_MEMBER_PASSWORD="$($COMPOSE_CMD run --rm --no-deps python-api python -c "import os; print(os.getenv('VERIFY_MEMBER_PASSWORD', ''))" | tr -d '\r')"
+            VERIFY_ADMIN_EMAIL="$($COMPOSE_CMD $COMPOSE_ENV_ARGS run --rm --no-deps python-api python -c "import os; print(os.getenv('ADMIN_EMAIL', ''))" | tr -d '\r')"
+            VERIFY_ADMIN_PASSWORD="$($COMPOSE_CMD $COMPOSE_ENV_ARGS run --rm --no-deps python-api python -c "import os; print(os.getenv('ADMIN_PASSWORD', ''))" | tr -d '\r')"
+            VERIFY_MEMBER_EMAIL="$($COMPOSE_CMD $COMPOSE_ENV_ARGS run --rm --no-deps python-api python -c "import os; print(os.getenv('VERIFY_MEMBER_EMAIL', ''))" | tr -d '\r')"
+            VERIFY_MEMBER_PASSWORD="$($COMPOSE_CMD $COMPOSE_ENV_ARGS run --rm --no-deps python-api python -c "import os; print(os.getenv('VERIFY_MEMBER_PASSWORD', ''))" | tr -d '\r')"
             test -n "$VERIFY_ADMIN_EMAIL"
             test -n "$VERIFY_ADMIN_PASSWORD"
-            $COMPOSE_CMD run --rm \
+            $COMPOSE_CMD $COMPOSE_ENV_ARGS run --rm \
               -e VERIFY_API_BASE_URL="$VERIFY_API_BASE_URL" \
               -e VERIFY_ADMIN_EMAIL="$VERIFY_ADMIN_EMAIL" \
               -e VERIFY_ADMIN_PASSWORD="$VERIFY_ADMIN_PASSWORD" \
@@ -363,12 +353,8 @@ jobs:
             fi
             trap 'rm -f "$DEPLOY_BASELINE_SNAPSHOT"' EXIT
             test -s "$DEPLOY_BASELINE_SNAPSHOT"
-            set -a
-            . ./.env
-            . "$REMOTE_RELEASE_MANIFEST"
-            set +a
-            $COMPOSE_CMD run --rm python-api python -c "from pathlib import Path; p = Path(r'$DEPLOY_BASELINE_SNAPSHOT_CONTAINER'); raise SystemExit(0 if p.is_file() and p.stat().st_size > 0 else 1)"
-            $COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --compare "$DEPLOY_BASELINE_SNAPSHOT_CONTAINER"
+            $COMPOSE_CMD --env-file .env --env-file "$REMOTE_RELEASE_MANIFEST" run --rm python-api python -c "from pathlib import Path; p = Path(r'$DEPLOY_BASELINE_SNAPSHOT_CONTAINER'); raise SystemExit(0 if p.is_file() and p.stat().st_size > 0 else 1)"
+            $COMPOSE_CMD --env-file .env --env-file "$REMOTE_RELEASE_MANIFEST" run --rm python-api python scripts/verify_invariants.py --compare "$DEPLOY_BASELINE_SNAPSHOT_CONTAINER"
           REMOTE
 
       - name: Start web after automated gates
@@ -387,11 +373,7 @@ jobs:
             else
               COMPOSE_CMD='docker-compose'
             fi
-            set -a
-            . ./.env
-            . "$REMOTE_RELEASE_MANIFEST"
-            set +a
-            $COMPOSE_CMD up -d --force-recreate web
+            $COMPOSE_CMD --env-file .env --env-file "$REMOTE_RELEASE_MANIFEST" up -d --force-recreate web
           REMOTE
 
       - name: Verify web on server

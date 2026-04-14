@@ -15,11 +15,7 @@ fi
 compose_with_release() {
   local release_file="$1"
   shift
-  set -a
-  . ./.env
-  . "$release_file"
-  set +a
-  $COMPOSE_CMD "$@"
+  $COMPOSE_CMD --env-file .env --env-file "$release_file" "$@"
 }
 
 mkdir -p backups

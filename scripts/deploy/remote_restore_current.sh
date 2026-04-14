@@ -17,11 +17,6 @@ else
   exit 1
 fi
 
-set -a
-. ./.env
-. ./current-release.env
-set +a
-
 printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY_HOST" -u "$REGISTRY_USERNAME" --password-stdin
-$COMPOSE_CMD pull python-api python-worker web >/dev/null
-$COMPOSE_CMD up -d --remove-orphans --force-recreate python-api python-worker web
+$COMPOSE_CMD --env-file .env --env-file ./current-release.env pull python-api python-worker web >/dev/null
+$COMPOSE_CMD --env-file .env --env-file ./current-release.env up -d --remove-orphans --force-recreate python-api python-worker web
