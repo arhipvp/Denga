@@ -12,9 +12,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
 
   python-api:
-    build:
-      context: .
-      dockerfile: apps/python_backend/Dockerfile
+    image: ${PYTHON_API_IMAGE:-denga-python-api:dev}
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3001"]
     restart: unless-stopped
     depends_on:
@@ -31,9 +29,7 @@ services:
       - ./uploads:/app/apps/python_backend/uploads
 
   python-worker:
-    build:
-      context: .
-      dockerfile: apps/python_backend/Dockerfile
+    image: ${PYTHON_WORKER_IMAGE:-denga-python-worker:dev}
     command: ["python", "-m", "app.worker"]
     restart: unless-stopped
     depends_on:
@@ -50,11 +46,7 @@ services:
       - ./uploads:/app/apps/python_backend/uploads
 
   web:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    image: ${WEB_IMAGE:-denga-web:dev}
     restart: unless-stopped
     depends_on:
       - python-api

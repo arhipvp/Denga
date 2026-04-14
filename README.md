@@ -90,10 +90,10 @@ npm run dev:web
 Проект можно поднять целиком в контейнерах:
 
 ```bash
-docker compose up -d postgres
-docker compose run --rm python-api python scripts/migrate.py upgrade
-docker compose run --rm python-api python scripts/bootstrap_seed.py
-docker compose up --build -d --remove-orphans
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm python-api python scripts/migrate.py upgrade
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm python-api python scripts/bootstrap_seed.py
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --remove-orphans
 ```
 
 Что делает контейнерный запуск:
@@ -101,7 +101,7 @@ docker compose up --build -d --remove-orphans
 - поднимает PostgreSQL
 - применяет Alembic-миграции через `python apps/python_backend/scripts/migrate.py upgrade`
 - если база уже существовала до ввода `alembic_version`, helper автоматически помечает baseline как примененный и затем догоняет миграции до `head`
-- выполняет seed только для bootstrap-данных и настроек, но не трогает категории
+- выполняет идемпотентный `bootstrap_seed.py` только для bootstrap-данных и настроек, но не трогает категории
 - затем запускаются `python-api`, `python-worker` и frontend
 - файловые логи сохраняются в `./logs`, а локальные бэкапы базы в `./backups`
 
@@ -126,7 +126,7 @@ docker compose up --build -d --remove-orphans
 Быстрый запуск Python-контура:
 
 ```bash
-docker compose up --build python-api python-worker
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up python-api python-worker
 ```
 
 Локальная проверка Python-контура без Docker:
@@ -252,6 +252,12 @@ Workflow [`.github/workflows/ci.yml`](/C:/Dev/Denga/.github/workflows/ci.yml) з
 - `npm test`
 - `npm run build`
 
+Для `push` в `main` этот же workflow дополнительно:
+
+- собирает immutable production images `python-api`, `python-worker`, `web`
+- публикует их в registry
+- сохраняет pinned digests в artifact `production-release-manifest`
+
 Для production build фронтенда workflow использует `NEXT_PUBLIC_API_URL`. По умолчанию в CI применяется `http://localhost:3001/api`. Если нужен другой адрес для CI-проверок, задайте repository variable `CI_NEXT_PUBLIC_API_URL`.
 
 ## CD
@@ -261,15 +267,27 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 Логика деплоя:
 
 - проверяет наличие обязательных secrets
-- копирует репозиторий на сервер через `rsync`
+- скачивает `production-release-manifest` из завершившегося CI-run
+- копирует на сервер только production `docker-compose.yml` и новый release manifest
 - проверяет, что серверный `.env` уже существует
-- выполняет явные server-side `docker compose` шаги прямо в GitHub Actions: build, fresh DB backup, baseline invariants snapshot, Alembic migrations, bootstrap seed, старт `python-api/python-worker`, contract verification и invariant compare
+- выполняет preflight: `docker compose`, registry login/pull, свободное место на диске
+- делает fresh DB backup
+- запускает baseline invariants snapshot
+- подтягивает immutable images по digest и запускает Alembic migrations + идемпотентный bootstrap seed без server-side build
+- поднимает `python-api` и `python-worker`
+- прогоняет `verify_contract.py` и invariant compare
 - поднимает `web` только после зелёных automated gates
-- при падении automated gate workflow завершается ошибкой и оставляет диагностику в логах GitHub Actions
+- при падении automated gate workflow откатывает runtime к `current-release.env` без rebuild и оставляет диагностику в логах GitHub Actions
 - проверяет, что `python-worker` находится в состоянии `running`
 - проверяет доступность API и web после выката прямо на сервере по SSH
 - при неуспешной проверке печатает `docker compose ps` и последние логи `python-api`/`python-worker`/`web`
 - если вкладка админки была открыта во время деплоя, браузер может сохранить старый Next.js bundle; в таком случае сделайте hard refresh и при необходимости войдите заново
+
+На сервере production release state хранится файлами:
+
+- `current-release.env`
+- `previous-release.env`
+- `releases/release-<git_sha>.env`
 
 Перед production deploy прогоняйте rehearsal и invariants compare по [`docs/python-cutover-runbook.md`](/C:/Dev/Denga/docs/python-cutover-runbook.md).
 
@@ -282,9 +300,12 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 - `SSH_KNOWN_HOSTS`
 - `REMOTE_APP_DIR`: абсолютный путь проекта на сервере
 - `APP_URL`: URL главной страницы для post-deploy проверки
+- `REGISTRY_HOST`: домен production registry, например `ghcr.io`
+- `REGISTRY_USERNAME`: логин для `docker login` на production-сервере
+- `REGISTRY_PASSWORD`: пароль или PAT для `docker login` на production-сервере
 - `VERIFY_MEMBER_EMAIL` / `VERIFY_MEMBER_PASSWORD`: опциональные данные обычного пользователя для `403`-проверки в contract gate
 
-Production `.env` должен храниться только на сервере в `$REMOTE_APP_DIR/.env`. GitHub Actions деплоит код, но не хранит и не перезаписывает боевые секреты.
+Production `.env` должен храниться только на сервере в `$REMOTE_APP_DIR/.env`. GitHub Actions деплоит только compose-конфиг и release manifest, но не хранит и не перезаписывает боевые runtime secrets.
 CI/CD также не создает и не синхронизирует категории: после деплоя используется тот справочник категорий, который уже хранится в БД.
 
 Первичная настройка сервера:
@@ -332,7 +353,7 @@ pg_restore --clean --if-exists --no-owner --host localhost --port 5433 --usernam
 Перезапуск контейнеров:
 
 ```bash
-docker compose up --build -d
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 ```
 
 Просмотр логов:

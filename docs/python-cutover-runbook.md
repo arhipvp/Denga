@@ -4,11 +4,12 @@
 
 ## 1. Что должно быть готово до выката
 
-- `docker-compose.yml` поднимает `postgres`, `python-api`, `python-worker`, `web`
+- production [`docker-compose.yml`](/C:/Dev/Denga/docker-compose.yml) поднимает `postgres`, `python-api`, `python-worker`, `web` из immutable image refs
+- локальный [`docker-compose.dev.yml`](/C:/Dev/Denga/docker-compose.dev.yml) добавляет `build`-настройки для разработки и локального rehearsal
 - Alembic-миграции выполняются helper-скриптом [`apps/python_backend/scripts/migrate.py`](/C:/Dev/Denga/apps/python_backend/scripts/migrate.py)
 - contract smoke запускается через [`apps/python_backend/scripts/verify_contract.py`](/C:/Dev/Denga/apps/python_backend/scripts/verify_contract.py)
 - data invariants snapshot/compare запускается через [`apps/python_backend/scripts/verify_invariants.py`](/C:/Dev/Denga/apps/python_backend/scripts/verify_invariants.py)
-- bootstrap-данные и настройки создаются через [`apps/python_backend/scripts/bootstrap_seed.py`](/C:/Dev/Denga/apps/python_backend/scripts/bootstrap_seed.py)
+- bootstrap-данные и настройки создаются через идемпотентный [`apps/python_backend/scripts/bootstrap_seed.py`](/C:/Dev/Denga/apps/python_backend/scripts/bootstrap_seed.py)
 - основной orchestration идёт через GitHub Actions workflow [`deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy.yml)
 
 ## 2. Rehearsal на staging или restore-копии production
@@ -22,10 +23,10 @@ apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_inva
 2. Применить миграции и bootstrap seed:
 
 ```bash
-docker compose up -d postgres
-docker compose run --rm python-api python scripts/migrate.py upgrade
-docker compose run --rm python-api python scripts/bootstrap_seed.py
-docker compose up --build -d --remove-orphans
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm python-api python scripts/migrate.py upgrade
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm python-api python scripts/bootstrap_seed.py
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --remove-orphans
 ```
 
 3. Прогнать contract verification:
@@ -60,15 +61,24 @@ apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_inva
 2. Запустить deploy workflow.
 3. Workflow сам:
 
-- билдит `python-api`, `python-worker`, `web`
+- скачивает release manifest с pinned digests из завершившегося `CI`
+- копирует на сервер только `docker-compose.yml` и новый release manifest
+- проверяет `docker compose`, registry login/pull и свободное место на диске
 - снимает свежий backup БД
 - пишет baseline invariants snapshot
-- запускает Alembic migrations и bootstrap seed
+- подтягивает immutable images по digest
+- запускает Alembic migrations и идемпотентный bootstrap seed
 - поднимает `python-api` и `python-worker`
 - прогоняет `verify_contract.py`
 - прогоняет invariant compare
 - поднимает `web` только после зелёных automated gates
-- при сбое завершает job ошибкой и печатает диагностику без автоматического rollback на альтернативный runtime
+- при сбое возвращает runtime к `current-release.env` без rebuild и печатает диагностику в логах GitHub Actions
+
+На сервере используются release state файлы:
+
+- `current-release.env`
+- `previous-release.env`
+- `releases/release-<git_sha>.env`
 
 4. После выката проверить:
 
@@ -101,7 +111,8 @@ curl http://127.0.0.1:3001/api/metrics
 Если deploy завершился ошибкой или после выката не проходит ручной smoke:
 
 1. Просмотреть backup, сохранённый deploy workflow, и причины падения в логах GitHub Actions.
-2. Исправить конфигурацию или код и повторить deploy.
+2. Если workflow уже сделал auto-restore к `current-release.env`, проверить health и только потом разбирать причину падения.
+3. Если нужен явный возврат к предыдущему успешному релизу, запустить `Deploy` workflow вручную в режиме `rollback-previous`.
 3. Если проблема вызвана миграцией или данными, восстановить БД из pre-deploy backup:
 
 ```bash
@@ -111,9 +122,9 @@ pg_restore --clean --if-exists --no-owner --host localhost --port 5433 --usernam
 4. После restore повторно выполнить:
 
 ```bash
-docker compose run --rm python-api python scripts/migrate.py upgrade
-docker compose run --rm python-api python scripts/bootstrap_seed.py
-docker compose up --build -d --remove-orphans
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm python-api python scripts/migrate.py upgrade
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm python-api python scripts/bootstrap_seed.py
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --remove-orphans
 ```
 
 В этой схеме отдельного legacy runtime больше нет; восстановление выполняется через backup и повторный Python-first deploy.

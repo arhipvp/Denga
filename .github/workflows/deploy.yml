@@ -6,6 +6,19 @@ on:
       - CI
     types:
       - completed
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Manual production action
+        required: true
+        default: rollback-previous
+        type: choice
+        options:
+          - rollback-previous
+
+permissions:
+  contents: read
+  actions: read
 
 concurrency:
   group: production-deploy
@@ -15,6 +28,7 @@ jobs:
   deploy:
     if: >
       ${{
+        github.event_name == 'workflow_run' &&
         github.event.workflow_run.conclusion == 'success' &&
         github.event.workflow_run.head_branch == 'main'
       }}
@@ -29,18 +43,9 @@ jobs:
 
       - name: Verify checkout matches triggering workflow commit
         run: |
-          echo "workflow_run.head_sha=${{ github.event.workflow_run.head_sha }}"
           current_sha="$(git rev-parse HEAD)"
           echo "checked_out_sha=${current_sha}"
-          if [ "$current_sha" != "${{ github.event.workflow_run.head_sha }}" ]; then
-            echo "Checked out commit does not match triggering workflow commit" >&2
-            exit 1
-          fi
-
-      - name: Write release markers
-        run: |
-          printf '%s\n' "${{ github.event.workflow_run.head_sha }}" > DEPLOYED_SHA
-          date -u +%Y-%m-%dT%H:%M:%SZ > DEPLOYED_AT_UTC
+          test "$current_sha" = "${{ github.event.workflow_run.head_sha }}"
 
       - name: Validate required secrets
         env:
@@ -51,17 +56,18 @@ jobs:
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
           APP_URL: ${{ secrets.APP_URL }}
+          REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
         run: |
           missing=0
-          for key in SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS REMOTE_APP_DIR APP_URL; do
+          for key in SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS REMOTE_APP_DIR APP_URL REGISTRY_HOST REGISTRY_USERNAME REGISTRY_PASSWORD; do
             if [ -z "${!key}" ]; then
               echo "Missing required secret: $key" >&2
               missing=1
             fi
           done
-          if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
+          test "$missing" -eq 0
 
       - name: Start ssh-agent and add key
         uses: webfactory/ssh-agent@v0.9.0
@@ -75,84 +81,98 @@ jobs:
           printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Sync repository to server
+      - name: Download release manifest from triggering CI run
         env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$REMOTE_APP_DIR'"
-          rsync -az --delete \
-            --exclude '.git' \
-            --exclude 'node_modules' \
-            --exclude '.next' \
-            --exclude 'coverage' \
-            --exclude '.env' \
-            --exclude '*.log' \
-            -e "ssh -p $SSH_PORT" \
-            ./ "$SSH_USER@$SSH_HOST:$REMOTE_APP_DIR/"
-
-      - name: Verify server environment file
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
-        run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' bash -se" <<'REMOTE'
-            if [ ! -f "$REMOTE_APP_DIR/.env" ]; then
-              echo "Missing server env file: $REMOTE_APP_DIR/.env" >&2
-              exit 1
-            fi
-          REMOTE
-
-      - name: Verify synced release markers on server
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
-        run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' EXPECTED_SHA='${{ github.event.workflow_run.head_sha }}' bash -se" <<'REMOTE'
-            set -e
-            cd "$REMOTE_APP_DIR"
-
-            if [ ! -f DEPLOYED_SHA ]; then
-              echo 'Missing DEPLOYED_SHA on server after rsync' >&2
-              exit 1
-            fi
-
-            deployed_sha=$(tr -d '\r\n' < DEPLOYED_SHA)
-            echo "server_deployed_sha=$deployed_sha"
-            if [ "$deployed_sha" != "$EXPECTED_SHA" ]; then
-              echo 'Server DEPLOYED_SHA does not match triggering workflow commit' >&2
-              exit 1
-            fi
-
-            grep -q 'metrics_snapshot' apps/python_backend/app/api.py || {
-              echo 'Expected metrics_snapshot marker not found in synced api.py' >&2
-              exit 1
-            }
-            grep -q 'ensure_request_context' apps/python_backend/app/api.py || {
-              echo 'Expected request context marker not found in synced api.py' >&2
-              exit 1
-            }
-            grep -q 'jobQueue' apps/python_backend/app/services_runtime.py || {
-              echo 'Expected jobQueue marker not found in synced services_runtime.py' >&2
-              exit 1
-            }
-          REMOTE
+          artifact_id="$(
+            gh api "repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/artifacts" \
+              --jq '.artifacts[] | select(.name == "production-release-manifest") | .id' \
+              | head -n 1
+          )"
+          test -n "$artifact_id"
+          manifest_zip="$RUNNER_TEMP/production-release-manifest.zip"
+          manifest_dir="$RUNNER_TEMP/production-release-manifest"
+          gh api "repos/${{ github.repository }}/actions/artifacts/$artifact_id/zip" > "$manifest_zip"
+          unzip -o "$manifest_zip" -d "$manifest_dir"
+          manifest_path="$manifest_dir/release-manifest.env"
+          test -s "$manifest_path"
+          for key in RELEASE_SHA PYTHON_API_IMAGE PYTHON_WORKER_IMAGE WEB_IMAGE; do
+            grep -q "^${key}=" "$manifest_path"
+          done
+          echo "RELEASE_MANIFEST_LOCAL=$manifest_path" >> "$GITHUB_ENV"
 
       - name: Prepare deploy artifact paths
         run: |
           timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
           echo "DEPLOY_TIMESTAMP=$timestamp" >> "$GITHUB_ENV"
+          echo "REMOTE_RELEASE_MANIFEST=releases/release-${{ github.event.workflow_run.head_sha }}.env" >> "$GITHUB_ENV"
           echo "DEPLOY_BACKUP_FILE=backups/deploy-pre-${timestamp}.dump" >> "$GITHUB_ENV"
           echo "DEPLOY_BASELINE_LOCAL=$RUNNER_TEMP/deploy-baseline-${timestamp}.json" >> "$GITHUB_ENV"
           echo "DEPLOY_BASELINE_STDERR_LOCAL=$RUNNER_TEMP/deploy-baseline-${timestamp}.stderr.log" >> "$GITHUB_ENV"
           echo "DEPLOY_BASELINE_SNAPSHOT=backups/deploy-baseline-${timestamp}.json" >> "$GITHUB_ENV"
           echo "DEPLOY_BASELINE_SNAPSHOT_CONTAINER=/app/apps/python_backend/backups/deploy-baseline-${timestamp}.json" >> "$GITHUB_ENV"
+
+      - name: Upload production compose config and release manifest
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+          RELEASE_MANIFEST_LOCAL: ${{ env.RELEASE_MANIFEST_LOCAL }}
+          REMOTE_RELEASE_MANIFEST: ${{ env.REMOTE_RELEASE_MANIFEST }}
+        run: |
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$REMOTE_APP_DIR/releases' '$REMOTE_APP_DIR/backups' '$REMOTE_APP_DIR/logs' '$REMOTE_APP_DIR/uploads'"
+          scp -P "$SSH_PORT" docker-compose.yml "$SSH_USER@$SSH_HOST:$REMOTE_APP_DIR/docker-compose.yml"
+          scp -P "$SSH_PORT" "$RELEASE_MANIFEST_LOCAL" "$SSH_USER@$SSH_HOST:$REMOTE_APP_DIR/$REMOTE_RELEASE_MANIFEST"
+
+      - name: Verify server environment and deploy preflight
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+          REMOTE_RELEASE_MANIFEST: ${{ env.REMOTE_RELEASE_MANIFEST }}
+          REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+          DEPLOY_MIN_DISK_MB: ${{ vars.DEPLOY_MIN_DISK_MB }}
+        run: |
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "REMOTE_APP_DIR='$REMOTE_APP_DIR' REMOTE_RELEASE_MANIFEST='$REMOTE_RELEASE_MANIFEST' REGISTRY_HOST='$REGISTRY_HOST' REGISTRY_USERNAME='$REGISTRY_USERNAME' REGISTRY_PASSWORD='$REGISTRY_PASSWORD' DEPLOY_MIN_DISK_MB='${DEPLOY_MIN_DISK_MB:-2048}' bash -se" <<'REMOTE'
+            set -euo pipefail
+            cd "$REMOTE_APP_DIR"
+            test -f .env
+            test -f docker-compose.yml
+            test -s "$REMOTE_RELEASE_MANIFEST"
+
+            if docker compose version >/dev/null 2>&1; then
+              COMPOSE_CMD='docker compose'
+            elif command -v docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD='docker-compose'
+            else
+              echo 'Neither docker compose nor docker-compose is available on the server' >&2
+              exit 1
+            fi
+
+            disk_available_mb="$(df -Pm "$REMOTE_APP_DIR" | awk 'NR==2 {print $4}')"
+            if [ "${disk_available_mb:-0}" -lt "${DEPLOY_MIN_DISK_MB:-2048}" ]; then
+              echo "Not enough free disk space for deploy: ${disk_available_mb:-0}MB available" >&2
+              exit 1
+            fi
+
+            set -a
+            . ./.env
+            . "$REMOTE_RELEASE_MANIFEST"
+            set +a
+            test -n "${PYTHON_API_IMAGE:-}"
+            test -n "${PYTHON_WORKER_IMAGE:-}"
+            test -n "${WEB_IMAGE:-}"
+
+            printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY_HOST" -u "$REGISTRY_USERNAME" --password-stdin
+            $COMPOSE_CMD config >/dev/null
+            $COMPOSE_CMD pull python-api python-worker web >/dev/null
+          REMOTE
 
       - name: Capture pre-deploy queue baseline
         env:
@@ -174,94 +194,54 @@ jobs:
           )
           echo "PREDEPLOY_DEAD_LETTER_COUNT=$baseline_dead_letters" >> "$GITHUB_ENV"
 
-      - name: Deploy with Docker Compose
+      - name: Capture baseline invariants from current runtime
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
-          DEPLOY_BACKUP_FILE: ${{ env.DEPLOY_BACKUP_FILE }}
           DEPLOY_BASELINE_LOCAL: ${{ env.DEPLOY_BASELINE_LOCAL }}
           DEPLOY_BASELINE_STDERR_LOCAL: ${{ env.DEPLOY_BASELINE_STDERR_LOCAL }}
+          REMOTE_RELEASE_MANIFEST: ${{ env.REMOTE_RELEASE_MANIFEST }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' DEPLOY_BACKUP_FILE='$DEPLOY_BACKUP_FILE' bash -se" <<'REMOTE'
-            set -e
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "REMOTE_APP_DIR='$REMOTE_APP_DIR' REMOTE_RELEASE_MANIFEST='$REMOTE_RELEASE_MANIFEST' bash -se" <<'REMOTE' > "$DEPLOY_BASELINE_LOCAL" 2> "$DEPLOY_BASELINE_STDERR_LOCAL"
+            set -euo pipefail
             cd "$REMOTE_APP_DIR"
-
             if docker compose version >/dev/null 2>&1; then
               COMPOSE_CMD='docker compose'
-            elif command -v docker-compose >/dev/null 2>&1; then
-              COMPOSE_CMD='docker-compose'
             else
-              echo 'Neither docker compose nor docker-compose is available on the server' >&2
-              exit 1
+              COMPOSE_CMD='docker-compose'
+            fi
+            baseline_release="$REMOTE_RELEASE_MANIFEST"
+            if [ -f current-release.env ] && [ -s current-release.env ]; then
+              baseline_release="./current-release.env"
             fi
 
-            mkdir -p backups
-            backup_file="$DEPLOY_BACKUP_FILE"
-
-            >&2 echo 'Building release images'
-            $COMPOSE_CMD build python-api python-worker web
-
-            >&2 echo "Creating fresh production backup at $backup_file"
-            $COMPOSE_CMD up -d postgres
-            $COMPOSE_CMD exec -T postgres sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup_file"
-
-          REMOTE
-
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' bash -se" <<'REMOTE' > "$DEPLOY_BASELINE_LOCAL" 2> "$DEPLOY_BASELINE_STDERR_LOCAL"
-            set -e
-            cd "$REMOTE_APP_DIR"
-
-            if docker compose version >/dev/null 2>&1; then
-              COMPOSE_CMD='docker compose'
-            elif command -v docker-compose >/dev/null 2>&1; then
-              COMPOSE_CMD='docker-compose'
-            else
-              echo 'Neither docker compose nor docker-compose is available on the server' >&2
-              exit 1
-            fi
-
+            set -a
+            . ./.env
+            . "$baseline_release"
+            set +a
             $COMPOSE_CMD run --rm -T python-api python scripts/verify_invariants.py
           REMOTE
+          test -s "$DEPLOY_BASELINE_LOCAL"
+          python3 -c "import json, pathlib, sys; p = pathlib.Path(sys.argv[1]); payload = json.loads(p.read_text(encoding='utf-8')); required = ('generatedAt', 'transactionCount', 'categoryCount'); missing = [key for key in required if key not in payload]; assert not missing, f'missing snapshot keys: {missing}'" "$DEPLOY_BASELINE_LOCAL"
 
-          if [ ! -s "$DEPLOY_BASELINE_LOCAL" ]; then
-            echo "Baseline invariants snapshot was not created at $DEPLOY_BASELINE_LOCAL" >&2
-            cat "$DEPLOY_BASELINE_STDERR_LOCAL" >&2 || true
-            exit 1
-          fi
-
-          python3 -c "import json, pathlib, sys; p = pathlib.Path(sys.argv[1]); payload = json.loads(p.read_text(encoding='utf-8')); required = ('generatedAt', 'transactionCount', 'categoryCount'); missing = [key for key in required if key not in payload]; assert not missing, f'missing snapshot keys: {missing}'" "$DEPLOY_BASELINE_LOCAL" || {
-            echo "Baseline invariants snapshot is not valid JSON: $DEPLOY_BASELINE_LOCAL" >&2
-            echo '--- baseline stdout head ---' >&2
-            sed -n '1,40p' "$DEPLOY_BASELINE_LOCAL" >&2 || true
-            echo '--- baseline stderr ---' >&2
-            cat "$DEPLOY_BASELINE_STDERR_LOCAL" >&2 || true
-            exit 1
-          }
-
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' bash -se" <<'REMOTE'
-            set -e
-            cd "$REMOTE_APP_DIR"
-
-            if docker compose version >/dev/null 2>&1; then
-              COMPOSE_CMD='docker compose'
-            elif command -v docker-compose >/dev/null 2>&1; then
-              COMPOSE_CMD='docker-compose'
-            else
-              echo 'Neither docker compose nor docker-compose is available on the server' >&2
-              exit 1
-            fi
-
-            echo 'Running Alembic migrations'
-            $COMPOSE_CMD run --rm -T python-api python scripts/migrate.py upgrade
-
-            echo 'Running bootstrap seed'
-            $COMPOSE_CMD run --rm -T python-api python scripts/bootstrap_seed.py
-
-            echo 'Starting python-api and python-worker'
-            $COMPOSE_CMD up -d --remove-orphans --force-recreate python-api python-worker
-          REMOTE
+      - name: Roll out immutable production images
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+          REMOTE_RELEASE_MANIFEST: ${{ env.REMOTE_RELEASE_MANIFEST }}
+          DEPLOY_BACKUP_FILE: ${{ env.DEPLOY_BACKUP_FILE }}
+          REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "REMOTE_APP_DIR='$REMOTE_APP_DIR' REMOTE_RELEASE_MANIFEST='$REMOTE_RELEASE_MANIFEST' DEPLOY_BACKUP_FILE='$DEPLOY_BACKUP_FILE' REGISTRY_HOST='$REGISTRY_HOST' REGISTRY_USERNAME='$REGISTRY_USERNAME' REGISTRY_PASSWORD='$REGISTRY_PASSWORD' bash -se" < scripts/deploy/remote_deploy.sh
+          echo "DEPLOY_ROLLOUT_STARTED=1" >> "$GITHUB_ENV"
 
       - name: Verify python-api readiness
         env:
@@ -272,22 +252,17 @@ jobs:
           PREDEPLOY_DEAD_LETTER_COUNT: ${{ env.PREDEPLOY_DEAD_LETTER_COUNT }}
         run: |
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' PREDEPLOY_DEAD_LETTER_COUNT='${PREDEPLOY_DEAD_LETTER_COUNT:-0}' bash -se" <<'REMOTE'
-            set -e
+            set -euo pipefail
             cd "$REMOTE_APP_DIR"
-
             if docker compose version >/dev/null 2>&1; then
               COMPOSE_CMD='docker compose'
-            elif command -v docker-compose >/dev/null 2>&1; then
-              COMPOSE_CMD='docker-compose'
             else
-              echo 'Neither docker compose nor docker-compose is available on the server' >&2
-              exit 1
+              COMPOSE_CMD='docker-compose'
             fi
 
             verify_url() {
               name="$1"
               url="$2"
-
               for attempt in $(seq 1 18); do
                 if curl --fail --show-error --silent "$url" >/dev/null; then
                   echo "$name is ready"
@@ -296,7 +271,6 @@ jobs:
                 echo "$name is not ready yet (attempt $attempt/18), waiting 5s..."
                 sleep 5
               done
-
               echo "$name did not become ready in time" >&2
               $COMPOSE_CMD ps >&2 || true
               $COMPOSE_CMD logs --tail=200 python-api >&2 || true
@@ -315,29 +289,19 @@ jobs:
               fi
             }
 
-            verify_running_service 'python-worker'
-            verify_running_service 'python-api'
-            verify_url 'API' 'http://127.0.0.1:3001/api/health/ready'
+            verify_running_service python-worker
+            verify_running_service python-api
+            verify_url API http://127.0.0.1:3001/api/health/ready
 
-            readiness_json=$(curl --fail --show-error --silent 'http://127.0.0.1:3001/api/health/ready')
-            READINESS_JSON="$readiness_json" PREDEPLOY_DEAD_LETTER_COUNT="$PREDEPLOY_DEAD_LETTER_COUNT" python3 -c "import json, os; payload=json.loads(os.environ['READINESS_JSON']); checks=payload.get('checks', {}); queue=checks.get('jobQueue', {}); features=checks.get('features', {}); raw_baseline=(os.environ.get('PREDEPLOY_DEAD_LETTER_COUNT') or '0').strip() or '0'; baseline=int(raw_baseline); current=queue.get('deadLetterCount', 0); assert checks.get('databaseReady') is True, 'database readiness failed'; assert checks.get('storageReady') is True, 'storage readiness failed'; assert isinstance(queue, dict) and 'deadLetterCount' in queue, f'missing queue diagnostics: {checks}'; assert current <= baseline, f'new dead-letter jobs detected: baseline={baseline}, current={current}, queue={queue}'; assert queue.get('runningCount', 0) < 50, f'runaway running jobs detected: {queue}'; assert all(isinstance(value, bool) for value in features.values()), f'invalid feature flag payload: {features}'"
+            readiness_json="$(curl --fail --show-error --silent 'http://127.0.0.1:3001/api/health/ready')"
+            READINESS_JSON="$readiness_json" PREDEPLOY_DEAD_LETTER_COUNT="$PREDEPLOY_DEAD_LETTER_COUNT" python3 -c "import json, os; payload=json.loads(os.environ['READINESS_JSON']); checks=payload.get('checks', {}); queue=checks.get('jobQueue', {}); features=checks.get('features', {}); baseline=int((os.environ.get('PREDEPLOY_DEAD_LETTER_COUNT') or '0').strip() or '0'); current=queue.get('deadLetterCount', 0); assert checks.get('databaseReady') is True; assert checks.get('storageReady') is True; assert isinstance(queue, dict) and 'deadLetterCount' in queue; assert current <= baseline, f'new dead-letter jobs detected: baseline={baseline}, current={current}'; assert queue.get('runningCount', 0) < 50; assert all(isinstance(value, bool) for value in features.values())"
 
-            metrics_status=$(curl --show-error --silent --output /tmp/metrics.json --write-out '%{http_code}' 'http://127.0.0.1:3001/api/metrics')
-            if [ "$metrics_status" != '200' ]; then
-              echo "Expected /api/metrics to return 200, got $metrics_status" >&2
-              cat /tmp/metrics.json >&2 || true
-              exit 1
-            fi
+            metrics_status="$(curl --show-error --silent --output /tmp/metrics.json --write-out '%{http_code}' 'http://127.0.0.1:3001/api/metrics')"
+            test "$metrics_status" = '200'
 
-            headers=$(curl --show-error --silent --dump-header - --output /dev/null 'http://127.0.0.1:3001/api/health')
-            echo "$headers" | grep -i '^X-Request-Id:' >/dev/null || {
-              echo 'Missing X-Request-Id header from API response' >&2
-              exit 1
-            }
-            echo "$headers" | grep -i '^X-Correlation-Id:' >/dev/null || {
-              echo 'Missing X-Correlation-Id header from API response' >&2
-              exit 1
-            }
+            headers="$(curl --show-error --silent --dump-header - --output /dev/null 'http://127.0.0.1:3001/api/health')"
+            echo "$headers" | grep -i '^X-Request-Id:' >/dev/null
+            echo "$headers" | grep -i '^X-Correlation-Id:' >/dev/null
           REMOTE
 
       - name: Run contract verification on server
@@ -346,31 +310,27 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+          REMOTE_RELEASE_MANIFEST: ${{ env.REMOTE_RELEASE_MANIFEST }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' bash -se" <<'REMOTE'
-            set -e
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' REMOTE_RELEASE_MANIFEST='$REMOTE_RELEASE_MANIFEST' bash -se" <<'REMOTE'
+            set -euo pipefail
             cd "$REMOTE_APP_DIR"
-
             if docker compose version >/dev/null 2>&1; then
               COMPOSE_CMD='docker compose'
-            elif command -v docker-compose >/dev/null 2>&1; then
-              COMPOSE_CMD='docker-compose'
             else
-              echo 'Neither docker compose nor docker-compose is available on the server' >&2
-              exit 1
+              COMPOSE_CMD='docker-compose'
             fi
-
+            set -a
+            . ./.env
+            . "$REMOTE_RELEASE_MANIFEST"
+            set +a
             VERIFY_API_BASE_URL='http://python-api:3001/api'
-            VERIFY_ADMIN_EMAIL=$($COMPOSE_CMD run --rm --no-deps python-api python -c "import os; print(os.getenv('ADMIN_EMAIL', ''))" | tr -d '\r')
-            VERIFY_ADMIN_PASSWORD=$($COMPOSE_CMD run --rm --no-deps python-api python -c "import os; print(os.getenv('ADMIN_PASSWORD', ''))" | tr -d '\r')
-            VERIFY_MEMBER_EMAIL=$($COMPOSE_CMD run --rm --no-deps python-api python -c "import os; print(os.getenv('VERIFY_MEMBER_EMAIL', ''))" | tr -d '\r')
-            VERIFY_MEMBER_PASSWORD=$($COMPOSE_CMD run --rm --no-deps python-api python -c "import os; print(os.getenv('VERIFY_MEMBER_PASSWORD', ''))" | tr -d '\r')
-
-            if [ -z "$VERIFY_ADMIN_EMAIL" ] || [ -z "$VERIFY_ADMIN_PASSWORD" ]; then
-              echo 'ADMIN_EMAIL and ADMIN_PASSWORD must be set in .env for contract verification' >&2
-              exit 1
-            fi
-
+            VERIFY_ADMIN_EMAIL="$($COMPOSE_CMD run --rm --no-deps python-api python -c "import os; print(os.getenv('ADMIN_EMAIL', ''))" | tr -d '\r')"
+            VERIFY_ADMIN_PASSWORD="$($COMPOSE_CMD run --rm --no-deps python-api python -c "import os; print(os.getenv('ADMIN_PASSWORD', ''))" | tr -d '\r')"
+            VERIFY_MEMBER_EMAIL="$($COMPOSE_CMD run --rm --no-deps python-api python -c "import os; print(os.getenv('VERIFY_MEMBER_EMAIL', ''))" | tr -d '\r')"
+            VERIFY_MEMBER_PASSWORD="$($COMPOSE_CMD run --rm --no-deps python-api python -c "import os; print(os.getenv('VERIFY_MEMBER_PASSWORD', ''))" | tr -d '\r')"
+            test -n "$VERIFY_ADMIN_EMAIL"
+            test -n "$VERIFY_ADMIN_PASSWORD"
             $COMPOSE_CMD run --rm \
               -e VERIFY_API_BASE_URL="$VERIFY_API_BASE_URL" \
               -e VERIFY_ADMIN_EMAIL="$VERIFY_ADMIN_EMAIL" \
@@ -389,38 +349,25 @@ jobs:
           DEPLOY_BASELINE_LOCAL: ${{ env.DEPLOY_BASELINE_LOCAL }}
           DEPLOY_BASELINE_SNAPSHOT: ${{ env.DEPLOY_BASELINE_SNAPSHOT }}
           DEPLOY_BASELINE_SNAPSHOT_CONTAINER: ${{ env.DEPLOY_BASELINE_SNAPSHOT_CONTAINER }}
+          REMOTE_RELEASE_MANIFEST: ${{ env.REMOTE_RELEASE_MANIFEST }}
         run: |
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$REMOTE_APP_DIR/backups'"
           scp -P "$SSH_PORT" "$DEPLOY_BASELINE_LOCAL" "$SSH_USER@$SSH_HOST:$REMOTE_APP_DIR/$DEPLOY_BASELINE_SNAPSHOT"
-
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' DEPLOY_BASELINE_SNAPSHOT='$DEPLOY_BASELINE_SNAPSHOT' DEPLOY_BASELINE_SNAPSHOT_CONTAINER='$DEPLOY_BASELINE_SNAPSHOT_CONTAINER' bash -se" <<'REMOTE'
-            set -e
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' DEPLOY_BASELINE_SNAPSHOT='$DEPLOY_BASELINE_SNAPSHOT' DEPLOY_BASELINE_SNAPSHOT_CONTAINER='$DEPLOY_BASELINE_SNAPSHOT_CONTAINER' REMOTE_RELEASE_MANIFEST='$REMOTE_RELEASE_MANIFEST' bash -se" <<'REMOTE'
+            set -euo pipefail
             cd "$REMOTE_APP_DIR"
-            baseline_snapshot="$DEPLOY_BASELINE_SNAPSHOT"
-
             if docker compose version >/dev/null 2>&1; then
               COMPOSE_CMD='docker compose'
-            elif command -v docker-compose >/dev/null 2>&1; then
-              COMPOSE_CMD='docker-compose'
             else
-              echo 'Neither docker compose nor docker-compose is available on the server' >&2
-              exit 1
+              COMPOSE_CMD='docker-compose'
             fi
-
-            trap 'rm -f "$baseline_snapshot"' EXIT
-
-            if [ ! -s "$baseline_snapshot" ]; then
-              echo "Baseline snapshot upload missing before compare step: $baseline_snapshot" >&2
-              ls -lah backups >&2 || true
-              exit 1
-            fi
-
-            $COMPOSE_CMD run --rm python-api python -c "from pathlib import Path; p = Path(r'$DEPLOY_BASELINE_SNAPSHOT_CONTAINER'); raise SystemExit(0 if p.is_file() and p.stat().st_size > 0 else 1)" || {
-              echo "Baseline snapshot missing before compare step: $DEPLOY_BASELINE_SNAPSHOT_CONTAINER" >&2
-              ls -lah backups >&2 || true
-              exit 1
-            }
-
+            trap 'rm -f "$DEPLOY_BASELINE_SNAPSHOT"' EXIT
+            test -s "$DEPLOY_BASELINE_SNAPSHOT"
+            set -a
+            . ./.env
+            . "$REMOTE_RELEASE_MANIFEST"
+            set +a
+            $COMPOSE_CMD run --rm python-api python -c "from pathlib import Path; p = Path(r'$DEPLOY_BASELINE_SNAPSHOT_CONTAINER'); raise SystemExit(0 if p.is_file() and p.stat().st_size > 0 else 1)"
             $COMPOSE_CMD run --rm python-api python scripts/verify_invariants.py --compare "$DEPLOY_BASELINE_SNAPSHOT_CONTAINER"
           REMOTE
 
@@ -430,21 +377,21 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+          REMOTE_RELEASE_MANIFEST: ${{ env.REMOTE_RELEASE_MANIFEST }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' bash -se" <<'REMOTE'
-            set -e
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' REMOTE_RELEASE_MANIFEST='$REMOTE_RELEASE_MANIFEST' bash -se" <<'REMOTE'
+            set -euo pipefail
             cd "$REMOTE_APP_DIR"
-
             if docker compose version >/dev/null 2>&1; then
               COMPOSE_CMD='docker compose'
-            elif command -v docker-compose >/dev/null 2>&1; then
-              COMPOSE_CMD='docker-compose'
             else
-              echo 'Neither docker compose nor docker-compose is available on the server' >&2
-              exit 1
+              COMPOSE_CMD='docker-compose'
             fi
-
-            $COMPOSE_CMD up -d web
+            set -a
+            . ./.env
+            . "$REMOTE_RELEASE_MANIFEST"
+            set +a
+            $COMPOSE_CMD up -d --force-recreate web
           REMOTE
 
       - name: Verify web on server
@@ -457,24 +404,98 @@ jobs:
         run: |
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' APP_URL='$APP_URL' bash -se" <<'REMOTE'
             set -e
-            cd "$REMOTE_APP_DIR"
-
-            verify_url() {
-              name="$1"
-              url="$2"
-
-              for attempt in $(seq 1 18); do
-                if curl --fail --show-error --silent "$url" >/dev/null; then
-                  echo "$name is ready"
-                  return 0
-                fi
-                echo "$name is not ready yet (attempt $attempt/18), waiting 5s..."
-                sleep 5
-              done
-
-              echo "$name did not become ready in time" >&2
-              return 1
-            }
-
-            verify_url 'Web' "$APP_URL"
+            for attempt in $(seq 1 18); do
+              if curl --fail --show-error --silent "$APP_URL" >/dev/null; then
+                echo "Web is ready"
+                exit 0
+              fi
+              echo "Web is not ready yet (attempt $attempt/18), waiting 5s..."
+              sleep 5
+            done
+            echo "Web did not become ready in time" >&2
+            exit 1
           REMOTE
+
+      - name: Promote release manifest and write release markers
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+          REMOTE_RELEASE_MANIFEST: ${{ env.REMOTE_RELEASE_MANIFEST }}
+        run: |
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' REMOTE_RELEASE_MANIFEST='$REMOTE_RELEASE_MANIFEST' bash -se" < scripts/deploy/remote_promote_release.sh
+
+      - name: Roll back to previous current release on failure
+        if: failure() && env.DEPLOY_ROLLOUT_STARTED == '1'
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+          REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' REGISTRY_HOST='$REGISTRY_HOST' REGISTRY_USERNAME='$REGISTRY_USERNAME' REGISTRY_PASSWORD='$REGISTRY_PASSWORD' bash -se" < scripts/deploy/remote_restore_current.sh
+
+  rollback-previous:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'rollback-previous'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+          REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          missing=0
+          for key in SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS REMOTE_APP_DIR REGISTRY_HOST REGISTRY_USERNAME REGISTRY_PASSWORD; do
+            if [ -z "${!key}" ]; then
+              echo "Missing required secret: $key" >&2
+              missing=1
+            fi
+          done
+          test "$missing" -eq 0
+
+      - name: Start ssh-agent and add key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Configure known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Upload current production compose config
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+        run: scp -P "$SSH_PORT" docker-compose.yml "$SSH_USER@$SSH_HOST:$REMOTE_APP_DIR/docker-compose.yml"
+
+      - name: Roll back to previous manifest
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+          REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' REGISTRY_HOST='$REGISTRY_HOST' REGISTRY_USERNAME='$REGISTRY_USERNAME' REGISTRY_PASSWORD='$REGISTRY_PASSWORD' bash -se" < scripts/deploy/remote_rollback_previous.sh

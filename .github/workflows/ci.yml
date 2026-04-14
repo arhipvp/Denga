@@ -3,12 +3,18 @@ name: CI
 on:
   push:
     branches:
-      - '**'
+      - "**"
   pull_request:
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
+    env:
+      CI_COMPOSE_FILES: -f docker-compose.yml -f docker-compose.dev.yml
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,7 +28,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Install dependencies
         run: npm ci
@@ -39,12 +45,12 @@ jobs:
           } >> .env
 
       - name: Start PostgreSQL for migration smoke test
-        run: docker compose up -d postgres
+        run: docker compose $CI_COMPOSE_FILES up -d postgres
 
       - name: Wait for PostgreSQL readiness
         run: |
           for attempt in $(seq 1 24); do
-            if docker compose exec -T postgres pg_isready -U denga -d denga >/dev/null 2>&1; then
+            if docker compose $CI_COMPOSE_FILES exec -T postgres pg_isready -U denga -d denga >/dev/null 2>&1; then
               echo "PostgreSQL is ready"
               exit 0
             fi
@@ -52,8 +58,8 @@ jobs:
             sleep 5
           done
           echo "PostgreSQL did not become ready in time" >&2
-          docker compose ps >&2 || true
-          docker compose logs --tail=200 postgres >&2 || true
+          docker compose $CI_COMPOSE_FILES ps >&2 || true
+          docker compose $CI_COMPOSE_FILES logs --tail=200 postgres >&2 || true
           exit 1
 
       - name: Run database migrations
@@ -78,7 +84,7 @@ jobs:
       - name: Run Python tests
         run: python -m pytest apps/python_backend/tests -q
 
-      - name: Validate web build environment
+      - name: Resolve production NEXT_PUBLIC_API_URL
         env:
           NEXT_PUBLIC_API_URL: ${{ vars.CI_NEXT_PUBLIC_API_URL }}
           NEXT_PUBLIC_API_URL_SECRET: ${{ secrets.CI_NEXT_PUBLIC_API_URL }}
@@ -93,16 +99,85 @@ jobs:
             echo "NEXT_PUBLIC_API_URL is required for production build" >&2
             exit 1
           }
+          echo "NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL" >> "$GITHUB_ENV"
 
       - name: Build application
-        env:
-          NEXT_PUBLIC_API_URL: ${{ vars.CI_NEXT_PUBLIC_API_URL }}
-          NEXT_PUBLIC_API_URL_SECRET: ${{ secrets.CI_NEXT_PUBLIC_API_URL }}
+        run: npm run build
+
+      - name: Derive image coordinates
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          if [ -z "$NEXT_PUBLIC_API_URL" ]; then
-            export NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL_SECRET"
-          fi
-          if [ -z "$NEXT_PUBLIC_API_URL" ]; then
-            export NEXT_PUBLIC_API_URL="http://localhost:3001/api"
-          fi
-          npm run build
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          echo "IMAGE_REGISTRY=ghcr.io" >> "$GITHUB_ENV"
+          echo "IMAGE_NAMESPACE=ghcr.io/$owner" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push python-api image
+        id: build_python_api
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/python_backend/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_NAMESPACE }}/denga-python-api:${{ env.IMAGE_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push python-worker image
+        id: build_python_worker
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/python_backend/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_NAMESPACE }}/denga-python-worker:${{ env.IMAGE_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push web image
+        id: build_web
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_NAMESPACE }}/denga-web:${{ env.IMAGE_TAG }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ env.NEXT_PUBLIC_API_URL }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Write production release manifest
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          manifest_dir="$RUNNER_TEMP/production-release-manifest"
+          mkdir -p "$manifest_dir"
+          cat > "$manifest_dir/release-manifest.env" <<EOF
+          RELEASE_SHA=${GITHUB_SHA}
+          PYTHON_API_IMAGE=${IMAGE_NAMESPACE}/denga-python-api@${{ steps.build_python_api.outputs.digest }}
+          PYTHON_WORKER_IMAGE=${IMAGE_NAMESPACE}/denga-python-worker@${{ steps.build_python_worker.outputs.digest }}
+          WEB_IMAGE=${IMAGE_NAMESPACE}/denga-web@${{ steps.build_web.outputs.digest }}
+          EOF
+
+      - name: Upload production release manifest
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-release-manifest
+          path: ${{ runner.temp }}/production-release-manifest/release-manifest.env
+          if-no-files-found: error
