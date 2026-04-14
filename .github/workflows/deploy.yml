@@ -154,6 +154,31 @@ jobs:
           echo "DEPLOY_BASELINE_SNAPSHOT=backups/deploy-baseline-${timestamp}.json" >> "$GITHUB_ENV"
           echo "DEPLOY_BASELINE_SNAPSHOT_CONTAINER=/app/apps/python_backend/backups/deploy-baseline-${timestamp}.json" >> "$GITHUB_ENV"
 
+      - name: Capture pre-deploy queue baseline
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+        run: |
+          baseline_dead_letters=$(
+            ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' bash -se" <<'REMOTE'
+              set -e
+              cd "$REMOTE_APP_DIR"
+              if curl --fail --show-error --silent 'http://127.0.0.1:3001/api/health/ready' >/tmp/predeploy-ready.json 2>/dev/null; then
+                python3 - <<'PY'
+import json
+from pathlib import Path
+payload = json.loads(Path('/tmp/predeploy-ready.json').read_text(encoding='utf-8'))
+print(payload.get('checks', {}).get('jobQueue', {}).get('deadLetterCount', 0))
+PY
+              else
+                echo 0
+              fi
+REMOTE
+          )
+          echo "PREDEPLOY_DEAD_LETTER_COUNT=$baseline_dead_letters" >> "$GITHUB_ENV"
+
       - name: Deploy with Docker Compose
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
@@ -238,7 +263,7 @@ jobs:
             $COMPOSE_CMD -f docker-compose.yml -f docker-compose.migrate.yml run --rm prisma-bootstrap
 
             echo 'Starting python-api and python-worker'
-            $COMPOSE_CMD up -d --remove-orphans python-api python-worker
+            $COMPOSE_CMD up -d --remove-orphans --force-recreate python-api python-worker
           REMOTE
 
       - name: Verify python-api readiness
@@ -247,6 +272,7 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
+          PREDEPLOY_DEAD_LETTER_COUNT: ${{ env.PREDEPLOY_DEAD_LETTER_COUNT }}
         run: |
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' bash -se" <<'REMOTE'
             set -e
@@ -297,7 +323,7 @@ jobs:
             verify_url 'API' 'http://127.0.0.1:3001/api/health/ready'
 
             readiness_json=$(curl --fail --show-error --silent 'http://127.0.0.1:3001/api/health/ready')
-            READINESS_JSON="$readiness_json" python3 -c "import json, os; payload=json.loads(os.environ['READINESS_JSON']); checks=payload.get('checks', {}); queue=checks.get('jobQueue', {}); features=checks.get('features', {}); assert checks.get('databaseReady') is True, 'database readiness failed'; assert checks.get('storageReady') is True, 'storage readiness failed'; assert isinstance(queue, dict) and 'deadLetterCount' in queue, f'missing queue diagnostics: {checks}'; assert queue.get('deadLetterCount', 0) == 0, f'dead-letter jobs detected: {queue}'; assert queue.get('runningCount', 0) < 50, f'runaway running jobs detected: {queue}'; assert all(isinstance(value, bool) for value in features.values()), f'invalid feature flag payload: {features}'"
+            READINESS_JSON="$readiness_json" PREDEPLOY_DEAD_LETTER_COUNT="$PREDEPLOY_DEAD_LETTER_COUNT" python3 -c "import json, os; payload=json.loads(os.environ['READINESS_JSON']); checks=payload.get('checks', {}); queue=checks.get('jobQueue', {}); features=checks.get('features', {}); baseline=int(os.environ.get('PREDEPLOY_DEAD_LETTER_COUNT', '0')); current=queue.get('deadLetterCount', 0); assert checks.get('databaseReady') is True, 'database readiness failed'; assert checks.get('storageReady') is True, 'storage readiness failed'; assert isinstance(queue, dict) and 'deadLetterCount' in queue, f'missing queue diagnostics: {checks}'; assert current <= baseline, f'new dead-letter jobs detected: baseline={baseline}, current={current}, queue={queue}'; assert queue.get('runningCount', 0) < 50, f'runaway running jobs detected: {queue}'; assert all(isinstance(value, bool) for value in features.values()), f'invalid feature flag payload: {features}'"
 
             metrics_status=$(curl --show-error --silent --output /tmp/metrics.json --write-out '%{http_code}' 'http://127.0.0.1:3001/api/metrics')
             if [ "$metrics_status" != '200' ]; then
