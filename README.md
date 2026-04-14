@@ -6,7 +6,7 @@
 
 - `FastAPI + worker` backend для production runtime
 - `Next.js` админ-панель
-- `Prisma + PostgreSQL`
+- `SQLAlchemy + Alembic + PostgreSQL`
 - `Polza AI` через OpenAI-compatible API
 - `Pillow` для генерации PNG-отчетов Telegram в Python worker
 - `Docker Compose` для локального и серверного запуска
@@ -46,28 +46,24 @@ docker compose up -d postgres
 
 ```bash
 npm ci
-npm run prisma:generate
-npm run prisma:migrate:deploy
 python -m pip install -e "apps/python_backend[dev]"
+python apps/python_backend/scripts/migrate.py upgrade
 python apps/python_backend/scripts/bootstrap_seed.py
 ```
 
 `bootstrap_seed.py` не создает и не синхронизирует категории. Категории хранятся только в БД и управляются вручную через админку.
 
-Для локальной разработки все следующие изменения схемы оформляйте через Prisma-миграции:
+Для локальной разработки все следующие изменения схемы оформляйте через Alembic:
 
 ```bash
-npm run prisma:migrate -- --name <migration_name>
+alembic -c apps/python_backend/alembic.ini revision --autogenerate -m "<migration_name>"
 ```
 
-Если база была создана до появления Prisma-истории миграций и в ней уже есть текущая схема, сначала пометьте baseline как примененный, а затем примените остальные миграции:
+Если база уже существовала до ввода `alembic_version`, canonical helper сам пометит baseline как примененный и затем догонит БД до `head`:
 
 ```bash
-npx prisma migrate resolve --applied 20260407110000_init
-npm run prisma:migrate:deploy
+python apps/python_backend/scripts/migrate.py upgrade
 ```
-
-Этого достаточно и для одноразового перевода старых плоских категорий в иерархию: миграция `20260407111000_migrate_category_hierarchy` сама создает для каждой прежней плоской категории верхнюю категорию с тем же именем и переводит исходную запись в подкатегорию `Общее`, сохраняя существующие ссылки операций на ту же leaf-запись.
 
 Если локальная сборка или dev-сервер оставили служебные артефакты, очистите рабочее дерево:
 
@@ -95,16 +91,17 @@ npm run dev:web
 
 ```bash
 docker compose up -d postgres
-docker compose -f docker-compose.yml -f docker-compose.migrate.yml run --rm prisma-bootstrap
+docker compose run --rm python-api python scripts/migrate.py upgrade
+docker compose run --rm python-api python scripts/bootstrap_seed.py
 docker compose up --build -d --remove-orphans
 ```
 
 Что делает контейнерный запуск:
 
 - поднимает PostgreSQL
-- выполняет helper `prisma-bootstrap` для `prisma migrate deploy` и `python apps/python_backend/scripts/bootstrap_seed.py`
-- если база уже существовала до ввода Prisma-истории миграций, helper автоматически помечает baseline `20260407110000_init` как примененный и повторяет deploy
-- helper выполняет seed только для bootstrap-данных и настроек, но не трогает категории
+- применяет Alembic-миграции через `python apps/python_backend/scripts/migrate.py upgrade`
+- если база уже существовала до ввода `alembic_version`, helper автоматически помечает baseline как примененный и затем догоняет миграции до `head`
+- выполняет seed только для bootstrap-данных и настроек, но не трогает категории
 - затем запускаются `python-api`, `python-worker` и frontend
 - файловые логи сохраняются в `./logs`, а локальные бэкапы базы в `./backups`
 
@@ -123,13 +120,13 @@ docker compose up --build -d --remove-orphans
 - отдельный worker entrypoint
 - additive `Job`-таблица для DB-backed background execution
 - основной [`docker-compose.yml`](/C:/Dev/Denga/docker-compose.yml) теперь поднимает `python-api + python-worker`
-- helper compose-файл [`docker-compose.migrate.yml`](/C:/Dev/Denga/docker-compose.migrate.yml) запускает Prisma migrations и bootstrap seed перед Python runtime
+- Alembic migration helper [`apps/python_backend/scripts/migrate.py`](/C:/Dev/Denga/apps/python_backend/scripts/migrate.py) запускает schema upgrades для local/CI/deploy
 - worker-parity для основного Telegram pipeline: webhook/polling update routing, draft creation, clarification reparse, category picker callbacks, confirm/cancel draft, transaction notification jobs, scheduled backup job и monthly stats reports
 
 Быстрый запуск Python-контура:
 
 ```bash
-docker compose -f docker-compose.python.yml up --build
+docker compose up --build python-api python-worker
 ```
 
 Локальная проверка Python-контура без Docker:
@@ -250,7 +247,7 @@ git push -u origin main
 Workflow [`.github/workflows/ci.yml`](/C:/Dev/Denga/.github/workflows/ci.yml) запускается на каждый `push` и `pull_request` и выполняет:
 
 - `npm ci`
-- `npm run prisma:generate`
+- `python apps/python_backend/scripts/migrate.py upgrade`
 - `npm run lint`
 - `npm test`
 - `npm run build`
@@ -266,7 +263,7 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 - проверяет наличие обязательных secrets
 - копирует репозиторий на сервер через `rsync`
 - проверяет, что серверный `.env` уже существует
-- выполняет явные server-side `docker compose` шаги прямо в GitHub Actions: build, fresh DB backup, baseline invariants snapshot, `prisma-bootstrap`, старт `python-api/python-worker`, contract verification и invariant compare
+- выполняет явные server-side `docker compose` шаги прямо в GitHub Actions: build, fresh DB backup, baseline invariants snapshot, Alembic migrations, bootstrap seed, старт `python-api/python-worker`, contract verification и invariant compare
 - поднимает `web` только после зелёных automated gates
 - при падении automated gate workflow завершается ошибкой и оставляет диагностику в логах GitHub Actions
 - проверяет, что `python-worker` находится в состоянии `running`
@@ -321,16 +318,16 @@ ssh root@<server> "chown root:root /root/denga/.env && chmod 600 /root/denga/.en
 - Backup не включает Telegram raw payload, AI-историю, вложения и каталог `uploads`.
 - API хранит только последние `BACKUP_KEEP_COUNT` файлов, по умолчанию `10`.
 - При docker-развертывании backup-файлы сохраняются на хосте в каталоге `./backups`.
-- Для создания backup API использует текущий `DATABASE_URL`, но автоматически убирает Prisma-специфичные query-параметры вроде `schema` перед вызовом `pg_dump`.
+- Для создания backup API используется текущий `DATABASE_URL`; helper нормализует SQLAlchemy/psycopg URI и убирает query-параметры вроде `schema` перед вызовом `pg_dump`.
 
 Восстановление из backup:
 
 ```bash
-npm run prisma:migrate:deploy
+python apps/python_backend/scripts/migrate.py upgrade
 pg_restore --clean --if-exists --no-owner --host localhost --port 5433 --username denga --dbname denga ./backups/<backup-file>.dump
 ```
 
-Если восстановление выполняется внутри API-контейнера, используйте путь `/app/backups/<backup-file>.dump`. Для `pg_restore` не передавайте Prisma-style URI с query-параметрами вроде `?schema=public` как `--dbname`.
+Если восстановление выполняется внутри API-контейнера, используйте путь `/app/backups/<backup-file>.dump`. Для `pg_restore` не передавайте URI с query-параметрами вроде `?schema=public` как `--dbname`.
 
 Перезапуск контейнеров:
 

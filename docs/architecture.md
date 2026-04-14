@@ -84,8 +84,8 @@
 
 ## Growth Rules
 
-- Бизнес-правила и вычисления должны жить в чистых utility/domain-модулях без прямой зависимости от HTTP-фреймворка, Prisma или React, если логику можно проверить без I/O.
-- `PrismaService` допустим только в orchestration- и repository-слое. UI helpers, summary calculators и draft transition helpers не должны читать базу напрямую.
+- Бизнес-правила и вычисления должны жить в чистых utility/domain-модулях без прямой зависимости от HTTP-фреймворка, SQLAlchemy ORM-сессии или React, если логику можно проверить без I/O.
+- Доступ к БД допустим только в repository- и orchestration-слое. UI helpers, summary calculators и draft transition helpers не должны читать базу напрямую.
 - Новый Telegram flow добавляется через отдельный coordinator, transition helper или renderer, а не через разрастание одного lifecycle-файла.
 - Новая dashboard section должна иметь собственный hook/controller или action-module. `Dashboard` остаётся composition root.
 - Если сценарий можно вынести в отдельный use case/service без изменения публичного API, расширение должно идти через extraction, а не через рост existing god-file.

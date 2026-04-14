@@ -9,6 +9,6 @@
     "test": "jest --config jest.config.ts --runInBand"
   },
   "devDependencies": {
-    "react-test-renderer": "^19.2.0"
+    "react-test-renderer": "^19.2.5"
   }
 }

@@ -2,6 +2,7 @@ node_modules
 .next
 apps/web/.next
 dist
+packages/shared/dist
 coverage
 .env
 .env.local

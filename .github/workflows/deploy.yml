@@ -100,7 +100,7 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' PREDEPLOY_DEAD_LETTER_COUNT='${PREDEPLOY_DEAD_LETTER_COUNT:-0}' bash -se" <<'REMOTE'
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' bash -se" <<'REMOTE'
             if [ ! -f "$REMOTE_APP_DIR/.env" ]; then
               echo "Missing server env file: $REMOTE_APP_DIR/.env" >&2
               exit 1
@@ -202,7 +202,6 @@ jobs:
 
             >&2 echo 'Building release images'
             $COMPOSE_CMD build python-api python-worker web
-            $COMPOSE_CMD -f docker-compose.yml -f docker-compose.migrate.yml build prisma-bootstrap
 
             >&2 echo "Creating fresh production backup at $backup_file"
             $COMPOSE_CMD up -d postgres
@@ -254,8 +253,11 @@ jobs:
               exit 1
             fi
 
-            echo 'Running Prisma migrations and bootstrap seed'
-            $COMPOSE_CMD -f docker-compose.yml -f docker-compose.migrate.yml run --rm prisma-bootstrap
+            echo 'Running Alembic migrations'
+            $COMPOSE_CMD run --rm -T python-api python scripts/migrate.py upgrade
+
+            echo 'Running bootstrap seed'
+            $COMPOSE_CMD run --rm -T python-api python scripts/bootstrap_seed.py
 
             echo 'Starting python-api and python-worker'
             $COMPOSE_CMD up -d --remove-orphans --force-recreate python-api python-worker
@@ -269,7 +271,7 @@ jobs:
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
           PREDEPLOY_DEAD_LETTER_COUNT: ${{ env.PREDEPLOY_DEAD_LETTER_COUNT }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' bash -se" <<'REMOTE'
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' PREDEPLOY_DEAD_LETTER_COUNT='${PREDEPLOY_DEAD_LETTER_COUNT:-0}' bash -se" <<'REMOTE'
             set -e
             cd "$REMOTE_APP_DIR"
 

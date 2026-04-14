@@ -5,7 +5,7 @@
 ## 1. Что должно быть готово до выката
 
 - `docker-compose.yml` поднимает `postgres`, `python-api`, `python-worker`, `web`
-- Prisma-миграции и bootstrap seed запускаются helper compose-файлом [`docker-compose.migrate.yml`](/C:/Dev/Denga/docker-compose.migrate.yml)
+- Alembic-миграции выполняются helper-скриптом [`apps/python_backend/scripts/migrate.py`](/C:/Dev/Denga/apps/python_backend/scripts/migrate.py)
 - contract smoke запускается через [`apps/python_backend/scripts/verify_contract.py`](/C:/Dev/Denga/apps/python_backend/scripts/verify_contract.py)
 - data invariants snapshot/compare запускается через [`apps/python_backend/scripts/verify_invariants.py`](/C:/Dev/Denga/apps/python_backend/scripts/verify_invariants.py)
 - bootstrap-данные и настройки создаются через [`apps/python_backend/scripts/bootstrap_seed.py`](/C:/Dev/Denga/apps/python_backend/scripts/bootstrap_seed.py)
@@ -23,7 +23,8 @@ apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_inva
 
 ```bash
 docker compose up -d postgres
-docker compose -f docker-compose.yml -f docker-compose.migrate.yml run --rm prisma-bootstrap
+docker compose run --rm python-api python scripts/migrate.py upgrade
+docker compose run --rm python-api python scripts/bootstrap_seed.py
 docker compose up --build -d --remove-orphans
 ```
 
@@ -59,10 +60,10 @@ apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_inva
 2. Запустить deploy workflow.
 3. Workflow сам:
 
-- билдит `python-api`, `python-worker`, `web`, `prisma-bootstrap`
+- билдит `python-api`, `python-worker`, `web`
 - снимает свежий backup БД
 - пишет baseline invariants snapshot
-- запускает `prisma-bootstrap`
+- запускает Alembic migrations и bootstrap seed
 - поднимает `python-api` и `python-worker`
 - прогоняет `verify_contract.py`
 - прогоняет invariant compare
@@ -110,7 +111,8 @@ pg_restore --clean --if-exists --no-owner --host localhost --port 5433 --usernam
 4. После restore повторно выполнить:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.migrate.yml run --rm prisma-bootstrap
+docker compose run --rm python-api python scripts/migrate.py upgrade
+docker compose run --rm python-api python scripts/bootstrap_seed.py
 docker compose up --build -d --remove-orphans
 ```
 

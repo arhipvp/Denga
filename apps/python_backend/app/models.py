@@ -4,10 +4,26 @@ import enum
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    JSON,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+
+JSON_VARIANT = JSON().with_variant(JSONB, "postgresql")
 
 
 def _generate_id() -> str:
@@ -80,11 +96,11 @@ class User(Base):
     __tablename__ = "User"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_generate_id)
-    household_id: Mapped[str] = mapped_column("householdId", ForeignKey("Household.id"))
-    email: Mapped[str | None] = mapped_column(String)
+    household_id: Mapped[str] = mapped_column("householdId", ForeignKey("Household.id", ondelete="CASCADE", onupdate="CASCADE"))
+    email: Mapped[str | None] = mapped_column(String, unique=True)
     password_hash: Mapped[str | None] = mapped_column("passwordHash", String)
     display_name: Mapped[str] = mapped_column("displayName", String)
-    role: Mapped[UserRole] = mapped_column(Enum(UserRole, name="UserRole", create_type=False))
+    role: Mapped[UserRole] = mapped_column(Enum(UserRole, name="UserRole", create_type=False), default=UserRole.MEMBER)
     created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=False), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column("updatedAt", DateTime(timezone=False), default=_utcnow, onupdate=_utcnow)
 
@@ -97,12 +113,12 @@ class TelegramAccount(Base):
     __tablename__ = "TelegramAccount"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_generate_id)
-    user_id: Mapped[str] = mapped_column("userId", ForeignKey("User.id"))
-    telegram_id: Mapped[str] = mapped_column("telegramId", String)
+    user_id: Mapped[str] = mapped_column("userId", ForeignKey("User.id", ondelete="CASCADE", onupdate="CASCADE"))
+    telegram_id: Mapped[str] = mapped_column("telegramId", String, unique=True)
     username: Mapped[str | None] = mapped_column(String)
     first_name: Mapped[str | None] = mapped_column("firstName", String)
     last_name: Mapped[str | None] = mapped_column("lastName", String)
-    is_active: Mapped[bool] = mapped_column("isActive", Boolean)
+    is_active: Mapped[bool] = mapped_column("isActive", Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=False), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column("updatedAt", DateTime(timezone=False), default=_utcnow, onupdate=_utcnow)
 
@@ -111,13 +127,16 @@ class TelegramAccount(Base):
 
 class Category(Base):
     __tablename__ = "Category"
+    __table_args__ = (
+        UniqueConstraint("householdId", "parentId", "type", "name", name="Category_householdId_parentId_type_name_key"),
+    )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_generate_id)
-    household_id: Mapped[str] = mapped_column("householdId", ForeignKey("Household.id"))
-    parent_id: Mapped[str | None] = mapped_column("parentId", ForeignKey("Category.id"))
+    household_id: Mapped[str] = mapped_column("householdId", ForeignKey("Household.id", ondelete="CASCADE", onupdate="CASCADE"))
+    parent_id: Mapped[str | None] = mapped_column("parentId", ForeignKey("Category.id", ondelete="SET NULL", onupdate="CASCADE"))
     name: Mapped[str] = mapped_column(String)
-    type: Mapped[CategoryType] = mapped_column(Enum(CategoryType, name="CategoryType", create_type=False))
-    is_active: Mapped[bool] = mapped_column("isActive", Boolean)
+    type: Mapped[CategoryType] = mapped_column(Enum(CategoryType, name="CategoryType", create_type=False), default=CategoryType.EXPENSE)
+    is_active: Mapped[bool] = mapped_column("isActive", Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=False), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column("updatedAt", DateTime(timezone=False), default=_utcnow, onupdate=_utcnow)
 
@@ -128,14 +147,16 @@ class SourceMessage(Base):
     __tablename__ = "SourceMessage"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_generate_id)
-    household_id: Mapped[str] = mapped_column("householdId", ForeignKey("Household.id"))
-    author_id: Mapped[str | None] = mapped_column("authorId", ForeignKey("User.id"))
-    telegram_message_id: Mapped[str | None] = mapped_column("telegramMessageId", String)
+    household_id: Mapped[str] = mapped_column("householdId", ForeignKey("Household.id", ondelete="CASCADE", onupdate="CASCADE"))
+    author_id: Mapped[str | None] = mapped_column("authorId", ForeignKey("User.id", ondelete="SET NULL", onupdate="CASCADE"))
+    telegram_message_id: Mapped[str | None] = mapped_column("telegramMessageId", String, unique=True)
     telegram_chat_id: Mapped[str | None] = mapped_column("telegramChatId", String)
     type: Mapped[SourceMessageType] = mapped_column(Enum(SourceMessageType, name="SourceMessageType", create_type=False))
-    status: Mapped[SourceMessageStatus] = mapped_column(Enum(SourceMessageStatus, name="SourceMessageStatus", create_type=False))
+    status: Mapped[SourceMessageStatus] = mapped_column(
+        Enum(SourceMessageStatus, name="SourceMessageStatus", create_type=False), default=SourceMessageStatus.RECEIVED
+    )
     text: Mapped[str | None] = mapped_column(Text)
-    raw_payload: Mapped[dict] = mapped_column("rawPayload", JSON)
+    raw_payload: Mapped[dict] = mapped_column("rawPayload", JSON_VARIANT)
     created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=False), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column("updatedAt", DateTime(timezone=False), default=_utcnow, onupdate=_utcnow)
 
@@ -150,7 +171,7 @@ class Attachment(Base):
     __tablename__ = "Attachment"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_generate_id)
-    source_message_id: Mapped[str] = mapped_column("sourceMessageId", ForeignKey("SourceMessage.id"))
+    source_message_id: Mapped[str] = mapped_column("sourceMessageId", ForeignKey("SourceMessage.id", ondelete="CASCADE", onupdate="CASCADE"))
     telegram_file_id: Mapped[str | None] = mapped_column("telegramFileId", String)
     telegram_file_path: Mapped[str | None] = mapped_column("telegramFilePath", String)
     mime_type: Mapped[str | None] = mapped_column("mimeType", String)
@@ -166,12 +187,14 @@ class AiParseAttempt(Base):
     __tablename__ = "AiParseAttempt"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_generate_id)
-    source_message_id: Mapped[str] = mapped_column("sourceMessageId", ForeignKey("SourceMessage.id"))
-    attempt_type: Mapped[AiParseAttemptType] = mapped_column("attemptType", Enum(AiParseAttemptType, name="AiParseAttemptType", create_type=False))
+    source_message_id: Mapped[str] = mapped_column("sourceMessageId", ForeignKey("SourceMessage.id", ondelete="CASCADE", onupdate="CASCADE"))
+    attempt_type: Mapped[AiParseAttemptType] = mapped_column(
+        "attemptType", Enum(AiParseAttemptType, name="AiParseAttemptType", create_type=False), default=AiParseAttemptType.INITIAL_PARSE
+    )
     provider: Mapped[str] = mapped_column(String)
     model: Mapped[str] = mapped_column(String)
     prompt: Mapped[str] = mapped_column(Text)
-    response_payload: Mapped[dict] = mapped_column("responsePayload", JSON)
+    response_payload: Mapped[dict] = mapped_column("responsePayload", JSON_VARIANT)
     success: Mapped[bool] = mapped_column(Boolean)
     created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=False), default=_utcnow)
 
@@ -182,11 +205,13 @@ class ClarificationSession(Base):
     __tablename__ = "ClarificationSession"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_generate_id)
-    source_message_id: Mapped[str] = mapped_column("sourceMessageId", ForeignKey("SourceMessage.id"))
-    status: Mapped[ClarificationStatus] = mapped_column(Enum(ClarificationStatus, name="ClarificationStatus", create_type=False))
+    source_message_id: Mapped[str] = mapped_column("sourceMessageId", ForeignKey("SourceMessage.id", ondelete="CASCADE", onupdate="CASCADE"), unique=True)
+    status: Mapped[ClarificationStatus] = mapped_column(
+        Enum(ClarificationStatus, name="ClarificationStatus", create_type=False), default=ClarificationStatus.OPEN
+    )
     question: Mapped[str] = mapped_column(Text)
     answer: Mapped[str | None] = mapped_column(Text)
-    conversation: Mapped[list[dict] | None] = mapped_column(JSON)
+    conversation: Mapped[list[dict] | None] = mapped_column(JSON_VARIANT)
     expires_at: Mapped[datetime] = mapped_column("expiresAt", DateTime(timezone=False))
     resolved_at: Mapped[datetime | None] = mapped_column("resolvedAt", DateTime(timezone=False))
     created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=False), default=_utcnow)
@@ -199,10 +224,12 @@ class PendingOperationReview(Base):
     __tablename__ = "PendingOperationReview"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_generate_id)
-    source_message_id: Mapped[str] = mapped_column("sourceMessageId", ForeignKey("SourceMessage.id"))
-    author_id: Mapped[str | None] = mapped_column("authorId", ForeignKey("User.id"))
-    status: Mapped[SourceMessageStatus] = mapped_column(Enum(SourceMessageStatus, name="SourceMessageStatus", create_type=False))
-    draft: Mapped[dict] = mapped_column(JSON)
+    source_message_id: Mapped[str] = mapped_column("sourceMessageId", ForeignKey("SourceMessage.id", ondelete="CASCADE", onupdate="CASCADE"), unique=True)
+    author_id: Mapped[str | None] = mapped_column("authorId", ForeignKey("User.id", ondelete="SET NULL", onupdate="CASCADE"))
+    status: Mapped[SourceMessageStatus] = mapped_column(
+        Enum(SourceMessageStatus, name="SourceMessageStatus", create_type=False), default=SourceMessageStatus.PENDING_REVIEW
+    )
+    draft: Mapped[dict] = mapped_column(JSON_VARIANT)
     pending_field: Mapped[str | None] = mapped_column("pendingField", String)
     last_bot_message_id: Mapped[str | None] = mapped_column("lastBotMessageId", String)
     active_picker_message_id: Mapped[str | None] = mapped_column("activePickerMessageId", String)
@@ -217,16 +244,18 @@ class Transaction(Base):
     __tablename__ = "Transaction"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_generate_id)
-    household_id: Mapped[str] = mapped_column("householdId", ForeignKey("Household.id"))
-    author_id: Mapped[str | None] = mapped_column("authorId", ForeignKey("User.id"))
-    category_id: Mapped[str | None] = mapped_column("categoryId", ForeignKey("Category.id"))
-    source_message_id: Mapped[str | None] = mapped_column("sourceMessageId", ForeignKey("SourceMessage.id"))
+    household_id: Mapped[str] = mapped_column("householdId", ForeignKey("Household.id", ondelete="CASCADE", onupdate="CASCADE"))
+    author_id: Mapped[str | None] = mapped_column("authorId", ForeignKey("User.id", ondelete="SET NULL", onupdate="CASCADE"))
+    category_id: Mapped[str | None] = mapped_column("categoryId", ForeignKey("Category.id", ondelete="SET NULL", onupdate="CASCADE"))
+    source_message_id: Mapped[str | None] = mapped_column("sourceMessageId", ForeignKey("SourceMessage.id", ondelete="SET NULL", onupdate="CASCADE"), unique=True)
     type: Mapped[TransactionType] = mapped_column(Enum(TransactionType, name="TransactionType", create_type=False))
     amount: Mapped[float] = mapped_column(Numeric(12, 2))
     currency: Mapped[str] = mapped_column(String)
     occurred_at: Mapped[datetime] = mapped_column("occurredAt", DateTime(timezone=False))
     comment: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[TransactionStatus] = mapped_column(Enum(TransactionStatus, name="TransactionStatus", create_type=False))
+    status: Mapped[TransactionStatus] = mapped_column(
+        Enum(TransactionStatus, name="TransactionStatus", create_type=False), default=TransactionStatus.CONFIRMED
+    )
     created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=False), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column("updatedAt", DateTime(timezone=False), default=_utcnow, onupdate=_utcnow)
 
@@ -237,9 +266,12 @@ class Transaction(Base):
 
 class AppSetting(Base):
     __tablename__ = "AppSetting"
+    __table_args__ = (
+        UniqueConstraint("householdId", "key", name="AppSetting_householdId_key_key"),
+    )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_generate_id)
-    household_id: Mapped[str] = mapped_column("householdId", ForeignKey("Household.id"))
+    household_id: Mapped[str] = mapped_column("householdId", ForeignKey("Household.id", ondelete="CASCADE", onupdate="CASCADE"))
     key: Mapped[str] = mapped_column(String)
     value: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=False), default=_utcnow)
@@ -248,12 +280,17 @@ class AppSetting(Base):
 
 class Job(Base):
     __tablename__ = "Job"
+    __table_args__ = (
+        Index("Job_status_notBefore_createdAt_idx", "status", "notBefore", "createdAt"),
+        Index("Job_jobType_status_idx", "jobType", "status"),
+        Index("Job_jobType_dedupeKey_status_idx", "jobType", "dedupeKey", "status"),
+    )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_generate_id)
-    household_id: Mapped[str | None] = mapped_column("householdId", ForeignKey("Household.id"))
+    household_id: Mapped[str | None] = mapped_column("householdId", ForeignKey("Household.id", ondelete="SET NULL", onupdate="CASCADE"))
     job_type: Mapped[str] = mapped_column("jobType", String)
     status: Mapped[str] = mapped_column(String)
-    payload: Mapped[dict] = mapped_column(JSON)
+    payload: Mapped[dict] = mapped_column(JSON_VARIANT)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     max_attempts: Mapped[int] = mapped_column("maxAttempts", Integer, default=3)
     last_error: Mapped[str | None] = mapped_column("lastError", Text)

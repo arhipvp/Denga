@@ -27,11 +27,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate Prisma client
-        run: npm run prisma:generate
-
       - name: Install Python backend dependencies
         run: python -m pip install -e "apps/python_backend[dev]"
+
+      - name: Start PostgreSQL for migration smoke test
+        run: docker compose up -d postgres
+
+      - name: Run database migrations
+        run: python apps/python_backend/scripts/migrate.py upgrade
+
+      - name: Run bootstrap seed
+        run: python apps/python_backend/scripts/bootstrap_seed.py
 
       - name: Run lint
         run: npm run lint
