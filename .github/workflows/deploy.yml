@@ -251,7 +251,6 @@ jobs:
             else
               COMPOSE_CMD='docker-compose'
             fi
-            COMPOSE_ENV_ARGS="--env-file .env --env-file $REMOTE_RELEASE_MANIFEST"
 
             verify_url() {
               name="$1"
