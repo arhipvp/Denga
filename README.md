@@ -277,7 +277,7 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 - поднимает `python-api` и `python-worker`
 - прогоняет `verify_contract.py` и invariant compare
 - поднимает `web` только после зелёных automated gates
-- при падении automated gate workflow откатывает runtime к `current-release.env` без rebuild и оставляет диагностику в логах GitHub Actions
+- при падении automated gate workflow откатывает runtime к `stable-release.env` без rebuild и оставляет диагностику в логах GitHub Actions
 - проверяет, что `python-worker` находится в состоянии `running`
 - проверяет доступность API и web после выката прямо на сервере по SSH
 - при неуспешной проверке печатает `docker compose ps` и последние логи `python-api`/`python-worker`/`web`
@@ -285,8 +285,9 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 
 На сервере production release state хранится файлами:
 
-- `current-release.env`
-- `previous-release.env`
+- `current-release.env`: release, который сервер должен считать активным сейчас
+- `stable-release.env`: последний полностью проверенный healthy release
+- `previous-release.env`: предыдущий stable release для более глубокого rollback
 - `releases/release-<git_sha>.env`
 
 Перед production deploy прогоняйте rehearsal и invariants compare по [`docs/python-cutover-runbook.md`](/C:/Dev/Denga/docs/python-cutover-runbook.md).

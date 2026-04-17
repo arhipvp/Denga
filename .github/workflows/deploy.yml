@@ -419,7 +419,7 @@ jobs:
             exit 1
           REMOTE
 
-      - name: Promote release manifest and write release markers
+      - name: Promote verified release and update release markers
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_PORT: ${{ secrets.SSH_PORT }}
@@ -429,7 +429,7 @@ jobs:
         run: |
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' REMOTE_RELEASE_MANIFEST='$REMOTE_RELEASE_MANIFEST' bash -se" < scripts/deploy/remote_promote_release.sh
 
-      - name: Roll back to previous current release on failure
+      - name: Restore last known good release on failure
         if: failure() && env.DEPLOY_ROLLOUT_STARTED == '1'
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}

@@ -72,11 +72,12 @@ apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_inva
 - прогоняет `verify_contract.py`
 - прогоняет invariant compare
 - поднимает `web` только после зелёных automated gates
-- при сбое возвращает runtime к `current-release.env` без rebuild и печатает диагностику в логах GitHub Actions
+- при сбое возвращает runtime к `stable-release.env` без rebuild и печатает диагностику в логах GitHub Actions
 
 На сервере используются release state файлы:
 
 - `current-release.env`
+- `stable-release.env`
 - `previous-release.env`
 - `releases/release-<git_sha>.env`
 
@@ -111,15 +112,22 @@ curl http://127.0.0.1:3001/api/metrics
 Если deploy завершился ошибкой или после выката не проходит ручной smoke:
 
 1. Просмотреть backup, сохранённый deploy workflow, и причины падения в логах GitHub Actions.
-2. Если workflow уже сделал auto-restore к `current-release.env`, проверить health и только потом разбирать причину падения.
-3. Если нужен явный возврат к предыдущему успешному релизу, запустить `Deploy` workflow вручную в режиме `rollback-previous`.
-3. Если проблема вызвана миграцией или данными, восстановить БД из pre-deploy backup:
+2. Если workflow уже сделал auto-restore к `stable-release.env`, проверить health и только потом разбирать причину падения.
+3. Если release markers разошлись с фактическим последним healthy runtime, выполнить на сервере recovery-команду без указания конкретного SHA:
+
+```bash
+cd /root/denga
+REMOTE_APP_DIR=/root/denga bash ./scripts/deploy/remote_sync_current_with_stable.sh
+```
+
+4. Если нужен явный возврат к предыдущему успешному релизу, запустить `Deploy` workflow вручную в режиме `rollback-previous`.
+5. Если проблема вызвана миграцией или данными, восстановить БД из pre-deploy backup:
 
 ```bash
 pg_restore --clean --if-exists --no-owner --host localhost --port 5433 --username denga --dbname denga ./backups/<backup-file>.dump
 ```
 
-4. После restore повторно выполнить:
+6. После restore повторно выполнить:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm python-api python scripts/migrate.py upgrade
