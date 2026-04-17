@@ -258,7 +258,7 @@ Workflow [`.github/workflows/ci.yml`](/C:/Dev/Denga/.github/workflows/ci.yml) з
 - `npm test`
 - `npm run build`
 - локальную сборку production-образов `python-api`, `python-worker`, `web` для supply-chain проверок
-- установку `Trivy` через pinned `aquasecurity/setup-trivy` SHA и явную фиксацию версии бинаря `v0.68.2`
+- установку `Trivy` из pinned GitHub release asset `aquasecurity/trivy v0.68.2` с обязательной checksum-проверкой
 - `Trivy CLI`-сканирование репозитория и production image layers с fail на `HIGH`/`CRITICAL`
 - генерацию `CycloneDX SBOM` для production-образов и публикацию SBOM как CI artifacts
 
@@ -279,7 +279,8 @@ Dependency automation:
 Security scanning policy:
 
 - `Trivy` больше не запускается через `trivy-action` wrapper, потому что после security incident марта 2026 часть tag refs перестала стабильно резолвиться на GitHub runner'ах
-- workflow `Tests` использует pinned `setup-trivy` commit SHA и запускает `trivy` напрямую как CLI, чтобы исключить зависимость от deleted/mutable action tags
+- workflow `Tests` больше не использует `setup-trivy`, а скачивает pinned Trivy binary напрямую из официального GitHub release `aquasecurity/trivy`
+- перед установкой workflow проверяет checksum release asset, чтобы зафиксировать воспроизводимую и проверяемую установку сканера
 - в логах `Tests` всегда печатается `trivy --version`, чтобы была видна фактически установленная версия сканера
 
 ## CD

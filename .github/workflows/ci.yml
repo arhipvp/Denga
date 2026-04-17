@@ -137,10 +137,28 @@ jobs:
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
 
-      - name: Set up Trivy
-        uses: aquasecurity/setup-trivy@e07451d2e059ed86c2870430ea286b3a9e0bf241
-        with:
-          version: v0.68.2
+      - name: Install Trivy binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          TRIVY_VERSION="v0.68.2"
+          TRIVY_VERSION_NUMBER="${TRIVY_VERSION#v}"
+          TRIVY_TARBALL="trivy_${TRIVY_VERSION_NUMBER}_Linux-64bit.tar.gz"
+          TRIVY_CHECKSUMS="trivy_${TRIVY_VERSION_NUMBER}_checksums.txt"
+          TRIVY_RELEASE_URL="https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}"
+          TRIVY_INSTALL_DIR="$RUNNER_TEMP/trivy-bin"
+
+          mkdir -p "$TRIVY_INSTALL_DIR"
+          curl -fsSL "$TRIVY_RELEASE_URL/$TRIVY_TARBALL" -o "$RUNNER_TEMP/$TRIVY_TARBALL"
+          curl -fsSL "$TRIVY_RELEASE_URL/$TRIVY_CHECKSUMS" -o "$RUNNER_TEMP/$TRIVY_CHECKSUMS"
+          (
+            cd "$RUNNER_TEMP"
+            grep -F "  $TRIVY_TARBALL" "$TRIVY_CHECKSUMS" > "$RUNNER_TEMP/$TRIVY_TARBALL.sha256"
+            test -s "$RUNNER_TEMP/$TRIVY_TARBALL.sha256"
+            sha256sum --check "$RUNNER_TEMP/$TRIVY_TARBALL.sha256"
+          )
+          tar -xzf "$RUNNER_TEMP/$TRIVY_TARBALL" -C "$TRIVY_INSTALL_DIR" trivy
+          echo "$TRIVY_INSTALL_DIR" >> "$GITHUB_PATH"
 
       - name: Show Trivy version
         run: trivy --version
