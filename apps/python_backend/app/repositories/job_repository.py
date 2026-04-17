@@ -16,6 +16,28 @@ class JobRepository:
     def __init__(self, db: Session) -> None:
         self._db = db
 
+    def _claimable_jobs_query(self, now: datetime, *, use_skip_locked: bool) -> Select[tuple[Job]]:
+        query: Select[tuple[Job]] = (
+            select(Job)
+            .where(
+                Job.attempts < Job.max_attempts,
+                or_(Job.not_before.is_(None), Job.not_before <= now),
+                or_(
+                    Job.status == JobStatus.PENDING.value,
+                    (
+                        (Job.status == JobStatus.RUNNING.value)
+                        & Job.lease_expires_at.is_not(None)
+                        & (Job.lease_expires_at <= now)
+                    ),
+                ),
+            )
+            .order_by(Job.created_at.asc())
+            .limit(1)
+        )
+        if use_skip_locked:
+            query = query.with_for_update(skip_locked=True)
+        return query
+
     def enqueue(
         self,
         *,
@@ -58,44 +80,11 @@ class JobRepository:
     def claim_next(self) -> Job | None:
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         lease_timeout = timedelta(seconds=get_settings().job_lease_seconds)
-        claim_query: Select[tuple[Job]] = (
-            select(Job)
-            .where(
-                Job.attempts < Job.max_attempts,
-                or_(Job.not_before.is_(None), Job.not_before <= now),
-                or_(
-                    Job.status == JobStatus.PENDING.value,
-                    (
-                        (Job.status == JobStatus.RUNNING.value)
-                        & Job.lease_expires_at.is_not(None)
-                        & (Job.lease_expires_at <= now)
-                    ),
-                ),
-            )
-            .order_by(Job.created_at.asc())
-            .with_for_update(skip_locked=True)
-        )
         try:
-            job = self._db.execute(claim_query).scalar_one_or_none()
+            job = self._db.execute(self._claimable_jobs_query(now, use_skip_locked=True)).scalars().first()
         except OperationalError:
             self._db.rollback()
-            fallback_query = (
-                select(Job)
-                .where(
-                    Job.attempts < Job.max_attempts,
-                    or_(Job.not_before.is_(None), Job.not_before <= now),
-                    or_(
-                        Job.status == JobStatus.PENDING.value,
-                        (
-                            (Job.status == JobStatus.RUNNING.value)
-                            & Job.lease_expires_at.is_not(None)
-                            & (Job.lease_expires_at <= now)
-                        ),
-                    ),
-                )
-                .order_by(Job.created_at.asc())
-            )
-            job = self._db.execute(fallback_query).scalars().first()
+            job = self._db.execute(self._claimable_jobs_query(now, use_skip_locked=False)).scalars().first()
         if not job:
             self._db.rollback()
             return None

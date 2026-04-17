@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
@@ -46,6 +47,77 @@ def test_claim_reclaims_expired_running_job() -> None:
         assert claimed.id == job.id
         assert claimed.status == "running"
         assert claimed.lease_expires_at is not None
+
+
+def test_claim_next_picks_oldest_pending_job_when_multiple_are_runnable() -> None:
+    with _make_session() as db:
+        older_job = Job(
+            household_id="house",
+            job_type="telegram_update",
+            status="pending",
+            payload={"update_id": 1},
+            attempts=0,
+            max_attempts=3,
+            created_at=datetime(2026, 4, 17, 15, 0, 0),
+        )
+        newer_job = Job(
+            household_id="house",
+            job_type="telegram_update",
+            status="pending",
+            payload={"update_id": 2},
+            attempts=0,
+            max_attempts=3,
+            created_at=datetime(2026, 4, 17, 15, 1, 0),
+        )
+        db.add_all([newer_job, older_job])
+        db.commit()
+
+        claimed = JobRepository(db).claim_next()
+
+        assert claimed is not None
+        assert claimed.id == older_job.id
+        assert claimed.status == "running"
+
+
+def test_claim_next_fallback_handles_multiple_runnable_jobs(monkeypatch) -> None:
+    with _make_session() as db:
+        older_job = Job(
+            household_id="house",
+            job_type="telegram_update",
+            status="pending",
+            payload={"update_id": 1},
+            attempts=0,
+            max_attempts=3,
+            created_at=datetime(2026, 4, 17, 15, 0, 0),
+        )
+        newer_job = Job(
+            household_id="house",
+            job_type="telegram_update",
+            status="pending",
+            payload={"update_id": 2},
+            attempts=0,
+            max_attempts=3,
+            created_at=datetime(2026, 4, 17, 15, 1, 0),
+        )
+        db.add_all([newer_job, older_job])
+        db.commit()
+
+        original_execute = db.execute
+        calls = {"count": 0}
+
+        def flaky_execute(*args, **kwargs):
+            if calls["count"] == 0:
+                calls["count"] += 1
+                raise OperationalError("select job", {}, RuntimeError("skip locked unsupported"))
+            return original_execute(*args, **kwargs)
+
+        monkeypatch.setattr(db, "execute", flaky_execute)
+
+        claimed = JobRepository(db).claim_next()
+
+        assert claimed is not None
+        assert claimed.id == older_job.id
+        assert claimed.status == "running"
 
 
 def test_failed_job_moves_to_dead_letter_after_max_attempts() -> None:
