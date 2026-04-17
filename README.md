@@ -248,7 +248,7 @@ git push -u origin main
 
 Если репозиторий уже создан в GitHub UI, используйте его HTTPS или SSH URL вместо `<GITHUB_REPOSITORY_URL>`.
 
-## CI
+## Tests
 
 Workflow [`.github/workflows/ci.yml`](/C:/Dev/Denga/.github/workflows/ci.yml) запускается на каждый `push` и `pull_request` и выполняет:
 
@@ -268,28 +268,28 @@ Workflow [`.github/workflows/ci.yml`](/C:/Dev/Denga/.github/workflows/ci.yml) з
 - публикует их в `GHCR`
 - сохраняет pinned digests в artifact `production-release-manifest`
 
-Для production build фронтенда workflow использует `NEXT_PUBLIC_API_URL`. По умолчанию в CI применяется `http://localhost:3001/api`. Если нужен другой адрес для CI-проверок, задайте repository variable `CI_NEXT_PUBLIC_API_URL`.
+Для production build фронтенда workflow использует `NEXT_PUBLIC_API_URL`. По умолчанию в `Tests` применяется `http://localhost:3001/api`. Если нужен другой адрес для CI-проверок, задайте repository variable `CI_NEXT_PUBLIC_API_URL`.
 
 Dependency automation:
 
 - [`.github/dependabot.yml`](/C:/Dev/Denga/.github/dependabot.yml) создает PR на обновления `Dockerfile`, `docker-compose.yml` и GitHub Actions
 - base image drift вынесен в отдельный workflow [`.github/workflows/base-image-drift.yml`](/C:/Dev/Denga/.github/workflows/base-image-drift.yml), который по расписанию проверяет, не ушли ли pinned digests вперед относительно upstream tags
-- auto-merge для Docker base image updates не включен: такие PR должны пройти обычный review и зеленый CI
+- auto-merge для Docker base image updates не включен: такие PR должны пройти обычный review и зеленый `Tests`
 
 Security scanning policy:
 
 - `Trivy` больше не запускается через `trivy-action` wrapper, потому что после security incident марта 2026 часть tag refs перестала стабильно резолвиться на GitHub runner'ах
-- CI использует pinned `setup-trivy` commit SHA и запускает `trivy` напрямую как CLI, чтобы исключить зависимость от deleted/mutable action tags
-- в логах CI всегда печатается `trivy --version`, чтобы была видна фактически установленная версия сканера
+- workflow `Tests` использует pinned `setup-trivy` commit SHA и запускает `trivy` напрямую как CLI, чтобы исключить зависимость от deleted/mutable action tags
+- в логах `Tests` всегда печатается `trivy --version`, чтобы была видна фактически установленная версия сканера
 
 ## CD
 
-Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy.yml) запускается только после успешного завершения workflow `CI` для ветки `main` и деплоит Python-first runtime на VPS через `SSH + Docker Compose`.
+Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy.yml) запускается только после успешного завершения workflow `Tests` для ветки `main` и деплоит Python-first runtime на VPS через `SSH + Docker Compose`.
 
 Логика деплоя:
 
 - проверяет наличие обязательных secrets
-- скачивает `production-release-manifest` из завершившегося CI-run
+- скачивает `production-release-manifest` из завершившегося `Tests` run
 - копирует на сервер только production `docker-compose.yml` и новый release manifest
 - проверяет, что серверный `.env` уже существует
 - выполняет preflight: `docker compose`, login в `ghcr.io`, pull immutable image digests и проверку свободного места на диске
@@ -299,6 +299,7 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 - поднимает `python-api` и `python-worker`
 - прогоняет `verify_contract.py` и invariant compare
 - поднимает `web` только после зелёных automated gates
+- не выполняет auto-deploy для merge от `dependabot[bot]`; такие изменения требуют отдельного ручного rollout
 - при падении automated gate workflow откатывает runtime к `stable-release.env` без rebuild и оставляет диагностику в логах GitHub Actions
 - проверяет, что `python-worker` находится в состоянии `running`
 - проверяет доступность API и web после выката прямо на сервере по SSH
@@ -328,7 +329,7 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 - `VERIFY_MEMBER_EMAIL` / `VERIFY_MEMBER_PASSWORD`: опциональные данные обычного пользователя для `403`-проверки в contract gate
 
 Production `.env` должен храниться только на сервере в `$REMOTE_APP_DIR/.env`. GitHub Actions деплоит только compose-конфиг и release manifest, но не хранит и не перезаписывает боевые runtime secrets.
-CI/CD также не создает и не синхронизирует категории: после деплоя используется тот справочник категорий, который уже хранится в БД.
+`Tests` и `Deploy` также не создают и не синхронизируют категории: после деплоя используется тот справочник категорий, который уже хранится в БД.
 
 Первичная настройка сервера:
 
@@ -341,10 +342,11 @@ ssh root@<server> "chown root:root /root/denga/.env && chmod 600 /root/denga/.en
 
 ## Веточная модель
 
-- Любой `push` и `pull_request` запускает CI.
-- Pull request в `main` используется для проверки изменений до merge.
-- Merge или прямой `push` в `main` сначала запускает CI.
-- Production deploy стартует только если этот CI завершился успешно.
+- Любой `push` и `pull_request` запускает workflow `Tests`.
+- Pull request в `main` используется для проверки изменений до merge через workflow `Tests`.
+- Merge или прямой `push` в `main` сначала запускает workflow `Tests`.
+- Production deploy стартует только если этот `Tests` завершился успешно.
+- Merge от `dependabot[bot]` не уходит в production автоматически, даже если `Tests` зелёный.
 
 ## Ручные операции на сервере
 
@@ -399,7 +401,7 @@ docker compose down
 - Одно семейное пространство на установку
 - Вход в web только для админа
 - Категории строго из ручного иерархического справочника
-- CI/CD, startup и seed не изменяют категории; единственный способ поменять их это ручной CRUD через админку
+- `Tests`/`Deploy`, startup и seed не изменяют категории; единственный способ поменять их это ручной CRUD через админку
 - Изображения чеков не сохраняются на диск сервера, а используются только во время разбора
 - Для clarification пока нет отдельного UI resolution flow, операции остаются видимыми в журнале
 - Автоматический backup v1 отправляется только первому admin-пользователю с Telegram account; отдельная настройка chat id пока не добавлена
