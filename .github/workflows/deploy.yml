@@ -273,12 +273,18 @@ jobs:
 
             verify_running_service() {
               service_name="$1"
-              if ! $COMPOSE_CMD ps --status running --services | grep -Fx "$service_name" >/dev/null; then
-                echo "Service $service_name is not running" >&2
-                $COMPOSE_CMD ps >&2 || true
-                $COMPOSE_CMD logs --tail=200 "$service_name" >&2 || true
-                return 1
-              fi
+              for attempt in $(seq 1 18); do
+                if $COMPOSE_CMD ps --status running --services | grep -Fx "$service_name" >/dev/null; then
+                  echo "Service $service_name is running"
+                  return 0
+                fi
+                echo "Service $service_name is not running yet (attempt $attempt/18), waiting 5s..." >&2
+                sleep 5
+              done
+              echo "Service $service_name did not become running in time" >&2
+              $COMPOSE_CMD ps >&2 || true
+              $COMPOSE_CMD logs --tail=200 "$service_name" >&2 || true
+              return 1
             }
 
             verify_running_service python-worker
