@@ -258,7 +258,8 @@ Workflow [`.github/workflows/ci.yml`](/C:/Dev/Denga/.github/workflows/ci.yml) з
 - `npm test`
 - `npm run build`
 - локальную сборку production-образов `python-api`, `python-worker`, `web` для supply-chain проверок
-- `Trivy`-сканирование репозитория и production image layers с fail на `HIGH`/`CRITICAL`
+- установку `Trivy` через pinned `aquasecurity/setup-trivy` SHA и явную фиксацию версии бинаря `v0.68.2`
+- `Trivy CLI`-сканирование репозитория и production image layers с fail на `HIGH`/`CRITICAL`
 - генерацию `CycloneDX SBOM` для production-образов и публикацию SBOM как CI artifacts
 
 Для `push` в `main` этот же workflow дополнительно:
@@ -274,6 +275,12 @@ Dependency automation:
 - [`.github/dependabot.yml`](/C:/Dev/Denga/.github/dependabot.yml) создает PR на обновления `Dockerfile`, `docker-compose.yml` и GitHub Actions
 - base image drift вынесен в отдельный workflow [`.github/workflows/base-image-drift.yml`](/C:/Dev/Denga/.github/workflows/base-image-drift.yml), который по расписанию проверяет, не ушли ли pinned digests вперед относительно upstream tags
 - auto-merge для Docker base image updates не включен: такие PR должны пройти обычный review и зеленый CI
+
+Security scanning policy:
+
+- `Trivy` больше не запускается через `trivy-action` wrapper, потому что после security incident марта 2026 часть tag refs перестала стабильно резолвиться на GitHub runner'ах
+- CI использует pinned `setup-trivy` commit SHA и запускает `trivy` напрямую как CLI, чтобы исключить зависимость от deleted/mutable action tags
+- в логах CI всегда печатается `trivy --version`, чтобы была видна фактически установленная версия сканера
 
 ## CD
 

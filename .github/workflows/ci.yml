@@ -137,72 +137,34 @@ jobs:
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
 
-      - name: Scan repository filesystem with Trivy
-        uses: aquasecurity/trivy-action@0.33.1
+      - name: Set up Trivy
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514
         with:
-          scan-type: fs
-          scan-ref: .
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
-          format: table
+          version: v0.68.2
 
-      - name: Scan python-api image with Trivy
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          scan-type: image
-          image-ref: denga-python-api:ci
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
-          format: table
+      - name: Show Trivy version
+        run: trivy --version
 
-      - name: Scan python-worker image with Trivy
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          scan-type: image
-          image-ref: denga-python-worker:ci
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
-          format: table
+      - name: Scan repository filesystem with Trivy CLI
+        run: trivy fs . --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
 
-      - name: Scan web image with Trivy
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          scan-type: image
-          image-ref: denga-web:ci
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
-          format: table
+      - name: Scan python-api image with Trivy CLI
+        run: trivy image denga-python-api:ci --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+
+      - name: Scan python-worker image with Trivy CLI
+        run: trivy image denga-python-worker:ci --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+
+      - name: Scan web image with Trivy CLI
+        run: trivy image denga-web:ci --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
 
       - name: Generate python-api SBOM
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          scan-type: image
-          image-ref: denga-python-api:ci
-          format: cyclonedx
-          output: sbom-python-api.cdx.json
-          exit-code: "0"
+        run: trivy image denga-python-api:ci --scanners vuln --format cyclonedx --output sbom-python-api.cdx.json
 
       - name: Generate python-worker SBOM
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          scan-type: image
-          image-ref: denga-python-worker:ci
-          format: cyclonedx
-          output: sbom-python-worker.cdx.json
-          exit-code: "0"
+        run: trivy image denga-python-worker:ci --scanners vuln --format cyclonedx --output sbom-python-worker.cdx.json
 
       - name: Generate web SBOM
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          scan-type: image
-          image-ref: denga-web:ci
-          format: cyclonedx
-          output: sbom-web.cdx.json
-          exit-code: "0"
+        run: trivy image denga-web:ci --scanners vuln --format cyclonedx --output sbom-web.cdx.json
 
       - name: Upload SBOM artifacts
         if: always()
