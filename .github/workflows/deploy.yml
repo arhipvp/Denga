@@ -164,10 +164,26 @@ jobs:
             test -n "$(awk -F= '$1 == "PYTHON_API_IMAGE" {print $2}' "$REMOTE_RELEASE_MANIFEST" | tr -d '\r')"
             test -n "$(awk -F= '$1 == "PYTHON_WORKER_IMAGE" {print $2}' "$REMOTE_RELEASE_MANIFEST" | tr -d '\r')"
             test -n "$(awk -F= '$1 == "WEB_IMAGE" {print $2}' "$REMOTE_RELEASE_MANIFEST" | tr -d '\r')"
+            release_sha="$(awk -F= '$1 == "RELEASE_SHA" {print $2}' "$REMOTE_RELEASE_MANIFEST" | tr -d '\r')"
+            test -n "$release_sha"
 
             printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY_HOST" -u "$REGISTRY_USERNAME" --password-stdin
             $COMPOSE_CMD --env-file .env --env-file "$REMOTE_RELEASE_MANIFEST" config >/dev/null
             $COMPOSE_CMD --env-file .env --env-file "$REMOTE_RELEASE_MANIFEST" pull python-api python-worker web >/dev/null
+
+            verify_image_revision() {
+              image_ref="$1"
+              expected_sha="$2"
+              actual_sha="$(docker image inspect "$image_ref" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' 2>/dev/null || true)"
+              if [ "$actual_sha" != "$expected_sha" ]; then
+                echo "Image revision mismatch for $image_ref: expected $expected_sha, got ${actual_sha:-<missing>}" >&2
+                return 1
+              fi
+            }
+
+            verify_image_revision "$(awk -F= '$1 == "PYTHON_API_IMAGE" {print $2}' "$REMOTE_RELEASE_MANIFEST" | tr -d '\r')" "$release_sha"
+            verify_image_revision "$(awk -F= '$1 == "PYTHON_WORKER_IMAGE" {print $2}' "$REMOTE_RELEASE_MANIFEST" | tr -d '\r')" "$release_sha"
+            verify_image_revision "$(awk -F= '$1 == "WEB_IMAGE" {print $2}' "$REMOTE_RELEASE_MANIFEST" | tr -d '\r')" "$release_sha"
           REMOTE
 
       - name: Capture pre-deploy queue baseline

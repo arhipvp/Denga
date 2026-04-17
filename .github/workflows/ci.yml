@@ -133,6 +133,9 @@ jobs:
           file: apps/python_backend/Dockerfile
           push: true
           tags: ${{ env.IMAGE_NAMESPACE }}/denga-python-api:${{ env.IMAGE_TAG }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -145,6 +148,9 @@ jobs:
           file: apps/python_backend/Dockerfile
           push: true
           tags: ${{ env.IMAGE_NAMESPACE }}/denga-python-worker:${{ env.IMAGE_TAG }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -159,6 +165,9 @@ jobs:
           tags: ${{ env.IMAGE_NAMESPACE }}/denga-web:${{ env.IMAGE_TAG }}
           build-args: |
             NEXT_PUBLIC_API_URL=${{ env.NEXT_PUBLIC_API_URL }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
