@@ -110,6 +110,12 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --remove-or
 - Веб: [http://localhost:3000](http://localhost:3000)
 - API: [http://localhost:3001/api](http://localhost:3001/api)
 
+Политика образов:
+
+- production runtime использует только ваши образы `denga-python-api`, `denga-python-worker`, `denga-web`, опубликованные в `GHCR`
+- внешние vendor-образы `node`, `python`, `postgres` используются только как upstream base layers на этапе build
+- base image references в `Dockerfile` и `docker-compose.yml` pinned по digest и обновляются через dependency PR, а не вручную по loose tags
+
 ## Python backend
 
 В репозитории production runtime по умолчанию уже переключен на `FastAPI + worker` в каталоге [`apps/python_backend`](/C:/Dev/Denga/apps/python_backend).
@@ -251,14 +257,23 @@ Workflow [`.github/workflows/ci.yml`](/C:/Dev/Denga/.github/workflows/ci.yml) з
 - `npm run lint`
 - `npm test`
 - `npm run build`
+- локальную сборку production-образов `python-api`, `python-worker`, `web` для supply-chain проверок
+- `Trivy`-сканирование репозитория и production image layers с fail на `HIGH`/`CRITICAL`
+- генерацию `CycloneDX SBOM` для production-образов и публикацию SBOM как CI artifacts
 
 Для `push` в `main` этот же workflow дополнительно:
 
 - собирает immutable production images `python-api`, `python-worker`, `web`
-- публикует их в registry
+- публикует их в `GHCR`
 - сохраняет pinned digests в artifact `production-release-manifest`
 
 Для production build фронтенда workflow использует `NEXT_PUBLIC_API_URL`. По умолчанию в CI применяется `http://localhost:3001/api`. Если нужен другой адрес для CI-проверок, задайте repository variable `CI_NEXT_PUBLIC_API_URL`.
+
+Dependency automation:
+
+- [`.github/dependabot.yml`](/C:/Dev/Denga/.github/dependabot.yml) создает PR на обновления `Dockerfile`, `docker-compose.yml` и GitHub Actions
+- base image drift вынесен в отдельный workflow [`.github/workflows/base-image-drift.yml`](/C:/Dev/Denga/.github/workflows/base-image-drift.yml), который по расписанию проверяет, не ушли ли pinned digests вперед относительно upstream tags
+- auto-merge для Docker base image updates не включен: такие PR должны пройти обычный review и зеленый CI
 
 ## CD
 
@@ -270,10 +285,10 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 - скачивает `production-release-manifest` из завершившегося CI-run
 - копирует на сервер только production `docker-compose.yml` и новый release manifest
 - проверяет, что серверный `.env` уже существует
-- выполняет preflight: `docker compose`, registry login/pull, свободное место на диске
+- выполняет preflight: `docker compose`, login в `ghcr.io`, pull immutable image digests и проверку свободного места на диске
 - делает fresh DB backup
 - запускает baseline invariants snapshot
-- подтягивает immutable images по digest и запускает Alembic migrations + идемпотентный bootstrap seed без server-side build
+- подтягивает только `GHCR` immutable images по digest и запускает Alembic migrations + идемпотентный bootstrap seed без server-side build
 - поднимает `python-api` и `python-worker`
 - прогоняет `verify_contract.py` и invariant compare
 - поднимает `web` только после зелёных automated gates
@@ -301,9 +316,8 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 - `SSH_KNOWN_HOSTS`
 - `REMOTE_APP_DIR`: абсолютный путь проекта на сервере
 - `APP_URL`: URL главной страницы для post-deploy проверки
-- `REGISTRY_HOST`: домен production registry, например `ghcr.io`
 - `REGISTRY_USERNAME`: логин для `docker login` на production-сервере
-- `REGISTRY_PASSWORD`: пароль или PAT для `docker login` на production-сервере
+- `REGISTRY_PASSWORD`: пароль или PAT для `docker login` в `ghcr.io` на production-сервере
 - `VERIFY_MEMBER_EMAIL` / `VERIFY_MEMBER_PASSWORD`: опциональные данные обычного пользователя для `403`-проверки в contract gate
 
 Production `.env` должен храниться только на сервере в `$REMOTE_APP_DIR/.env`. GitHub Actions деплоит только compose-конфиг и release manifest, но не хранит и не перезаписывает боевые runtime secrets.

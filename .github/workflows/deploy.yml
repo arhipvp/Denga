@@ -24,6 +24,9 @@ concurrency:
   group: production-deploy
   cancel-in-progress: false
 
+env:
+  REGISTRY_HOST: ghcr.io
+
 jobs:
   deploy:
     if: >
@@ -56,12 +59,11 @@ jobs:
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
           APP_URL: ${{ secrets.APP_URL }}
-          REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
         run: |
           missing=0
-          for key in SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS REMOTE_APP_DIR APP_URL REGISTRY_HOST REGISTRY_USERNAME REGISTRY_PASSWORD; do
+          for key in SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS REMOTE_APP_DIR APP_URL REGISTRY_USERNAME REGISTRY_PASSWORD; do
             if [ -z "${!key}" ]; then
               echo "Missing required secret: $key" >&2
               missing=1
@@ -133,7 +135,6 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
           REMOTE_RELEASE_MANIFEST: ${{ env.REMOTE_RELEASE_MANIFEST }}
-          REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
           DEPLOY_MIN_DISK_MB: ${{ vars.DEPLOY_MIN_DISK_MB }}
@@ -164,6 +165,18 @@ jobs:
             test -n "$(awk -F= '$1 == "PYTHON_API_IMAGE" {print $2}' "$REMOTE_RELEASE_MANIFEST" | tr -d '\r')"
             test -n "$(awk -F= '$1 == "PYTHON_WORKER_IMAGE" {print $2}' "$REMOTE_RELEASE_MANIFEST" | tr -d '\r')"
             test -n "$(awk -F= '$1 == "WEB_IMAGE" {print $2}' "$REMOTE_RELEASE_MANIFEST" | tr -d '\r')"
+            for image_ref in \
+              "$(awk -F= '$1 == "PYTHON_API_IMAGE" {print $2}' "$REMOTE_RELEASE_MANIFEST" | tr -d '\r')" \
+              "$(awk -F= '$1 == "PYTHON_WORKER_IMAGE" {print $2}' "$REMOTE_RELEASE_MANIFEST" | tr -d '\r')" \
+              "$(awk -F= '$1 == "WEB_IMAGE" {print $2}' "$REMOTE_RELEASE_MANIFEST" | tr -d '\r')"; do
+              case "$image_ref" in
+                ghcr.io/*@sha256:*) ;;
+                *)
+                  echo "Release manifest must contain immutable GHCR image references, got: $image_ref" >&2
+                  exit 1
+                  ;;
+              esac
+            done
             release_sha="$(awk -F= '$1 == "RELEASE_SHA" {print $2}' "$REMOTE_RELEASE_MANIFEST" | tr -d '\r')"
             test -n "$release_sha"
 
@@ -243,7 +256,6 @@ jobs:
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
           REMOTE_RELEASE_MANIFEST: ${{ env.REMOTE_RELEASE_MANIFEST }}
           DEPLOY_BACKUP_FILE: ${{ env.DEPLOY_BACKUP_FILE }}
-          REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
         run: |
@@ -436,7 +448,6 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
-          REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
         run: |
@@ -458,12 +469,11 @@ jobs:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
-          REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
         run: |
           missing=0
-          for key in SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS REMOTE_APP_DIR REGISTRY_HOST REGISTRY_USERNAME REGISTRY_PASSWORD; do
+          for key in SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS REMOTE_APP_DIR REGISTRY_USERNAME REGISTRY_PASSWORD; do
             if [ -z "${!key}" ]; then
               echo "Missing required secret: $key" >&2
               missing=1
@@ -497,7 +507,6 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_USER: ${{ secrets.SSH_USER }}
           REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
-          REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
         run: |

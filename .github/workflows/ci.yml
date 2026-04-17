@@ -104,6 +104,117 @@ jobs:
       - name: Build application
         run: npm run build
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build local python runtime images for supply-chain checks
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/python_backend/Dockerfile
+          load: true
+          tags: |
+            denga-python-api:ci
+            denga-python-worker:ci
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=python-runtime
+          cache-to: type=gha,mode=max,scope=python-runtime
+
+      - name: Build local web image for supply-chain checks
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          load: true
+          tags: denga-web:ci
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ env.NEXT_PUBLIC_API_URL }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      - name: Scan repository filesystem with Trivy
+        uses: aquasecurity/trivy-action@0.31.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Scan python-api image with Trivy
+        uses: aquasecurity/trivy-action@0.31.0
+        with:
+          scan-type: image
+          image-ref: denga-python-api:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Scan python-worker image with Trivy
+        uses: aquasecurity/trivy-action@0.31.0
+        with:
+          scan-type: image
+          image-ref: denga-python-worker:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Scan web image with Trivy
+        uses: aquasecurity/trivy-action@0.31.0
+        with:
+          scan-type: image
+          image-ref: denga-web:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Generate python-api SBOM
+        uses: aquasecurity/trivy-action@0.31.0
+        with:
+          scan-type: image
+          image-ref: denga-python-api:ci
+          format: cyclonedx
+          output: sbom-python-api.cdx.json
+          exit-code: "0"
+
+      - name: Generate python-worker SBOM
+        uses: aquasecurity/trivy-action@0.31.0
+        with:
+          scan-type: image
+          image-ref: denga-python-worker:ci
+          format: cyclonedx
+          output: sbom-python-worker.cdx.json
+          exit-code: "0"
+
+      - name: Generate web SBOM
+        uses: aquasecurity/trivy-action@0.31.0
+        with:
+          scan-type: image
+          image-ref: denga-web:ci
+          format: cyclonedx
+          output: sbom-web.cdx.json
+          exit-code: "0"
+
+      - name: Upload SBOM artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-image-sboms
+          path: |
+            sbom-python-api.cdx.json
+            sbom-python-worker.cdx.json
+            sbom-web.cdx.json
+          if-no-files-found: warn
+
       - name: Derive image coordinates
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
@@ -111,10 +222,6 @@ jobs:
           echo "IMAGE_REGISTRY=ghcr.io" >> "$GITHUB_ENV"
           echo "IMAGE_NAMESPACE=ghcr.io/$owner" >> "$GITHUB_ENV"
           echo "IMAGE_TAG=${GITHUB_SHA}" >> "$GITHUB_ENV"
-
-      - name: Set up Docker Buildx
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -136,8 +243,8 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=python-runtime
+          cache-to: type=gha,mode=max,scope=python-runtime
 
       - name: Build and push python-worker image
         id: build_python_worker
@@ -151,8 +258,8 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=python-runtime
+          cache-to: type=gha,mode=max,scope=python-runtime
 
       - name: Build and push web image
         id: build_web
@@ -168,8 +275,8 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
 
       - name: Write production release manifest
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

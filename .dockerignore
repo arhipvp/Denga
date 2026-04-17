@@ -1,5 +1,7 @@
 node_modules
 .next
+apps/web/.next
+apps/python_backend/.venv
 dist
 coverage
 .git
@@ -9,5 +11,7 @@ tmp-api.err.log
 tmp-web.log
 tmp-web.err.log
 uploads
+backups
+logs
 postgres-data
 npm-debug.log
