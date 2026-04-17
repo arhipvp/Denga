@@ -138,7 +138,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=web
 
       - name: Scan repository filesystem with Trivy
-        uses: aquasecurity/trivy-action@0.31.0
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           scan-type: fs
           scan-ref: .
@@ -148,7 +148,7 @@ jobs:
           format: table
 
       - name: Scan python-api image with Trivy
-        uses: aquasecurity/trivy-action@0.31.0
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           scan-type: image
           image-ref: denga-python-api:ci
@@ -158,7 +158,7 @@ jobs:
           format: table
 
       - name: Scan python-worker image with Trivy
-        uses: aquasecurity/trivy-action@0.31.0
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           scan-type: image
           image-ref: denga-python-worker:ci
@@ -168,7 +168,7 @@ jobs:
           format: table
 
       - name: Scan web image with Trivy
-        uses: aquasecurity/trivy-action@0.31.0
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           scan-type: image
           image-ref: denga-web:ci
@@ -178,7 +178,7 @@ jobs:
           format: table
 
       - name: Generate python-api SBOM
-        uses: aquasecurity/trivy-action@0.31.0
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           scan-type: image
           image-ref: denga-python-api:ci
@@ -187,7 +187,7 @@ jobs:
           exit-code: "0"
 
       - name: Generate python-worker SBOM
-        uses: aquasecurity/trivy-action@0.31.0
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           scan-type: image
           image-ref: denga-python-worker:ci
@@ -196,7 +196,7 @@ jobs:
           exit-code: "0"
 
       - name: Generate web SBOM
-        uses: aquasecurity/trivy-action@0.31.0
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           scan-type: image
           image-ref: denga-web:ci
