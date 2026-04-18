@@ -141,7 +141,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TRIVY_VERSION="v0.68.2"
+          TRIVY_VERSION="v0.70.0"
           TRIVY_VERSION_NUMBER="${TRIVY_VERSION#v}"
           TRIVY_TARBALL="trivy_${TRIVY_VERSION_NUMBER}_Linux-64bit.tar.gz"
           TRIVY_CHECKSUMS="trivy_${TRIVY_VERSION_NUMBER}_checksums.txt"

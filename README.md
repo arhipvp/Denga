@@ -258,7 +258,7 @@ Workflow [`.github/workflows/ci.yml`](/C:/Dev/Denga/.github/workflows/ci.yml) з
 - `npm test`
 - `npm run build`
 - локальную сборку production-образов `python-api`, `python-worker`, `web` для supply-chain проверок
-- установку `Trivy` из pinned GitHub release asset `aquasecurity/trivy v0.68.2` с обязательной checksum-проверкой
+- установку `Trivy` из pinned GitHub release asset `aquasecurity/trivy v0.70.0` с обязательной checksum-проверкой
 - `Trivy CLI`-сканирование репозитория и production image layers с fail на `HIGH`/`CRITICAL`
 - генерацию `CycloneDX SBOM` для production-образов и публикацию SBOM как CI artifacts
 
