@@ -69,6 +69,7 @@ apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_inva
 - подтягивает immutable images по digest
 - запускает Alembic migrations и идемпотентный bootstrap seed
 - поднимает `python-api` и `python-worker`
+- проверяет, что фактически запущенные контейнеры `python-api` и `python-worker` совпадают с image digest из `current-release.env`
 - прогоняет `verify_contract.py`
 - прогоняет invariant compare
 - поднимает `web` только после зелёных automated gates
@@ -84,6 +85,7 @@ apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_inva
 4. После выката проверить:
 
 - `python-worker` в `docker compose ps` находится в состоянии `running`
+- `python-api` и `python-worker` в рантайме совпадают с image ref из `current-release.env`
 - `http://127.0.0.1:3001/api/health/ready` отвечает `200`
 - `GET /api/health/ready` показывает `jobQueue.deadLetterCount = 0`
 - `GET /api/health/ready` не показывает runaway `runningCount`
@@ -99,6 +101,18 @@ docker compose logs --tail=200 python-api
 docker compose logs --tail=200 python-worker
 docker compose logs --tail=100 web
 ```
+
+Дополнительная проверка соответствия release manifest и running containers:
+
+```bash
+service=python-worker
+container_id="$(docker compose ps -q "$service")"
+docker inspect --format '{{.Config.Image}}' "$container_id"
+cat current-release.env | grep '^PYTHON_WORKER_IMAGE='
+docker image inspect "$(docker inspect --format '{{.Config.Image}}' "$container_id")" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}'
+```
+
+Если `current-release.env` уже новый, а `docker inspect --format '{{.Config.Image}}'` для `python-worker` показывает другой digest, это симптом частичного rollout: release manifest обновился, но running worker остался старым. Такой deploy теперь должен завершаться ошибкой автоматически.
 
 Дополнительная проверка observability и queue state:
 

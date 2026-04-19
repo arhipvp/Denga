@@ -25,11 +25,33 @@ class TelegramAdapter:
     def send_message(self, chat_id: str, text: str, reply_markup: dict | None = None) -> dict[str, Any]:
         if not self.settings.telegram_bot_token:
             return {"message_id": 0}
+        resolved_reply_markup = reply_markup or create_main_menu_reply_markup()
+        keyboard_rows = resolved_reply_markup.get("keyboard") if isinstance(resolved_reply_markup, dict) else None
+        inline_rows = resolved_reply_markup.get("inline_keyboard") if isinstance(resolved_reply_markup, dict) else None
+        logger.info(
+            "telegram",
+            "send_message",
+            "Telegram sendMessage requested",
+            {
+                "chatId": chat_id,
+                "textPreview": text[:120],
+                "keyboardRows": [
+                    [str(button.get("text") or "") for button in row if isinstance(button, dict)]
+                    for row in (keyboard_rows or [])
+                    if isinstance(row, list)
+                ],
+                "inlineKeyboardRows": [
+                    [str(button.get("text") or "") for button in row if isinstance(button, dict)]
+                    for row in (inline_rows or [])
+                    if isinstance(row, list)
+                ],
+            },
+        )
         payload = {
             "chat_id": chat_id,
             "text": text,
             "parse_mode": "HTML",
-            "reply_markup": reply_markup or create_main_menu_reply_markup(),
+            "reply_markup": resolved_reply_markup,
         }
         return self._request("sendMessage", method="POST", json=payload).get("result", {"message_id": 0})
 

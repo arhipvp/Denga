@@ -67,3 +67,26 @@ def test_build_http_error_context_does_not_include_token_in_payload() -> None:
     assert context["statusCode"] == 400
     assert "secret-token" not in context["responseBody"]
     assert "token" not in "".join(context.keys()).lower()
+
+
+def test_send_message_uses_two_row_main_menu_by_default(monkeypatch) -> None:
+    adapter = TelegramAdapter(_settings())
+    captured: dict[str, Any] = {}
+
+    def fake_request(method_name: str, *, method: str, **kwargs: Any) -> dict[str, Any]:
+        captured["json"] = kwargs["json"]
+        return {"ok": True, "result": {"message_id": 1}}
+
+    monkeypatch.setattr(adapter, "_request", fake_request)
+
+    adapter.send_message("42", "Привет")
+
+    assert captured["json"]["reply_markup"]["keyboard"] == [
+        [
+            {"text": "Добавить операцию"},
+            {"text": "Посмотреть статистику"},
+        ],
+        [
+            {"text": "Редактировать операцию"},
+        ],
+    ]
