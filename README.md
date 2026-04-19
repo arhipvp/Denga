@@ -269,7 +269,7 @@ Workflow [`.github/workflows/ci.yml`](/C:/Dev/Denga/.github/workflows/ci.yml) з
 - публикует их в `GHCR`
 - сохраняет pinned digests в artifact `production-release-manifest`
 
-Для production build фронтенда workflow использует `NEXT_PUBLIC_API_URL`. По умолчанию в `Tests` применяется `http://localhost:3001/api`. Если нужен другой адрес для CI-проверок, задайте repository variable `CI_NEXT_PUBLIC_API_URL`.
+Для production build фронтенда workflow использует `NEXT_PUBLIC_API_URL`, полученный из repository variable или secret `CI_NEXT_PUBLIC_API_URL`. Для production этот параметр обязателен: workflow больше не использует fallback на `http://localhost:3001/api`, потому что такой build ломает вход в админку вне localhost.
 
 Security scanning policy:
 
