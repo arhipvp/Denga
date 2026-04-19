@@ -7,8 +7,10 @@ from urllib.parse import urlsplit
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy.exc import OperationalError
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect
+from sqlalchemy.exc import OperationalError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -43,6 +45,17 @@ def _alembic_version_exists() -> bool:
     return inspector.has_table("alembic_version")
 
 
+def _print_database_connection_hint(database_url: str) -> None:
+    parts = urlsplit(database_url)
+    host = parts.hostname or "unknown"
+    port = parts.port or "default"
+    print(
+        f"Database connection failed for {host}:{port}. "
+        "Ensure PostgreSQL is running and ready before executing migrations.",
+        file=sys.stderr,
+    )
+
+
 def upgrade() -> int:
     config = _build_alembic_config()
     database_url = config.get_main_option("sqlalchemy.url")
@@ -51,20 +64,38 @@ def upgrade() -> int:
             command.stamp(config, BASELINE_REVISION)
         command.upgrade(config, "head")
     except OperationalError as exc:
-        parts = urlsplit(database_url)
-        host = parts.hostname or "unknown"
-        port = parts.port or "default"
-        print(
-            f"Database connection failed for {host}:{port}. "
-            "Ensure PostgreSQL is running and ready before executing migrations.",
-            file=sys.stderr,
-        )
+        _print_database_connection_hint(database_url)
         raise
     return 0
 
 
 def current() -> int:
     command.current(_build_alembic_config())
+    return 0
+
+
+def verify_head() -> int:
+    config = _build_alembic_config()
+    database_url = config.get_main_option("sqlalchemy.url")
+    try:
+        expected_heads = tuple(ScriptDirectory.from_config(config).get_heads())
+        with engine.connect() as connection:
+            current_heads = tuple(MigrationContext.configure(connection).get_current_heads())
+    except OperationalError:
+        _print_database_connection_hint(database_url)
+        raise
+
+    if set(current_heads) != set(expected_heads):
+        expected_display = ", ".join(expected_heads) if expected_heads else "<none>"
+        current_display = ", ".join(current_heads) if current_heads else "<none>"
+        print(
+            "Database schema is not at Alembic head. "
+            f"Expected: {expected_display}. Current: {current_display}.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"Database schema is at Alembic head: {', '.join(expected_heads)}")
     return 0
 
 
@@ -75,13 +106,15 @@ def stamp_baseline() -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run database migrations for the Python backend.")
-    parser.add_argument("command", choices=("upgrade", "current", "stamp-baseline"))
+    parser.add_argument("command", choices=("upgrade", "current", "verify-head", "stamp-baseline"))
     args = parser.parse_args()
 
     if args.command == "upgrade":
         return upgrade()
     if args.command == "current":
         return current()
+    if args.command == "verify-head":
+        return verify_head()
     return stamp_baseline()
 
 

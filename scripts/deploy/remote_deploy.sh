@@ -87,7 +87,7 @@ verify_running_service_release() {
   fi
 
   if [ "$actual_ref" != "$expected_ref" ]; then
-    echo "Running $service_name does not match current-release.env" >&2
+    echo "Running $service_name does not match release candidate manifest" >&2
     echo "Expected image ref: $expected_ref" >&2
     echo "Actual image ref: ${actual_ref:-<missing>}" >&2
     echo "Actual image id: ${actual_image_id:-<missing>}" >&2
@@ -110,12 +110,15 @@ compose_with_release "$REMOTE_RELEASE_MANIFEST" pull python-api python-worker we
 echo 'Running Alembic migrations'
 compose_with_release "$REMOTE_RELEASE_MANIFEST" run --rm -T python-api python scripts/migrate.py upgrade
 
+echo 'Verifying database schema reached Alembic head'
+compose_with_release "$REMOTE_RELEASE_MANIFEST" run --rm -T python-api python scripts/migrate.py verify-head
+
 echo 'Running bootstrap seed'
 compose_with_release "$REMOTE_RELEASE_MANIFEST" run --rm -T python-api python scripts/bootstrap_seed.py
 
 echo 'Starting python-api and python-worker'
 compose_with_release "$REMOTE_RELEASE_MANIFEST" up -d --remove-orphans --force-recreate python-api python-worker
 
-echo 'Verifying running python-api and python-worker match current-release.env'
+echo 'Verifying running python-api and python-worker match release candidate manifest'
 verify_running_service_release python-api
 verify_running_service_release python-worker

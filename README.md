@@ -295,21 +295,23 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 - выполняет preflight: `docker compose`, login в `ghcr.io`, pull immutable image digests и проверку свободного места на диске
 - делает fresh DB backup
 - запускает baseline invariants snapshot
-- подтягивает только `GHCR` immutable images по digest и запускает Alembic migrations + идемпотентный bootstrap seed без server-side build
+- подтягивает только `GHCR` immutable images по digest и запускает Alembic migrations + `migrate.py verify-head` + идемпотентный bootstrap seed без server-side build
 - поднимает `python-api` и `python-worker`
+- проверяет, что фактически запущенные `python-api` и `python-worker` совпадают с release candidate manifest
 - прогоняет `verify_contract.py` и invariant compare
 - поднимает `web` только после зелёных automated gates
-- при падении automated gate workflow откатывает runtime к `stable-release.env` без rebuild и оставляет диагностику в логах GitHub Actions
+- продвигает release markers только после полного зелёного pipeline
 - проверяет, что `python-worker` находится в состоянии `running`
 - проверяет доступность API и web после выката прямо на сервере по SSH
 - при неуспешной проверке печатает `docker compose ps` и последние логи `python-api`/`python-worker`/`web`
+- при падении automated gate workflow останавливается без rollback и не продвигает `current-release.env` / `stable-release.env`
 - если вкладка админки была открыта во время деплоя, браузер может сохранить старый Next.js bundle; в таком случае сделайте hard refresh и при необходимости войдите заново
 
 На сервере production release state хранится файлами:
 
 - `current-release.env`: release, который сервер должен считать активным сейчас
 - `stable-release.env`: последний полностью проверенный healthy release
-- `previous-release.env`: предыдущий stable release для более глубокого rollback
+- `previous-release.env`: предыдущий promoted release для аудита и сравнения
 - `releases/release-<git_sha>.env`
 
 Перед production deploy прогоняйте rehearsal и invariants compare по [`docs/python-cutover-runbook.md`](/C:/Dev/Denga/docs/python-cutover-runbook.md).

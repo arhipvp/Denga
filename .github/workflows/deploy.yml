@@ -6,15 +6,6 @@ on:
       - Tests
     types:
       - completed
-  workflow_dispatch:
-    inputs:
-      mode:
-        description: Manual production action
-        required: true
-        default: rollback-previous
-        type: choice
-        options:
-          - rollback-previous
 
 permissions:
   contents: read
@@ -261,7 +252,6 @@ jobs:
         run: |
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
             "REMOTE_APP_DIR='$REMOTE_APP_DIR' REMOTE_RELEASE_MANIFEST='$REMOTE_RELEASE_MANIFEST' DEPLOY_BACKUP_FILE='$DEPLOY_BACKUP_FILE' REGISTRY_HOST='$REGISTRY_HOST' REGISTRY_USERNAME='$REGISTRY_USERNAME' REGISTRY_PASSWORD='$REGISTRY_PASSWORD' bash -se" < scripts/deploy/remote_deploy.sh
-          echo "DEPLOY_ROLLOUT_STARTED=1" >> "$GITHUB_ENV"
 
       - name: Verify python-api readiness
         env:
@@ -440,74 +430,3 @@ jobs:
           REMOTE_RELEASE_MANIFEST: ${{ env.REMOTE_RELEASE_MANIFEST }}
         run: |
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' REMOTE_RELEASE_MANIFEST='$REMOTE_RELEASE_MANIFEST' bash -se" < scripts/deploy/remote_promote_release.sh
-
-      - name: Restore last known good release on failure
-        if: failure() && env.DEPLOY_ROLLOUT_STARTED == '1'
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
-          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
-        run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' REGISTRY_HOST='$REGISTRY_HOST' REGISTRY_USERNAME='$REGISTRY_USERNAME' REGISTRY_PASSWORD='$REGISTRY_PASSWORD' bash -se" < scripts/deploy/remote_restore_current.sh
-
-  rollback-previous:
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'rollback-previous'
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Validate required secrets
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
-          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
-          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
-        run: |
-          missing=0
-          for key in SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS REMOTE_APP_DIR REGISTRY_USERNAME REGISTRY_PASSWORD; do
-            if [ -z "${!key}" ]; then
-              echo "Missing required secret: $key" >&2
-              missing=1
-            fi
-          done
-          test "$missing" -eq 0
-
-      - name: Start ssh-agent and add key
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
-      - name: Configure known_hosts
-        run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-
-      - name: Upload current production compose config
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
-        run: scp -P "$SSH_PORT" docker-compose.yml "$SSH_USER@$SSH_HOST:$REMOTE_APP_DIR/docker-compose.yml"
-
-      - name: Roll back to previous manifest
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          REMOTE_APP_DIR: ${{ secrets.REMOTE_APP_DIR }}
-          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
-        run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "REMOTE_APP_DIR='$REMOTE_APP_DIR' REGISTRY_HOST='$REGISTRY_HOST' REGISTRY_USERNAME='$REGISTRY_USERNAME' REGISTRY_PASSWORD='$REGISTRY_PASSWORD' bash -se" < scripts/deploy/remote_rollback_previous.sh

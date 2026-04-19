@@ -1,6 +1,6 @@
 # Python Production Deploy Runbook
 
-Этот runbook описывает обычный production deploy для `python-api + python-worker`, проверку автоматических gate'ов и ручное восстановление через повторный deploy или restore из pre-deploy backup.
+Этот runbook описывает обычный production deploy для `python-api + python-worker` в forward-only модели: либо новый release полностью проходит все gate'ы и только потом становится активным, либо deploy падает без автоматического rollback и без продвижения release markers.
 
 ## 1. Что должно быть готово до выката
 
@@ -68,12 +68,14 @@ apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_inva
 - пишет baseline invariants snapshot
 - подтягивает immutable images по digest
 - запускает Alembic migrations и идемпотентный bootstrap seed
+- подтверждает, что БД действительно дошла до Alembic head через `python scripts/migrate.py verify-head`
 - поднимает `python-api` и `python-worker`
-- проверяет, что фактически запущенные контейнеры `python-api` и `python-worker` совпадают с image digest из `current-release.env`
+- проверяет, что фактически запущенные контейнеры `python-api` и `python-worker` совпадают с image digest из release candidate manifest
 - прогоняет `verify_contract.py`
 - прогоняет invariant compare
 - поднимает `web` только после зелёных automated gates
-- при сбое возвращает runtime к `stable-release.env` без rebuild и печатает диагностику в логах GitHub Actions
+- обновляет `current-release.env`, `stable-release.env`, `previous-release.env`, `DEPLOYED_SHA` и `DEPLOYED_AT_UTC` только после полного зелёного pipeline
+- при сбое останавливается с диагностикой в логах GitHub Actions и не продвигает release markers
 
 На сервере используются release state файлы:
 
@@ -85,13 +87,14 @@ apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_inva
 4. После выката проверить:
 
 - `python-worker` в `docker compose ps` находится в состоянии `running`
-- `python-api` и `python-worker` в рантайме совпадают с image ref из `current-release.env`
+- `python-api` и `python-worker` в рантайме совпадают с image ref из promoted release manifest
 - `http://127.0.0.1:3001/api/health/ready` отвечает `200`
 - `GET /api/health/ready` показывает `jobQueue.deadLetterCount = 0`
 - `GET /api/health/ready` не показывает runaway `runningCount`
 - `APP_URL` отвечает `200`
 - contract smoke проходит на боевом адресе
 - инварианты по `Transaction` и `Category` совпадают с pre-deploy snapshot
+- `python scripts/migrate.py current` показывает Alembic head, а `python scripts/migrate.py verify-head` проходит без ошибок
 
 Команды для ручной post-start проверки:
 
@@ -112,7 +115,16 @@ cat current-release.env | grep '^PYTHON_WORKER_IMAGE='
 docker image inspect "$(docker inspect --format '{{.Config.Image}}' "$container_id")" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}'
 ```
 
-Если `current-release.env` уже новый, а `docker inspect --format '{{.Config.Image}}'` для `python-worker` показывает другой digest, это симптом частичного rollout: release manifest обновился, но running worker остался старым. Такой deploy теперь должен завершаться ошибкой автоматически.
+Если `docker inspect --format '{{.Config.Image}}'` для `python-worker` показывает digest, отличный от candidate/promoted manifest, это симптом частичного rollout. Такой deploy теперь должен завершаться ошибкой автоматически до promotion release markers.
+
+Дополнительная проверка Alembic head:
+
+```bash
+docker compose exec -T python-api python scripts/migrate.py current
+docker compose exec -T python-api python scripts/migrate.py verify-head
+```
+
+Если `verify-head` падает или `current` не равен ожидаемому head revision, новый release нельзя считать валидным, даже если контейнеры поднялись.
 
 Дополнительная проверка observability и queue state:
 
@@ -121,35 +133,45 @@ curl http://127.0.0.1:3001/api/health/ready
 curl http://127.0.0.1:3001/api/metrics
 ```
 
-## 4. Recovery
+## 4. Если deploy упал
 
 Если deploy завершился ошибкой или после выката не проходит ручной smoke:
 
-1. Просмотреть backup, сохранённый deploy workflow, и причины падения в логах GitHub Actions.
-2. Если workflow уже сделал auto-restore к `stable-release.env`, проверить health и только потом разбирать причину падения.
-3. Если release markers разошлись с фактическим последним healthy runtime, выполнить на сервере recovery-команду без указания конкретного SHA:
+1. Просмотреть backup, сохранённый deploy workflow, и причину падения в логах GitHub Actions.
+2. Проверить, что release markers не были продвинуты:
 
 ```bash
-cd /root/denga
-REMOTE_APP_DIR=/root/denga bash ./scripts/deploy/remote_sync_current_with_stable.sh
+cat current-release.env
+cat stable-release.env
+cat previous-release.env
 ```
 
-4. Если нужен явный возврат к предыдущему успешному релизу, запустить `Deploy` workflow вручную в режиме `rollback-previous`.
-5. Если проблема вызвана миграцией или данными, восстановить БД из pre-deploy backup:
+3. Проверить, что failure вызван не schema drift и не mismatch runtime candidate:
+
+```bash
+docker compose ps
+docker compose logs --tail=200 python-api
+docker compose logs --tail=200 python-worker
+docker compose exec -T python-api python scripts/migrate.py current
+docker compose exec -T python-api python scripts/migrate.py verify-head
+```
+
+4. Если проблема вызвана миграцией или данными, восстановить БД из pre-deploy backup:
 
 ```bash
 pg_restore --clean --if-exists --no-owner --host localhost --port 5433 --username denga --dbname denga ./backups/<backup-file>.dump
 ```
 
-6. После restore повторно выполнить:
+5. После restore повторно выполнить:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm python-api python scripts/migrate.py upgrade
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm python-api python scripts/migrate.py verify-head
 docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm python-api python scripts/bootstrap_seed.py
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --remove-orphans
 ```
 
-В этой схеме отдельного legacy runtime больше нет; восстановление выполняется через backup и повторный Python-first deploy.
+6. После устранения причины повторить обычный forward deploy через CI/CD. Автоматического rollback и manual rollback workflow больше нет.
 
 Если после выката появились `dead_letter` jobs:
 
