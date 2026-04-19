@@ -250,7 +250,7 @@ git push -u origin main
 
 ## Tests
 
-Workflow [`.github/workflows/ci.yml`](/C:/Dev/Denga/.github/workflows/ci.yml) запускается на каждый `push` и `pull_request` и выполняет:
+Workflow [`.github/workflows/ci.yml`](/C:/Dev/Denga/.github/workflows/ci.yml) запускается на каждый `pull_request` и на `push` в `main`, после чего выполняет:
 
 - `npm ci`
 - `python apps/python_backend/scripts/migrate.py upgrade`
@@ -343,7 +343,7 @@ ssh root@<server> "chown root:root /root/denga/.env && chmod 600 /root/denga/.en
 
 ## Веточная модель
 
-- Любой `push` и `pull_request` запускает workflow `Tests`.
+- Workflow `Tests` запускается на каждый `pull_request` и на `push` в `main`.
 - Pull request в `main` используется для проверки изменений до merge через workflow `Tests`.
 - Merge или прямой `push` в `main` сначала запускает workflow `Tests`.
 - Production deploy стартует только если этот `Tests` завершился успешно.
