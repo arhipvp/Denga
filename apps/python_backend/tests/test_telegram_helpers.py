@@ -115,7 +115,7 @@ def test_create_draft_payload_and_render_text() -> None:
     assert keyboard["inline_keyboard"][3][0]["callback_data"] == "draft:edit:comment"
 
     main_menu = create_main_menu_reply_markup()
-    assert main_menu["keyboard"][0][2]["text"] == "Редактировать операцию"
+    assert main_menu["keyboard"][1][0]["text"] == "Редактировать операцию"
 
 
 def test_missing_fields_and_category_picker_page() -> None:

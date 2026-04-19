@@ -19,11 +19,15 @@ CATEGORY_LEAF_PAGE_CALLBACK_PREFIX = "draft:category-leaf-page:"
 
 def create_main_menu_reply_markup() -> dict:
     return {
-        "keyboard": [[
-            {"text": TELEGRAM_ADD_OPERATION_MENU_LABEL},
-            {"text": TELEGRAM_STATS_MENU_LABEL},
-            {"text": TELEGRAM_EDIT_OPERATION_MENU_LABEL},
-        ]],
+        "keyboard": [
+            [
+                {"text": TELEGRAM_ADD_OPERATION_MENU_LABEL},
+                {"text": TELEGRAM_STATS_MENU_LABEL},
+            ],
+            [
+                {"text": TELEGRAM_EDIT_OPERATION_MENU_LABEL},
+            ],
+        ],
         "resize_keyboard": True,
         "is_persistent": True,
     }
