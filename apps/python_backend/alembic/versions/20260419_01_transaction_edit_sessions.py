@@ -16,6 +16,7 @@ transaction_edit_session_status = postgresql.ENUM(
     "COMPLETED",
     "CANCELLED",
     name="TransactionEditSessionStatus",
+    create_type=False,
 )
 
 
