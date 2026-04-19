@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 from sqlalchemy.dialects import postgresql
 
 
@@ -22,7 +23,15 @@ transaction_edit_session_status = postgresql.ENUM(
 
 def upgrade() -> None:
     bind = op.get_bind()
-    transaction_edit_session_status.create(bind, checkfirst=True)
+    inspector = inspect(bind)
+    enum_exists = bind.execute(
+        sa.text("SELECT 1 FROM pg_type WHERE typname = :type_name"),
+        {"type_name": "TransactionEditSessionStatus"},
+    ).scalar_one_or_none()
+    if not enum_exists:
+        transaction_edit_session_status.create(bind, checkfirst=True)
+    if inspector.has_table("TransactionEditSession"):
+        return
     op.create_table(
         "TransactionEditSession",
         sa.Column("id", sa.String(), nullable=False),
@@ -42,5 +51,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("TransactionEditSession")
-    transaction_edit_session_status.drop(op.get_bind(), checkfirst=True)
+    bind = op.get_bind()
+    inspector = inspect(bind)
+    if inspector.has_table("TransactionEditSession"):
+        op.drop_table("TransactionEditSession")
+    transaction_edit_session_status.drop(bind, checkfirst=True)
