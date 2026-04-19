@@ -154,6 +154,7 @@ Runbook для production deploy, smoke-проверок и восстановл
 - `ADMIN_EMAIL` / `ADMIN_PASSWORD`: bootstrap-администратор
 - `NEXT_PUBLIC_API_URL`: обязательный публичный base URL API для Next.js админки
 - `WEB_URL`: origin web-приложения; используется в том числе для CORS allowlist Python API
+- web runtime всегда слушает `3000`; этот порт закреплён в compose и не должен зависеть от общего `PORT` в `.env`
 - `CORS_ALLOWED_ORIGINS`: дополнительный comma-separated список origin-ов для CORS, если кроме `WEB_URL` нужно разрешить другие клиенты
 - `TELEGRAM_BOT_TOKEN`: token бота
 - `TELEGRAM_MODE`: `polling` или `webhook`
