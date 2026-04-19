@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import create_engine
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
@@ -13,6 +15,10 @@ from app.models import (
     SourceMessageStatus,
     SourceMessageType,
     TelegramAccount,
+    Transaction,
+    TransactionEditSession,
+    TransactionStatus,
+    TransactionType,
     User,
     UserRole,
 )
@@ -592,3 +598,248 @@ def test_callback_query_distinguishes_missing_draft_from_missing_user() -> None:
         ("cb-1", "Черновик не найден или уже завершен"),
         ("cb-2", "Пользователь не найден"),
     ]
+
+
+def test_edit_menu_shows_recent_transactions() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+
+    with SessionLocal() as db:
+        household_id = bootstrap_household_id()
+        db.add(Household(id=household_id, name="Дом", default_currency="EUR"))
+        user = User(id="user-1", household_id=household_id, email=None, password_hash=None, display_name="User", role=UserRole.MEMBER)
+        db.add(user)
+        db.add(TelegramAccount(user_id=user.id, telegram_id="42", username=None, first_name=None, last_name=None, is_active=True))
+        parent = Category(id="parent-1", household_id=household_id, parent_id=None, name="Еда", type=CategoryType.EXPENSE, is_active=True)
+        category = Category(id="cat-1", household_id=household_id, parent_id=parent.id, name="Кафе", type=CategoryType.EXPENSE, is_active=True)
+        db.add_all([parent, category])
+        db.add(
+            Transaction(
+                id="tx-1",
+                household_id=household_id,
+                author_id=user.id,
+                category_id=category.id,
+                source_message_id=None,
+                type=TransactionType.EXPENSE,
+                amount=15,
+                currency="EUR",
+                occurred_at=datetime(2026, 4, 12),
+                comment="Обед",
+                status=TransactionStatus.CONFIRMED,
+            )
+        )
+        db.commit()
+
+        telegram = FakeTelegram()
+        result = workflows.handle_message_update(
+            db,
+            {
+                "message_id": 1,
+                "chat": {"id": 42},
+                "from": {"id": 42, "first_name": "User"},
+                "text": "Редактировать операцию",
+            },
+            {"update_id": 1},
+            telegram,
+        )
+
+    assert result["status"] == "edit_list_shown"
+    assert "Выберите операцию для редактирования" in telegram.sent_messages[0][1]
+    assert telegram.sent_messages[0][2]["inline_keyboard"][0][0]["callback_data"] == "tx-edit:pick:tx-1"
+
+
+def test_edit_flow_can_update_and_delete_transaction(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+
+    enqueued_events: list[tuple[str, str]] = []
+
+    with SessionLocal() as db:
+        household_id = bootstrap_household_id()
+        db.add(Household(id=household_id, name="Дом", default_currency="EUR"))
+        user = User(id="user-1", household_id=household_id, email=None, password_hash=None, display_name="User", role=UserRole.MEMBER)
+        db.add(user)
+        db.add(TelegramAccount(user_id=user.id, telegram_id="42", username=None, first_name=None, last_name=None, is_active=True))
+        parent = Category(id="parent-1", household_id=household_id, parent_id=None, name="Еда", type=CategoryType.EXPENSE, is_active=True)
+        category = Category(id="cat-1", household_id=household_id, parent_id=parent.id, name="Кафе", type=CategoryType.EXPENSE, is_active=True)
+        db.add_all([parent, category])
+        transaction = Transaction(
+            id="tx-1",
+            household_id=household_id,
+            author_id=user.id,
+            category_id=category.id,
+            source_message_id=None,
+            type=TransactionType.EXPENSE,
+            amount=15,
+            currency="EUR",
+            occurred_at=datetime(2026, 4, 12),
+            comment="Обед",
+            status=TransactionStatus.CONFIRMED,
+        )
+        db.add(transaction)
+        db.commit()
+
+        monkeypatch.setattr(workflows, "enqueue_notification_job", lambda db, transaction_id, event, exclude=None: enqueued_events.append((transaction_id, event)))
+        monkeypatch.setattr("app.use_cases.transactions.enqueue_notification_job", lambda db, transaction_id, event, exclude_telegram_ids=None: enqueued_events.append((transaction_id, event)))
+
+        telegram = FakeTelegram(edit_result=True)
+
+        pick_result = workflows.route_telegram_update(
+            db,
+            {
+                "callback_query": {
+                    "id": "cb-1",
+                    "data": "tx-edit:pick:tx-1",
+                    "from": {"id": 42},
+                    "message": {"message_id": 101, "chat": {"id": 42}},
+                }
+            },
+            telegram,
+        )
+
+        update_result = workflows.route_telegram_update(
+            db,
+            {
+                "callback_query": {
+                    "id": "cb-2",
+                    "data": "tx-edit:field:comment",
+                    "from": {"id": 42},
+                    "message": {"message_id": 200, "chat": {"id": 42}},
+                }
+            },
+            telegram,
+        )
+
+        message_result = workflows.handle_message_update(
+            db,
+            {
+                "message_id": 151,
+                "chat": {"id": 42},
+                "from": {"id": 42, "first_name": "User"},
+                "text": "Новый комментарий",
+            },
+            {"update_id": 2},
+            telegram,
+        )
+
+        save_result = workflows.route_telegram_update(
+            db,
+            {
+                "callback_query": {
+                    "id": "cb-3",
+                    "data": "tx-edit:save",
+                    "from": {"id": 42},
+                    "message": {"message_id": 200, "chat": {"id": 42}},
+                }
+            },
+            telegram,
+        )
+
+        updated_transaction = db.execute(select(Transaction).where(Transaction.id == transaction.id)).scalar_one()
+
+        reopen_result = workflows.route_telegram_update(
+            db,
+            {
+                "callback_query": {
+                    "id": "cb-4",
+                    "data": "tx-edit:pick:tx-1",
+                    "from": {"id": 42},
+                    "message": {"message_id": 201, "chat": {"id": 42}},
+                }
+            },
+            telegram,
+        )
+        delete_confirm = workflows.route_telegram_update(
+            db,
+            {
+                "callback_query": {
+                    "id": "cb-5",
+                    "data": "tx-edit:delete:confirm",
+                    "from": {"id": 42},
+                    "message": {"message_id": 200, "chat": {"id": 42}},
+                }
+            },
+            telegram,
+        )
+        delete_apply = workflows.route_telegram_update(
+            db,
+            {
+                "callback_query": {
+                    "id": "cb-6",
+                    "data": "tx-edit:delete:apply",
+                    "from": {"id": 42},
+                    "message": {"message_id": 200, "chat": {"id": 42}},
+                }
+            },
+            telegram,
+        )
+
+        deleted_transaction = db.execute(select(Transaction).where(Transaction.id == transaction.id)).scalar_one()
+        sessions = db.execute(select(TransactionEditSession)).scalars().all()
+
+    assert pick_result["status"] == "editing"
+    assert update_result["status"] == "awaiting_edit"
+    assert message_result["status"] == "editing"
+    assert save_result["status"] == "updated"
+    assert updated_transaction.comment == "Новый комментарий"
+    assert ("tx-1", "updated") in enqueued_events
+    assert reopen_result["status"] == "editing"
+    assert delete_confirm["status"] == "confirming_delete"
+    assert delete_apply["status"] == "deleted"
+    assert deleted_transaction.status == TransactionStatus.CANCELLED
+    assert ("tx-1", "deleted") in enqueued_events
+    assert len(sessions) >= 1
+
+
+def test_edit_menu_is_blocked_by_active_draft() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+
+    with SessionLocal() as db:
+        household_id = bootstrap_household_id()
+        db.add(Household(id=household_id, name="Дом", default_currency="EUR"))
+        user = User(id="user-1", household_id=household_id, email=None, password_hash=None, display_name="User", role=UserRole.MEMBER)
+        db.add(user)
+        db.add(TelegramAccount(user_id=user.id, telegram_id="42", username=None, first_name=None, last_name=None, is_active=True))
+        source = SourceMessage(
+            id="source-1",
+            household_id=household_id,
+            author_id=user.id,
+            telegram_message_id="10",
+            telegram_chat_id="42",
+            type=SourceMessageType.TELEGRAM_TEXT,
+            status=SourceMessageStatus.PENDING_REVIEW,
+            text="Кафе 5 EUR",
+            raw_payload={},
+        )
+        review = PendingOperationReview(
+            id="draft-1",
+            source_message_id=source.id,
+            author_id=user.id,
+            status=SourceMessageStatus.PENDING_REVIEW,
+            draft={"type": "expense"},
+            pending_field=None,
+            last_bot_message_id="100",
+            active_picker_message_id=None,
+        )
+        db.add_all([source, review])
+        db.commit()
+
+        telegram = FakeTelegram()
+        result = workflows.handle_message_update(
+            db,
+            {
+                "message_id": 1,
+                "chat": {"id": 42},
+                "from": {"id": 42, "first_name": "User"},
+                "text": "Редактировать операцию",
+            },
+            {"update_id": 1},
+            telegram,
+        )
+
+    assert result["status"] == "draft_blocks_edit"
+    assert "Сначала завершите" in telegram.sent_messages[0][1]

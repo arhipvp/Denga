@@ -44,6 +44,11 @@ def notify_transaction_event(db: Session, payload: dict[str, Any], telegram: Tel
         return {"recipients": 0, "delivered": 0, "failed": 0}
     event = payload.get("event") or "created"
     type_label = "Доход" if transaction.type == TransactionType.INCOME else "Расход"
+    title = "Добавлена новая операция"
+    if event == "updated":
+        title = "Операция обновлена"
+    elif event == "deleted":
+        title = "Операция удалена"
     category_name = (
         f"{transaction.category.parent.name} / {transaction.category.name}"
         if transaction.category and transaction.category.parent
@@ -51,7 +56,7 @@ def notify_transaction_event(db: Session, payload: dict[str, Any], telegram: Tel
     )
     message = "\n".join(
         [
-            "Добавлена новая операция" if event == "created" else "Операция удалена",
+            title,
             "",
             f"Тип: {type_label}",
             f"Сумма: {float(transaction.amount):.2f} {transaction.currency}",

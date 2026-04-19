@@ -33,6 +33,21 @@ class TransactionRepository:
             .first()
         )
 
+    def get_by_id_for_author(self, transaction_id: str, author_id: str) -> Transaction | None:
+        return (
+            self._db.execute(
+                self.query().where(
+                    Transaction.id == transaction_id,
+                    Transaction.author_id == author_id,
+                    Transaction.household_id == bootstrap_household_id(),
+                    Transaction.status != TransactionStatus.CANCELLED,
+                )
+            )
+            .unique()
+            .scalars()
+            .first()
+        )
+
     def get_for_notification(self, transaction_id: str) -> Transaction | None:
         return (
             self._db.execute(
@@ -104,6 +119,22 @@ class TransactionRepository:
         self._db.commit()
         self._db.refresh(transaction)
         return transaction
+
+    def list_recent_for_author(self, author_id: str, *, limit: int = 10) -> list[Transaction]:
+        return list(
+            self._db.execute(
+                self.query()
+                .where(
+                    Transaction.author_id == author_id,
+                    Transaction.household_id == bootstrap_household_id(),
+                    Transaction.status != TransactionStatus.CANCELLED,
+                )
+                .order_by(Transaction.occurred_at.desc(), Transaction.created_at.desc())
+                .limit(limit)
+            )
+            .unique()
+            .scalars()
+        )
 
     def commit(self) -> None:
         self._db.commit()

@@ -240,6 +240,33 @@ class PendingOperationReview(Base):
     author: Mapped[User | None] = relationship("User", back_populates="review_drafts")
 
 
+class TransactionEditSessionStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+
+
+class TransactionEditSession(Base):
+    __tablename__ = "TransactionEditSession"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_generate_id)
+    author_id: Mapped[str | None] = mapped_column("authorId", ForeignKey("User.id", ondelete="SET NULL", onupdate="CASCADE"))
+    transaction_id: Mapped[str] = mapped_column("transactionId", ForeignKey("Transaction.id", ondelete="CASCADE", onupdate="CASCADE"))
+    status: Mapped[TransactionEditSessionStatus] = mapped_column(
+        Enum(TransactionEditSessionStatus, name="TransactionEditSessionStatus", create_type=False),
+        default=TransactionEditSessionStatus.ACTIVE,
+    )
+    draft: Mapped[dict] = mapped_column(JSON_VARIANT)
+    pending_field: Mapped[str | None] = mapped_column("pendingField", String)
+    last_bot_message_id: Mapped[str | None] = mapped_column("lastBotMessageId", String)
+    active_picker_message_id: Mapped[str | None] = mapped_column("activePickerMessageId", String)
+    created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=False), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column("updatedAt", DateTime(timezone=False), default=_utcnow, onupdate=_utcnow)
+
+    author: Mapped[User | None] = relationship("User")
+    transaction: Mapped["Transaction"] = relationship("Transaction")
+
+
 class Transaction(Base):
     __tablename__ = "Transaction"
 

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from app.models import CategoryType
+from app.models import CategoryType, Transaction, TransactionType
 from app.telegram_types import ActiveCategory, ParsedTransaction, ReviewDraft
 
 
 TELEGRAM_ADD_OPERATION_MENU_LABEL = "Добавить операцию"
 TELEGRAM_STATS_MENU_LABEL = "Посмотреть статистику"
+TELEGRAM_EDIT_OPERATION_MENU_LABEL = "Редактировать операцию"
 TELEGRAM_EXPENSE_CURRENT_MONTH_CALLBACK = "stats:expense-current-month"
 TELEGRAM_INCOME_CURRENT_MONTH_CALLBACK = "stats:income-current-month"
 CATEGORY_PAGE_SIZE = 8
@@ -21,6 +22,7 @@ def create_main_menu_reply_markup() -> dict:
         "keyboard": [[
             {"text": TELEGRAM_ADD_OPERATION_MENU_LABEL},
             {"text": TELEGRAM_STATS_MENU_LABEL},
+            {"text": TELEGRAM_EDIT_OPERATION_MENU_LABEL},
         ]],
         "resize_keyboard": True,
         "is_persistent": True,
@@ -47,6 +49,10 @@ def is_add_operation_menu_action(text: str) -> bool:
 
 def is_stats_menu_action(text: str) -> bool:
     return text.strip() == TELEGRAM_STATS_MENU_LABEL
+
+
+def is_edit_operation_menu_action(text: str) -> bool:
+    return text.strip() == TELEGRAM_EDIT_OPERATION_MENU_LABEL
 
 
 def is_cancel_command(text: str) -> bool:
@@ -245,6 +251,74 @@ def create_draft_keyboard() -> dict:
             [{"text": "💬 Изменить комментарий", "callback_data": "draft:edit:comment"}],
         ]
     }
+
+
+def _format_transaction_type_label(type_: TransactionType) -> str:
+    return "Доход" if type_ == TransactionType.INCOME else "Расход"
+
+
+def format_transaction_list_item(transaction: Transaction) -> str:
+    category_name = (
+        f"{transaction.category.parent.name} / {transaction.category.name}"
+        if transaction.category and transaction.category.parent
+        else (transaction.category.name if transaction.category else "Без категории")
+    )
+    return (
+        f"{transaction.occurred_at.strftime('%d.%m')} • "
+        f"{_format_transaction_type_label(transaction.type)} • "
+        f"{float(transaction.amount):.2f} {transaction.currency} • "
+        f"{category_name}"
+    )
+
+
+def render_transaction_edit_text(draft: ReviewDraft) -> str:
+    type_label = "Доход" if draft.type == "income" else "Расход" if draft.type == "expense" else "Не определено"
+    date_label = "Не определено"
+    if draft.occurred_at:
+        try:
+            date_label = datetime.fromisoformat(draft.occurred_at.replace("Z", "+00:00")).strftime("%d.%m.%Y")
+        except ValueError:
+            date_label = draft.occurred_at
+    return "\n".join(
+        [
+            "✏️ Редактирование операции",
+            "",
+            f"📌 Тип: {type_label}",
+            f"💶 Сумма: {draft.amount if draft.amount is not None else 'Не определено'} {draft.currency or ''}".strip(),
+            f"📅 Дата: {date_label}",
+            f"🏷️ Категория: {draft.category_name or 'Не определено'}",
+            f"💬 Комментарий: {draft.comment or 'Не определено'}",
+        ]
+    )
+
+
+def create_transaction_edit_keyboard(*, confirm_delete: bool = False) -> dict:
+    if confirm_delete:
+        return {
+            "inline_keyboard": [
+                [{"text": "⚠️ Да, удалить", "callback_data": "tx-edit:delete:apply"}],
+                [{"text": "Назад", "callback_data": "tx-edit:delete:cancel"}],
+            ]
+        }
+    return {
+        "inline_keyboard": [
+            [{"text": "💾 Сохранить", "callback_data": "tx-edit:save"}, {"text": "❌ Отменить", "callback_data": "tx-edit:cancel"}],
+            [{"text": "🔁 Изменить тип", "callback_data": "tx-edit:field:type"}, {"text": "💶 Изменить сумму", "callback_data": "tx-edit:field:amount"}],
+            [{"text": "📅 Изменить дату", "callback_data": "tx-edit:field:date"}, {"text": "🏷️ Изменить категорию", "callback_data": "tx-edit:field:category"}],
+            [{"text": "💬 Изменить комментарий", "callback_data": "tx-edit:field:comment"}],
+            [{"text": "🗑️ Удалить", "callback_data": "tx-edit:delete:confirm"}],
+        ]
+    }
+
+
+def build_transaction_edit_list(transactions: list[Transaction]) -> dict:
+    if not transactions:
+        return {"text": "У вас пока нет операций для редактирования.", "replyMarkup": None}
+    keyboard = [
+        [{"text": format_transaction_list_item(item), "callback_data": f"tx-edit:pick:{item.id}"}]
+        for item in transactions
+    ]
+    return {"text": "Выберите операцию для редактирования:", "replyMarkup": {"inline_keyboard": keyboard}}
 
 
 def build_category_picker_page(

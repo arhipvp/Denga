@@ -37,6 +37,19 @@ from app.use_cases.telegram_intake import (
     handle_message_update,
     route_telegram_update,
 )
+from app.use_cases.transaction_edit import (
+    apply_transaction_manual_edit,
+    begin_transaction_field_edit,
+    cancel_transaction_edit_session,
+    confirm_delete_transaction_edit_session,
+    delete_transaction_from_session,
+    handle_transaction_edit_callback_query,
+    open_transaction_for_edit,
+    render_or_send_transaction_edit_card,
+    save_transaction_edit_session,
+    show_transaction_category_page,
+    start_transaction_edit_flow,
+)
 
 __all__ = [
     "JOB_TYPE_CLARIFICATION_REPARSE",
@@ -64,6 +77,17 @@ __all__ = [
     "resolve_clarification_session",
     "route_telegram_update",
     "safe_parse_message",
+    "save_transaction_edit_session",
     "show_category_page",
+    "show_transaction_category_page",
+    "start_transaction_edit_flow",
+    "apply_transaction_manual_edit",
+    "begin_transaction_field_edit",
+    "handle_transaction_edit_callback_query",
+    "open_transaction_for_edit",
+    "render_or_send_transaction_edit_card",
+    "cancel_transaction_edit_session",
+    "confirm_delete_transaction_edit_session",
+    "delete_transaction_from_session",
     "upsert_clarification_session",
 ]

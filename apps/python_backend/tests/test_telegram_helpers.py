@@ -1,14 +1,22 @@
+from datetime import datetime
+
 from app.models import CategoryType
 from app.telegram_helpers import (
     apply_heuristics,
     build_category_picker_page,
+    build_transaction_edit_list,
+    create_main_menu_reply_markup,
+    create_transaction_edit_keyboard,
     create_draft_keyboard,
     create_draft_payload,
+    format_transaction_list_item,
     get_missing_draft_fields,
     normalize_date,
     render_draft_text,
+    render_transaction_edit_text,
 )
-from app.telegram_types import ActiveCategory, ParsedTransaction
+from app.models import Transaction, TransactionType
+from app.telegram_types import ActiveCategory, ParsedTransaction, ReviewDraft
 
 
 def _expense_category() -> list[ActiveCategory]:
@@ -106,6 +114,9 @@ def test_create_draft_payload_and_render_text() -> None:
     assert keyboard["inline_keyboard"][2][1]["callback_data"] == "draft:edit:category"
     assert keyboard["inline_keyboard"][3][0]["callback_data"] == "draft:edit:comment"
 
+    main_menu = create_main_menu_reply_markup()
+    assert main_menu["keyboard"][0][2]["text"] == "Редактировать операцию"
+
 
 def test_missing_fields_and_category_picker_page() -> None:
     draft = create_draft_payload(
@@ -154,3 +165,46 @@ def test_category_picker_supports_parent_and_child_navigation() -> None:
 def test_normalize_date_handles_relative_values() -> None:
     assert normalize_date("2026-04-09") == "2026-04-09T00:00:00.000Z"
     assert normalize_date("today") is not None
+
+
+def test_render_transaction_edit_helpers() -> None:
+    parent = type("Parent", (), {"name": "Еда"})()
+    category = type("Category", (), {"name": "Кафе", "parent": parent})()
+    transaction = Transaction(
+        id="tx-1",
+        household_id="house-1",
+        author_id="user-1",
+        category_id="cat-1",
+            source_message_id=None,
+            type=TransactionType.EXPENSE,
+            amount=15,
+            currency="EUR",
+            occurred_at=datetime(2026, 4, 12),
+            comment="Обед",
+        )
+    transaction.category = category  # type: ignore[assignment]
+    line = format_transaction_list_item(transaction)
+    assert line == "12.04 • Расход • 15.00 EUR • Еда / Кафе"
+
+    payload = build_transaction_edit_list([transaction])
+    assert payload["replyMarkup"]["inline_keyboard"][0][0]["callback_data"] == "tx-edit:pick:tx-1"
+
+    text = render_transaction_edit_text(
+        ReviewDraft(
+            type="expense",
+            amount=15,
+            occurred_at="2026-04-12T00:00:00",
+            category_id="cat-1",
+            category_name="Еда / Кафе",
+            comment="Обед",
+            currency="EUR",
+            confidence=1,
+            ambiguities=[],
+            follow_up_question=None,
+            source_text=None,
+        )
+    )
+    assert "✏️ Редактирование операции" in text
+    keyboard = create_transaction_edit_keyboard()
+    assert keyboard["inline_keyboard"][0][0]["callback_data"] == "tx-edit:save"
+    assert keyboard["inline_keyboard"][-1][0]["callback_data"] == "tx-edit:delete:confirm"

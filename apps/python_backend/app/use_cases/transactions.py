@@ -233,6 +233,7 @@ def update_transaction(db: Session, transaction_id: str, payload: TransactionUpd
         if mapped_status:
             transaction.status = mapped_status
     TransactionRepository(db).commit()
+    enqueue_notification_job(db, transaction.id, "updated")
     return serialize_transaction(require_entity(TransactionRepository(db).get_by_id(transaction_id), "Transaction not found"))
 
 
