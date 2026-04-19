@@ -59,6 +59,12 @@ def _poll_telegram_updates(db, telegram: TelegramAdapter, offset: int | None) ->
     return next_offset
 
 
+def _handle_job_failure(db, job_id: str | None, exc: Exception) -> None:
+    db.rollback()
+    increment_metric("jobs.failed")
+    logger.error("worker", "job_failed", "Job failed", {"jobId": job_id, "error": exc})
+
+
 def main() -> None:
     settings = get_settings()
     telegram = TelegramAdapter(settings)
@@ -91,6 +97,7 @@ def main() -> None:
                 time.sleep(settings.worker_poll_interval_seconds)
                 continue
 
+            job_id = job.id
             try:
                 increment_metric("jobs.claimed")
                 handler = job_registry.get(job.job_type)
@@ -112,8 +119,7 @@ def main() -> None:
                 mark_job_completed(db, job)
                 increment_metric("jobs.completed")
             except Exception as exc:  # pragma: no cover
-                increment_metric("jobs.failed")
-                logger.error("worker", "job_failed", "Job failed", {"jobId": job.id, "error": exc})
+                _handle_job_failure(db, job_id, exc)
                 mark_job_failed(db, job, exc)
 
 

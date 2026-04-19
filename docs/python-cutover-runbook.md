@@ -71,9 +71,11 @@ apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_inva
 - подтверждает, что БД действительно дошла до Alembic head через `python scripts/migrate.py verify-head`
 - поднимает `python-api` и `python-worker`
 - проверяет, что фактически запущенные контейнеры `python-api` и `python-worker` совпадают с image digest из release candidate manifest
+- проверяет, что `python-worker` не увеличивает `RestartCount` и не уходит в restart loop сразу после rollout
 - прогоняет `verify_contract.py`
 - прогоняет invariant compare
 - поднимает `web` только после зелёных automated gates
+- повторно проверяет `verify-head` и runtime match перед обновлением release markers
 - обновляет `current-release.env`, `stable-release.env`, `previous-release.env`, `DEPLOYED_SHA` и `DEPLOYED_AT_UTC` только после полного зелёного pipeline
 - при сбое останавливается с диагностикой в логах GitHub Actions и не продвигает release markers
 
@@ -87,6 +89,7 @@ apps/python_backend/.venv/Scripts/python apps/python_backend/scripts/verify_inva
 4. После выката проверить:
 
 - `python-worker` в `docker compose ps` находится в состоянии `running`
+- `python-worker` не увеличивает `RestartCount` после старта
 - `python-api` и `python-worker` в рантайме совпадают с image ref из promoted release manifest
 - `http://127.0.0.1:3001/api/health/ready` отвечает `200`
 - `GET /api/health/ready` показывает `jobQueue.deadLetterCount = 0`

@@ -298,8 +298,10 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 - подтягивает только `GHCR` immutable images по digest и запускает Alembic migrations + `migrate.py verify-head` + идемпотентный bootstrap seed без server-side build
 - поднимает `python-api` и `python-worker`
 - проверяет, что фактически запущенные `python-api` и `python-worker` совпадают с release candidate manifest
+- подтверждает, что `python-worker` не уходит в restart loop сразу после rollout
 - прогоняет `verify_contract.py` и invariant compare
 - поднимает `web` только после зелёных automated gates
+- повторно подтверждает schema head и runtime match перед promotion release markers
 - продвигает release markers только после полного зелёного pipeline
 - проверяет, что `python-worker` находится в состоянии `running`
 - проверяет доступность API и web после выката прямо на сервере по SSH

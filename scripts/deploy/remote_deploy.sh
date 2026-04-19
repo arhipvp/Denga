@@ -18,6 +18,11 @@ compose_with_release() {
   $COMPOSE_CMD --env-file .env --env-file "$release_file" "$@"
 }
 
+service_container_id() {
+  local service_name="$1"
+  compose_with_release "$REMOTE_RELEASE_MANIFEST" ps -q "$service_name" | tr -d '\r' | head -n 1
+}
+
 expected_image_ref() {
   local service_name="$1"
   case "$service_name" in
@@ -50,6 +55,11 @@ print_runtime_diagnostics() {
   compose_with_release "$REMOTE_RELEASE_MANIFEST" logs --tail=200 python-worker >&2 || true
 }
 
+container_restart_count() {
+  local container_id="$1"
+  docker inspect --format '{{.RestartCount}}' "$container_id" 2>/dev/null || true
+}
+
 verify_running_service_release() {
   local service_name="$1"
   local expected_ref actual_ref actual_image_id actual_revision container_created container_running container_id
@@ -60,7 +70,7 @@ verify_running_service_release() {
     return 1
   fi
 
-  container_id="$(compose_with_release "$REMOTE_RELEASE_MANIFEST" ps -q "$service_name" | tr -d '\r' | head -n 1)"
+  container_id="$(service_container_id "$service_name")"
   if [ -z "$container_id" ]; then
     echo "No running container found for $service_name after rollout" >&2
     print_runtime_diagnostics "$service_name"
@@ -97,6 +107,50 @@ verify_running_service_release() {
   fi
 }
 
+verify_worker_stability() {
+  local service_name="python-worker"
+  local wait_seconds="${1:-12}"
+  local container_id initial_restart_count current_restart_count current_running current_container_id
+
+  container_id="$(service_container_id "$service_name")"
+  if [ -z "$container_id" ]; then
+    echo "No running container found for $service_name before stability check" >&2
+    print_runtime_diagnostics "$service_name"
+    return 1
+  fi
+
+  initial_restart_count="$(container_restart_count "$container_id")"
+  echo "Checking $service_name stability over ${wait_seconds}s: container=$container_id restartCount=${initial_restart_count:-<unknown>}"
+  sleep "$wait_seconds"
+
+  current_container_id="$(service_container_id "$service_name")"
+  if [ "$current_container_id" != "$container_id" ]; then
+    echo "$service_name container changed during stability check" >&2
+    echo "Initial container: $container_id" >&2
+    echo "Current container: ${current_container_id:-<missing>}" >&2
+    print_runtime_diagnostics "$service_name"
+    return 1
+  fi
+
+  current_restart_count="$(container_restart_count "$container_id")"
+  current_running="$(docker inspect --format '{{.State.Running}}' "$container_id" 2>/dev/null || true)"
+  echo "Verified $service_name stability: container=$container_id running=${current_running:-<unknown>} restartCount=${current_restart_count:-<unknown>}"
+
+  if [ "$current_running" != "true" ]; then
+    echo "$service_name is not running after stability wait" >&2
+    print_runtime_diagnostics "$service_name"
+    return 1
+  fi
+
+  if [ "${current_restart_count:-}" != "${initial_restart_count:-}" ]; then
+    echo "$service_name restart count increased during stability check" >&2
+    echo "Initial restart count: ${initial_restart_count:-<missing>}" >&2
+    echo "Current restart count: ${current_restart_count:-<missing>}" >&2
+    print_runtime_diagnostics "$service_name"
+    return 1
+  fi
+}
+
 mkdir -p backups
 printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY_HOST" -u "$REGISTRY_USERNAME" --password-stdin
 
@@ -122,3 +176,6 @@ compose_with_release "$REMOTE_RELEASE_MANIFEST" up -d --remove-orphans --force-r
 echo 'Verifying running python-api and python-worker match release candidate manifest'
 verify_running_service_release python-api
 verify_running_service_release python-worker
+
+echo 'Verifying python-worker remains stable after rollout'
+verify_worker_stability 12
