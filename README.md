@@ -271,12 +271,6 @@ Workflow [`.github/workflows/ci.yml`](/C:/Dev/Denga/.github/workflows/ci.yml) з
 
 Для production build фронтенда workflow использует `NEXT_PUBLIC_API_URL`. По умолчанию в `Tests` применяется `http://localhost:3001/api`. Если нужен другой адрес для CI-проверок, задайте repository variable `CI_NEXT_PUBLIC_API_URL`.
 
-Dependency automation:
-
-- [`.github/dependabot.yml`](/C:/Dev/Denga/.github/dependabot.yml) создает PR на обновления `Dockerfile`, `docker-compose.yml` и GitHub Actions
-- base image drift вынесен в отдельный workflow [`.github/workflows/base-image-drift.yml`](/C:/Dev/Denga/.github/workflows/base-image-drift.yml), который по расписанию проверяет, не ушли ли pinned digests вперед относительно upstream tags
-- auto-merge для Docker base image updates не включен: такие PR должны пройти обычный review и зеленый `Tests`
-
 Security scanning policy:
 
 - `Trivy` больше не запускается через `trivy-action` wrapper, потому что после security incident марта 2026 часть tag refs перестала стабильно резолвиться на GitHub runner'ах
@@ -301,7 +295,6 @@ Workflow [`.github/workflows/deploy.yml`](/C:/Dev/Denga/.github/workflows/deploy
 - поднимает `python-api` и `python-worker`
 - прогоняет `verify_contract.py` и invariant compare
 - поднимает `web` только после зелёных automated gates
-- не выполняет auto-deploy для merge от `dependabot[bot]`; такие изменения требуют отдельного ручного rollout
 - при падении automated gate workflow откатывает runtime к `stable-release.env` без rebuild и оставляет диагностику в логах GitHub Actions
 - проверяет, что `python-worker` находится в состоянии `running`
 - проверяет доступность API и web после выката прямо на сервере по SSH
@@ -348,7 +341,6 @@ ssh root@<server> "chown root:root /root/denga/.env && chmod 600 /root/denga/.en
 - Pull request в `main` используется для проверки изменений до merge через workflow `Tests`.
 - Merge или прямой `push` в `main` сначала запускает workflow `Tests`.
 - Production deploy стартует только если этот `Tests` завершился успешно.
-- Merge от `dependabot[bot]` не уходит в production автоматически, даже если `Tests` зелёный.
 
 ## Ручные операции на сервере
 
