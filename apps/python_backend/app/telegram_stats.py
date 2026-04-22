@@ -64,16 +64,14 @@ def get_current_month_category_breakdown(db: Session, type_: TransactionType) ->
 
 
 def _build_caption(input_: dict, report_title: str) -> str:
+    details = _build_category_details(input_)
     lines = [
         f"<b>{report_title}</b>",
         f"Период: <b>{input_['periodLabel'].lower()}</b>",
         f"Итого: <b>{_format_money(input_['totalAmount'], input_['currency'])}</b>",
         "",
         "<b>Категории</b>",
-        *[
-            f"• {item['categoryName']} — <b>{_format_money(item['amount'], input_['currency'])}</b> ({(item['share'] * 100):.1f}%)"
-            for item in input_["fullItems"]
-        ],
+        *details,
     ]
     return "\n".join(lines)
 
@@ -87,6 +85,19 @@ def _build_short_caption(input_: dict, report_title: str) -> str:
             "Полный список категорий отправлен следующим сообщением.",
         ]
     )
+
+
+def _build_category_details(input_: dict) -> list[str]:
+    return [
+        f"{index}. {item['categoryName']} — <b>{_format_money(item['amount'], input_['currency'])}</b> ({(item['share'] * 100):.1f}%)"
+        for index, item in enumerate(input_["fullItems"], start=1)
+    ]
+
+
+def _should_send_follow_up_details(input_: dict, full_caption: str) -> bool:
+    if len(full_caption) > TELEGRAM_CAPTION_LIMIT:
+        return True
+    return len(input_["items"]) != len(input_["fullItems"])
 
 
 def _format_money(value: float, currency: str) -> str:
@@ -117,8 +128,9 @@ def send_current_month_report(db: Session, telegram: TelegramAdapter, chat_id: s
     chart = renderer.render_category_breakdown(breakdown, definition["chartTitle"])
     full_caption = _build_caption(breakdown, definition["reportTitle"])
     short_caption = _build_short_caption(breakdown, definition["reportTitle"])
-    caption = full_caption if len(full_caption) <= TELEGRAM_CAPTION_LIMIT else short_caption
+    send_follow_up_details = _should_send_follow_up_details(breakdown, full_caption)
+    caption = full_caption if not send_follow_up_details else short_caption
     telegram.send_photo(chat_id=chat_id, file_name=definition["fileName"], photo=chart, caption=caption)
-    if caption != full_caption:
+    if send_follow_up_details:
         telegram.send_message(chat_id, full_caption)
     return {"accepted": True, "status": "stats_sent"}

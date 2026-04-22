@@ -77,6 +77,17 @@ class JobRepository:
         self._db.refresh(job)
         return job
 
+    def exists_for_dedupe_key(self, *, job_type: str, dedupe_key: str) -> bool:
+        return (
+            self._db.execute(
+                select(Job.id).where(
+                    Job.job_type == job_type,
+                    Job.dedupe_key == dedupe_key,
+                ).limit(1)
+            ).scalar_one_or_none()
+            is not None
+        )
+
     def claim_next(self) -> Job | None:
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         lease_timeout = timedelta(seconds=get_settings().job_lease_seconds)

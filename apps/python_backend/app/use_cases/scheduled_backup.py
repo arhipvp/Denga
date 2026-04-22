@@ -11,6 +11,7 @@ from app.domain.job_policy import build_job_dedupe_key
 from app.logging_utils import logger
 from app.models import User, UserRole
 from app.observability import set_gauge
+from app.repositories.job_repository import JobRepository
 from app.services_core import bootstrap_household_id
 from app.telegram_adapter import TelegramAdapter
 from app.use_cases.jobs import enqueue_use_case_job
@@ -18,27 +19,42 @@ from app.use_cases.jobs import enqueue_use_case_job
 
 JOB_TYPE_SCHEDULED_BACKUP = "scheduled_backup"
 SCHEDULED_BACKUP_SCHEDULE = "0 0 12 */3 * *"
+MOSCOW_TIMEZONE = timezone(timedelta(hours=3))
 
 
-def maybe_enqueue_scheduled_backup(db: Session, settings: Settings | None = None) -> None:
+def _resolve_backup_slot(now: datetime) -> datetime | None:
+    localized = now.astimezone(MOSCOW_TIMEZONE)
+    if not (localized.hour == 12 and localized.minute == 0 and ((localized.day - 1) % 3 == 0)):
+        return None
+    return localized.replace(second=0, microsecond=0).astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def maybe_enqueue_scheduled_backup(
+    db: Session,
+    settings: Settings | None = None,
+    *,
+    now: datetime | None = None,
+) -> None:
     settings = settings or get_settings()
-    now = datetime.now(timezone(timedelta(hours=3)))
-    if not (now.hour == 12 and now.minute == 0 and ((now.day - 1) % 3 == 0)):
+    slot = _resolve_backup_slot(now or datetime.now(MOSCOW_TIMEZONE))
+    if slot is None:
         return
-    window_start = now.replace(second=0, microsecond=0).astimezone(timezone.utc).replace(tzinfo=None)
     payload = {
         "scheduled": True,
         "schedule": SCHEDULED_BACKUP_SCHEDULE,
         "timeZone": "Europe/Moscow",
-        "slot": window_start.isoformat(),
-        "scheduledFor": window_start.isoformat(),
+        "slot": slot.isoformat(),
+        "scheduledFor": slot.isoformat(),
     }
+    dedupe_key = build_job_dedupe_key(JOB_TYPE_SCHEDULED_BACKUP, payload)
+    if dedupe_key and JobRepository(db).exists_for_dedupe_key(job_type=JOB_TYPE_SCHEDULED_BACKUP, dedupe_key=dedupe_key):
+        return
     enqueue_use_case_job(
         db,
         job_type=JOB_TYPE_SCHEDULED_BACKUP,
         payload=payload,
         household_id=bootstrap_household_id(),
-        dedupe_key=build_job_dedupe_key(JOB_TYPE_SCHEDULED_BACKUP, payload),
+        dedupe_key=dedupe_key,
     )
 
 

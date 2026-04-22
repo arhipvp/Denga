@@ -27,6 +27,16 @@ def test_enqueue_deduplicates_active_jobs() -> None:
         assert first.id == second.id
 
 
+def test_exists_for_dedupe_key_finds_completed_jobs() -> None:
+    with _make_session() as db:
+        repo = JobRepository(db)
+        job = repo.enqueue(job_type="scheduled_backup", payload={"slot": "2026-04-22T09:00:00"}, household_id="house", dedupe_key="scheduled-backup:test")
+        job.status = "completed"
+        db.commit()
+
+        assert repo.exists_for_dedupe_key(job_type="scheduled_backup", dedupe_key="scheduled-backup:test") is True
+
+
 def test_claim_reclaims_expired_running_job() -> None:
     with _make_session() as db:
         job = Job(
