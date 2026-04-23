@@ -171,15 +171,27 @@ def calculate_current_month_category_breakdown(
     period_start: datetime,
     currency: str,
     minimum_visible_share: float = 0.05,
+    group_by: str = "parent",
 ) -> dict:
     total_amount = sum(item.amount for item in transactions)
     category_map: dict[str, dict] = {}
     for item in transactions:
-        category_key = item.parent_category_id or item.category_id or f"uncategorized-{item.type.lower()}"
+        if group_by == "leaf":
+            category_key = item.category_id or item.parent_category_id or f"uncategorized-{item.type.lower()}"
+            category_id = item.category_id or item.parent_category_id
+            category_name = (
+                f"{item.parent_category_name} / {item.category_name}"
+                if item.parent_category_name and item.category_name
+                else item.category_name or item.parent_category_name or UNCATEGORIZED_LABEL
+            )
+        else:
+            category_key = item.parent_category_id or item.category_id or f"uncategorized-{item.type.lower()}"
+            category_id = item.parent_category_id or item.category_id
+            category_name = item.parent_category_name or item.category_name or UNCATEGORIZED_LABEL
         if category_key not in category_map:
             category_map[category_key] = {
-                "categoryId": item.parent_category_id or item.category_id,
-                "categoryName": item.parent_category_name or item.category_name or UNCATEGORIZED_LABEL,
+                "categoryId": category_id,
+                "categoryName": category_name,
                 "amount": 0.0,
             }
         category_map[category_key]["amount"] += item.amount

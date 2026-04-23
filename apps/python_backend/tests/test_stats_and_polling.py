@@ -22,6 +22,23 @@ def test_calculate_current_month_category_breakdown_aggregates_other_bucket() ->
     assert len(breakdown["fullItems"]) == 3
 
 
+def test_current_month_category_breakdown_can_group_by_leaf_categories() -> None:
+    breakdown = calculate_current_month_category_breakdown(
+        transactions=[
+            SummaryTransaction("1", "INCOME", "CONFIRMED", 100, datetime(2026, 4, 1, tzinfo=timezone.utc), "salary", "Зарплата", "person", "Наташа заработала"),
+            SummaryTransaction("2", "INCOME", "CONFIRMED", 50, datetime(2026, 4, 2, tzinfo=timezone.utc), "bonus", "Премия", "person", "Наташа заработала"),
+        ],
+        period_start=datetime(2026, 4, 1, tzinfo=timezone.utc),
+        currency="EUR",
+        group_by="leaf",
+    )
+
+    assert [item["categoryName"] for item in breakdown["fullItems"]] == [
+        "Наташа заработала / Зарплата",
+        "Наташа заработала / Премия",
+    ]
+
+
 def test_renderer_returns_png_bytes() -> None:
     renderer = TelegramStatsRenderer()
     payload = {

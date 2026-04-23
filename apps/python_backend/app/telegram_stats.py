@@ -60,6 +60,7 @@ def get_current_month_category_breakdown(db: Session, type_: TransactionType) ->
         transactions=summary_transactions,
         period_start=start,
         currency=settings["defaultCurrency"],
+        group_by="leaf",
     )
 
 

@@ -55,6 +55,40 @@ def test_income_report_includes_detailed_breakdown_in_caption_when_it_fits(monke
     assert telegram.messages == []
 
 
+def test_telegram_report_requests_leaf_category_breakdown(monkeypatch) -> None:
+    captured = {}
+
+    def fake_breakdown(*, transactions, period_start, currency, minimum_visible_share=0.05, group_by="parent"):
+        captured["group_by"] = group_by
+        return {
+            "periodLabel": "Апрель 2026",
+            "currency": currency,
+            "totalAmount": 0.0,
+            "items": [],
+            "fullItems": [],
+        }
+
+    monkeypatch.setattr(telegram_stats_module, "get_settings_payload", lambda db: {"defaultCurrency": "EUR"})
+    monkeypatch.setattr(telegram_stats_module, "bootstrap_household_id", lambda: "house")
+    monkeypatch.setattr(telegram_stats_module, "calculate_current_month_category_breakdown", fake_breakdown)
+
+    class FakeScalars:
+        def __iter__(self):
+            return iter([])
+
+    class FakeResult:
+        def scalars(self):
+            return FakeScalars()
+
+    class FakeDb:
+        def execute(self, query):
+            return FakeResult()
+
+    telegram_stats_module.get_current_month_category_breakdown(FakeDb(), TransactionType.INCOME)
+
+    assert captured["group_by"] == "leaf"
+
+
 def test_income_report_sends_follow_up_details_when_caption_is_too_long(monkeypatch) -> None:
     monkeypatch.setattr(telegram_stats_module, "TELEGRAM_CAPTION_LIMIT", 120)
     monkeypatch.setattr(
